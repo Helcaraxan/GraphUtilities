@@ -39,6 +39,8 @@ public:
 	// Modificators
 	bool addPredecessor(Vertex * pred);
 	bool addSuccessor(Vertex * succ);
+  bool removePredecessor(Vertex * pred);
+  bool removeSuccessor(Vertex * succ);
 
 	// Indexing
 	void visit(Vertex * pred, bool reverse);
@@ -62,6 +64,7 @@ public:
 	// Modificators
 	Vertex * addVertex(void);
 	bool addEdge(Vertex * s, Vertex * t);
+  bool removeEdge(Vertex * s, Vertex * t);
 
 	// Indexing
 	void labelVertices(bool reverse);

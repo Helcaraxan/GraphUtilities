@@ -28,8 +28,7 @@ Graph::Graph(void) :
 {}
 
 
-Graph::~Graph(void)
-{
+Graph::~Graph(void) {
 	for (auto it = vertices.begin(); it != vertices.end(); ++it)
 		delete *it;
 
@@ -38,8 +37,8 @@ Graph::~Graph(void)
 
 
 // Modificators
-bool Vertex::addPredecessor(Vertex * pred)
-{
+bool
+Vertex::addPredecessor(Vertex * pred) {
 	for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
 		if (*it == pred)
 			return false;
@@ -50,8 +49,8 @@ bool Vertex::addPredecessor(Vertex * pred)
 }
 
 
-bool Vertex::addSuccessor(Vertex * succ)
-{
+bool
+Vertex::addSuccessor(Vertex * succ) {
 	for (auto it = successors.begin(); it != successors.end(); ++it) {
 		if (*it == succ)
 			return false;
@@ -62,20 +61,35 @@ bool Vertex::addSuccessor(Vertex * succ)
 }
 
 
-Vertex * Graph::addVertex(void)
-{
-	int id = vertices.size();;
-	Vertex * newVertex = new Vertex(id);
+bool
+Vertex::removePredecessor(Vertex * pred) {
+  for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
+    if (*it == pred) {
+      predecessors.erase(it);
+      return true;
+    }
+  }
 
-	vertices[id] = newVertex;
+  return false;
+}
 
-	return newVertex;
+
+bool
+Vertex::removeSuccessor(Vertex * succ) {
+  for (auto it = successors.begin(); it != successors.end(); ++it) {
+    if (*it == succ) {
+      successors.erase(it);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 
 // Indexing
-void Vertex::visit(Vertex * pred, bool reverse)
-{
+void
+Vertex::visit(Vertex * pred, bool reverse) {
 	vector<Vertex *> * orderedVertices;
 
 	// Reinitialize in case of reverse post-order traversal
@@ -89,9 +103,9 @@ void Vertex::visit(Vertex * pred, bool reverse)
 	if (!pred || ((*orderedVertices)[inVisits] == pred))
 		return;
 
-	for (int i = inVisits; i < (int) orderedVertices->size(); i++) {
-		if ((*orderedVertices)[i] == pred) {
-			(*orderedVertices)[i] = (*orderedVertices)[inVisits];
+  for (auto it = orderedVertices->begin(); it != orderedVertices->end(); ++it) {
+    if (*it == pred) {
+			*it = (*orderedVertices)[inVisits];
 			(*orderedVertices)[inVisits++] = pred;
 			break;
 		}
@@ -99,8 +113,8 @@ void Vertex::visit(Vertex * pred, bool reverse)
 }
 
 
-Vertex * Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse)
-{
+Vertex *
+Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 	vector<Vertex *> * upVertices;
 	vector<Vertex *> * downVertices;
 
@@ -125,8 +139,8 @@ Vertex * Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse)
 }
 
 
-void Graph::labelVertices(bool reverse)
-{
+void
+Graph::labelVertices(bool reverse) {
 	int currLabel = 0;
 	stack<Vertex *> postOrder;
 	Vertex * nextVertex;
@@ -165,8 +179,39 @@ void Graph::labelVertices(bool reverse)
 }
 
 
-void Graph::indexGraph()
-{
+Vertex *
+Graph::addVertex(void) {
+	int id = vertices.size();;
+	Vertex * newVertex = new Vertex(id);
+
+	vertices.push_back(newVertex);
+
+	return newVertex;
+}
+
+
+bool
+Graph::addEdge(Vertex * source, Vertex * target) {
+	if (!source->addSuccessor(target))
+		return false;
+
+	target->addPredecessor(source);
+	return true;
+}
+
+
+bool
+Graph::removeEdge(Vertex * source, Vertex * target) {
+  if (!source->removeSuccessor(target))
+    return false;
+
+  source->removePredecessor(source);
+  return true;
+}
+
+
+void
+Graph::indexGraph() {
 	// Create the vector with the source nodes
 	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
 		if ((*it)->predecessors.size() == 0)
