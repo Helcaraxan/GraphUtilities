@@ -100,8 +100,13 @@ Vertex::visit(Vertex * pred, bool reverse) {
 
 	orderedVertices = reverse ? &successors : &predecessors;
 
-	if (!pred || ((*orderedVertices)[inVisits] == pred))
+	if (!pred)
+    return;
+    
+  if ((*orderedVertices)[inVisits] == pred) {
+    inVisits++;
 		return;
+  }
 
   for (auto it = orderedVertices->begin(); it != orderedVertices->end(); ++it) {
     if (*it == pred) {
@@ -153,29 +158,27 @@ Graph::labelVertices(bool reverse) {
 		// Initialize
 		nextVertex = *it;
 		(*it)->visit(NULL, reverse);
-		while (!postOrder.empty())
-			postOrder.pop();
 
 		// Run the DFS
 		while (nextVertex) {
-			// In case of regular labeling create the sinks repository
+			// In case of the first forward labeling create the sinks list
 			if (!reverse && (nextVertex->successors.size() == 0))
 				sinks.push_back(nextVertex);
 
 			// Use an iterative method to prevent memory overflow in large graphs
 			nextVertex = nextVertex->createPostOrder(&postOrder, reverse);
 		}
-
-		// Label the nodes in reverse post-order
-		while (!postOrder.empty()) {
-			if (reverse)
-				postOrder.top()->reverseOrderLabel = currLabel++;
-			else
-				postOrder.top()->orderLabel = currLabel++;;
-
-			postOrder.pop();
-		}
 	}
+
+  // Label the nodes in reverse post-order
+  while (!postOrder.empty()) {
+    if (reverse)
+      postOrder.top()->reverseOrderLabel = currLabel++;
+    else
+      postOrder.top()->orderLabel = currLabel++;;
+
+    postOrder.pop();
+  }
 }
 
 
@@ -250,14 +253,15 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 	while (!searchStack.empty()) {
 		curr = searchStack.top();
 		searchStack.pop();
-		if (curr == v)
-			return true;
 
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
+      if (*it == v)
+        return true;
+
 			if ((*it)->queryID != queryID) {
 				(*it)->queryID = queryID;
 
-				if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel < u->reverseOrderLabel))
+				if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
 					searchStack.push(*it);
 			}
 		}

@@ -4,6 +4,7 @@ add_library(
 		GraphUtilities SHARED
 		graph.cpp
 		random.cpp
+		parser.cpp
 		)
 
 install(TARGETS GraphUtilities
