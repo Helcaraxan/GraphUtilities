@@ -85,7 +85,8 @@ public:
   bool removeEdge(Vertex * s, Vertex * t);
 
   // Access
-  int getVertexCount(void);
+  uintmax_t getEdgeCount(void);
+  uintmax_t getVertexCount(void);
   Vertex * getVertexFromId(int id);
 
 	// Queries
@@ -106,6 +107,7 @@ public:
 
 protected:
 	bool indexed; /* Indicates if the ordering of the graph has been done */
+  uintmax_t edgeCount;
 
 	vector<Vertex *> vertices;
 	vector<Vertex *> sources;

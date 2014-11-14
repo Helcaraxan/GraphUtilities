@@ -26,6 +26,7 @@ Vertex::~Vertex(void)
 
 Graph::Graph(void) :
 	indexed(false),
+  edgeCount(0),
 	queryID(0),
   queryCount(0),
   positiveQueryCount(0),
@@ -271,6 +272,7 @@ Graph::addVertex(void) {
 	Vertex * newVertex = new Vertex(id);
 
 	vertices.push_back(newVertex);
+  edgeCount++;
 
 	return newVertex;
 }
@@ -282,6 +284,7 @@ Graph::addEdge(Vertex * source, Vertex * target) {
 		return false;
 
 	target->addPredecessor(source);
+  edgeCount++;
 	return true;
 }
 
@@ -292,13 +295,20 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
     return false;
 
   source->removePredecessor(source);
+  edgeCount--;
   return true;
 }
 
 
 // Access
 
-int
+uintmax_t
+Graph::getEdgeCount() {
+  return edgeCount;
+}
+
+
+uintmax_t
 Graph::getVertexCount() {
   return vertices.size();
 }
@@ -450,6 +460,9 @@ void
 Graph::printStatistics(ostream &os) {
   double shortFraction = ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
   os << "\n---\nBenchmark statistics:\n";
+  os << "General statistics\n";
+  os << "Number of vertices: " << vertices.size() << "\n";
+  os << "Number of edges: " << edgeCount << "\n";
   os << "Number of performed queries: " << queryCount << "\n";
 
   os << "\nPositive query statistics:\n";
