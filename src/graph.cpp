@@ -28,7 +28,11 @@ Vertex::~Vertex(void)
 
 Graph::Graph(void) :
 	indexed(false),
-	queryID(0)
+	queryID(0),
+  queryCount(0),
+  positiveQueryCount(0),
+  negativeQueryCount(0),
+  shortNegativeQueryCount(0)
 {}
 
 
@@ -315,17 +319,27 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
   if (!indexed)
     indexGraph();
 
+  queryCount++;
+
 	// Are U and V the same vertex?
-	if (u == v)
+	if (u == v) {
+    positiveQueryCount++;
 		return true;
+  }
 
 	// Can V be a descendant of U in the standard graph?
-	if (u->orderLabel > v->orderLabel)
+	if (u->orderLabel > v->orderLabel) {
+    negativeQueryCount++;
+    shortNegativeQueryCount++;
 		return false;
+  }
 
 	// Can U be a descendant of V in the reverse graph?
-	if (v->reverseOrderLabel > u->reverseOrderLabel)
+	if (v->reverseOrderLabel > u->reverseOrderLabel) {
+    negativeQueryCount++;
+    shortNegativeQueryCount++;
 		return false;
+  }
 
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchStack.push(u);
@@ -336,8 +350,10 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 		searchStack.pop();
 
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
-      if (*it == v)
+      if (*it == v) {
+        positiveQueryCount++;
         return true;
+      }
 
 			if ((*it)->queryID != queryID) {
 				(*it)->queryID = queryID;
@@ -348,6 +364,7 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 		}
 	}
 
+  negativeQueryCount++;
 	return false;
 }
 
@@ -382,6 +399,48 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
   }
 
   return false;
+}
+
+
+// Benchmark statistics
+uintmax_t
+Graph::getQueryCount() {
+  return queryCount;
+}
+
+
+uintmax_t
+Graph::getPositiveQueryCount() {
+  return positiveQueryCount;
+}
+
+
+uintmax_t
+Graph::getNegativeQueryCount() {
+  return negativeQueryCount;
+}
+
+
+uintmax_t
+Graph::getShortNegativeQueryCount() {
+  return shortNegativeQueryCount;
+}
+
+
+void
+Graph::printStatistics(ostream &os) {
+  double shortFraction = ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
+  os << "\nBenchmark statistics:\n";
+  os << "Number of performed queries : " << queryCount << "\n";
+  os << "Number of positive answers  : " << positiveQueryCount << "\n";
+  os << "Number of negative answers  : " << negativeQueryCount << "\n";;
+  if (negativeQueryCount) {
+    os << "  - of which " << shortNegativeQueryCount;
+    os.precision(4);
+    os << " (" << shortFraction * 100 << "%) were given without DFS.\n\n";
+  } else {
+    os << "\n";
+  }
 }
 
 

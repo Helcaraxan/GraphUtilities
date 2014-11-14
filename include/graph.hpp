@@ -91,6 +91,13 @@ public:
 	bool areConnected(Vertex * u, Vertex * v); /* The query function */
   bool indirectPathExists(Vertex * u, Vertex * v); /* Find if two vertices are connected through a multi-hop path */
 
+  // Statistics
+  uintmax_t getQueryCount(void);
+  uintmax_t getPositiveQueryCount(void);
+  uintmax_t getNegativeQueryCount(void);
+  uintmax_t getShortNegativeQueryCount(void);
+  void printStatistics(ostream &os);
+
 protected:
 	bool indexed; /* Indicates if the ordering of the graph has been done */
 
@@ -103,6 +110,13 @@ protected:
 	// Indexing
 	void labelVertices(bool reverse);
 	void indexGraph(void);
+
+private:
+  // Counters
+  uintmax_t queryCount;
+  uintmax_t positiveQueryCount;
+  uintmax_t negativeQueryCount;
+  uintmax_t shortNegativeQueryCount;
 };
 
 #endif // GRAPH_HPP
