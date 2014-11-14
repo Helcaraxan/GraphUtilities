@@ -100,6 +100,8 @@ public:
   uintmax_t getPositiveQueryCount(void);
   uintmax_t getNegativeQueryCount(void);
   uintmax_t getShortNegativeQueryCount(void);
+  double getPositiveQueryOverhead(void);
+  double getNegativeQueryOverhead(void);
   void printStatistics(ostream &os);
 
 protected:
@@ -121,6 +123,13 @@ private:
   uintmax_t positiveQueryCount;
   uintmax_t negativeQueryCount;
   uintmax_t shortNegativeQueryCount;
+
+  // DFS overhead statistics
+  double positiveQueryOverhead;
+  double negativeQueryOverhead;
+
+  // Internal statistic maintenance
+  void registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes);
 };
 
 #endif // GRAPH_HPP

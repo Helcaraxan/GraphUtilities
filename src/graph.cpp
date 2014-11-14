@@ -8,7 +8,8 @@
 using namespace std;
 
 
-/* Constructors & destructors */
+// Constructors & destructors
+
 Vertex::Vertex(int i) :
 	id(i),
 	orderLabel(-1),
@@ -29,7 +30,9 @@ Graph::Graph(void) :
   queryCount(0),
   positiveQueryCount(0),
   negativeQueryCount(0),
-  shortNegativeQueryCount(0)
+  shortNegativeQueryCount(0),
+  positiveQueryOverhead(0.0L),
+  negativeQueryOverhead(0.0L)
 {}
 
 
@@ -42,6 +45,7 @@ Graph::~Graph(void) {
 
 
 // Modificators
+
 bool
 Vertex::addPredecessor(Vertex * pred) {
 	for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
@@ -105,6 +109,7 @@ Vertex::getNumberOfSuccessors() {
 
 
 // Iterators
+
 Vertex::iterator
 Vertex::predecessors_begin() {
   return predecessors.begin();
@@ -172,8 +177,6 @@ Vertex::visit(Vertex * pred, bool reverse) {
 	}
 }
 
-
-// Indexing
 
 /* Compute the next Vertex to be visited in a post-order traversal of the graph
  * from the current Vertex instance. This allow for an iterative traversal and
@@ -261,6 +264,7 @@ Graph::createFromDotFile(const char * fileName) {
 
 
 // Modificators
+
 Vertex *
 Graph::addVertex(void) {
 	int id = vertices.size();;
@@ -293,6 +297,7 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 
 
 // Access
+
 int
 Graph::getVertexCount() {
   return vertices.size();
@@ -309,6 +314,7 @@ Graph::getVertexFromId(int id) {
 
 /* Use the previously done indexation to answer to the query */
 list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
+  uintmax_t searchedNodes = 0;
 	Vertex * curr;
   list<Vertex *> * path = new list<Vertex *>();
 	stack<Vertex *> searchStack;
@@ -322,17 +328,15 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
 	// Are U and V the same vertex?
 	if (u == v) {
     path->push_back(u);
-    positiveQueryCount++;
+    registerQueryStatistics(path, 1);
 		return path;
   }
 
 	// Can V be a descendant of U in the standard graph or U a descendant of V in
   // the reverse graph?
 	if ((u->orderLabel > v->orderLabel) ||
-      (v->reverseOrderLabel > u->reverseOrderLabel)) {
-    shortNegativeQueryCount++;
+      (v->reverseOrderLabel > u->reverseOrderLabel))
     goto negativeEnd;
-  }
 
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchStack.push(u);
@@ -346,11 +350,12 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
       continue;
     }
 
+    searchedNodes++;
     path->push_back(curr);
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
       if (*it == v) {
         path->push_back(v);
-        positiveQueryCount++;
+        registerQueryStatistics(path, searchedNodes + 1);
         return path;
       }
 
@@ -364,7 +369,7 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
 	}
 
 negativeEnd:
-  negativeQueryCount++;
+  registerQueryStatistics(NULL, searchedNodes);
   delete path;
 	return NULL;
 }
@@ -404,6 +409,7 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
 
 
 // Benchmark statistics
+
 uintmax_t
 Graph::getQueryCount() {
   return queryCount;
@@ -428,20 +434,41 @@ Graph::getShortNegativeQueryCount() {
 }
 
 
+double
+Graph::getPositiveQueryOverhead() {
+  return positiveQueryOverhead;
+}
+
+
+double
+Graph::getNegativeQueryOverhead() {
+  return negativeQueryOverhead;
+}
+
+
 void
 Graph::printStatistics(ostream &os) {
   double shortFraction = ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
-  os << "\nBenchmark statistics:\n";
-  os << "Number of performed queries : " << queryCount << "\n";
-  os << "Number of positive answers  : " << positiveQueryCount << "\n";
-  os << "Number of negative answers  : " << negativeQueryCount << "\n";;
-  if (negativeQueryCount) {
-    os << "  - of which " << shortNegativeQueryCount;
-    os.precision(4);
-    os << " (" << shortFraction * 100 << "%) were given without DFS.\n\n";
-  } else {
-    os << "\n";
+  os << "\n---\nBenchmark statistics:\n";
+  os << "Number of performed queries: " << queryCount << "\n";
+
+  os << "\nPositive query statistics:\n";
+  os << "- Number of positive answers: " << positiveQueryCount << "\n";
+  if (positiveQueryCount) {
+    os.precision(3);
+    os << "- Average DFS length / path-length ratio: " << positiveQueryOverhead << "\n"; 
   }
+
+  os << "\nNegative query statistics:\n";
+  os << "- Number of negative answers   : " << negativeQueryCount << "\n";
+  if (negativeQueryCount) {
+    os << "- Number of immediate negatives: " << shortNegativeQueryCount;
+    os.precision(4);
+    os << " (" << shortFraction * 100 << "%).\n";
+    os.precision(3);
+    os << "- Average DFS length / graph-size ratio: " << negativeQueryOverhead << "\n";
+  }
+  os << "---\n\n";
 }
 
 
@@ -501,3 +528,30 @@ Graph::indexGraph() {
   indexed = true;
 }
 
+
+void
+Graph::registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes) {
+  double coefficient, overhead;
+
+  if (path) {
+    positiveQueryCount++;
+
+    coefficient = 1.0 / ((double) positiveQueryCount);
+    overhead = ((double) searchedNodes) / ((double) path->size());
+
+    positiveQueryOverhead *= (1.0 - coefficient);
+    positiveQueryOverhead += coefficient * overhead;
+  } else {
+    negativeQueryCount++;
+    
+    if (searchedNodes) {
+      coefficient = 1.0 / ((double) negativeQueryCount);
+      overhead = ((double) searchedNodes) / ((double) vertices.size());
+
+      negativeQueryOverhead *= (1.0 - coefficient);
+      negativeQueryOverhead += coefficient * overhead;
+    } else {
+      shortNegativeQueryCount++;
+    }
+  }
+}
