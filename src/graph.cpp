@@ -1,7 +1,4 @@
 #include <set>
-#include <list>
-#include <stack>
-#include <vector>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -311,8 +308,9 @@ Graph::getVertexFromId(int id) {
 // Queries
 
 /* Use the previously done indexation to answer to the query */
-bool Graph::areConnected(Vertex * u, Vertex * v) {
+list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
 	Vertex * curr;
+  list<Vertex *> * path = new list<Vertex *>();
 	stack<Vertex *> searchStack;
 
   // Verify that the graph has been indexed
@@ -323,22 +321,17 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 
 	// Are U and V the same vertex?
 	if (u == v) {
+    path->push_back(u);
     positiveQueryCount++;
-		return true;
+		return path;
   }
 
-	// Can V be a descendant of U in the standard graph?
-	if (u->orderLabel > v->orderLabel) {
-    negativeQueryCount++;
+	// Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+	if ((u->orderLabel > v->orderLabel) ||
+      (v->reverseOrderLabel > u->reverseOrderLabel)) {
     shortNegativeQueryCount++;
-		return false;
-  }
-
-	// Can U be a descendant of V in the reverse graph?
-	if (v->reverseOrderLabel > u->reverseOrderLabel) {
-    negativeQueryCount++;
-    shortNegativeQueryCount++;
-		return false;
+    goto negativeEnd;
   }
 
 	// Do a DFS on the subgraph specified by both orders to get the final answer
@@ -347,12 +340,18 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 
 	while (!searchStack.empty()) {
 		curr = searchStack.top();
-		searchStack.pop();
+    if (curr == path->back()) {
+      path->pop_back();
+      searchStack.pop();
+      continue;
+    }
 
+    path->push_back(curr);
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
       if (*it == v) {
+        path->push_back(v);
         positiveQueryCount++;
-        return true;
+        return path;
       }
 
 			if ((*it)->queryID != queryID) {
@@ -364,8 +363,10 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 		}
 	}
 
+negativeEnd:
   negativeQueryCount++;
-	return false;
+  delete path;
+	return NULL;
 }
 
 

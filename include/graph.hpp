@@ -11,6 +11,7 @@ class Graph;
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
+#include <list>
 #include <stack>
 #include <vector>
 
@@ -88,8 +89,11 @@ public:
   Vertex * getVertexFromId(int id);
 
 	// Queries
-	bool areConnected(Vertex * u, Vertex * v); /* The query function */
-  bool indirectPathExists(Vertex * u, Vertex * v); /* Find if two vertices are connected through a multi-hop path */
+  /* The query function returning NULL or the path connecting the nodes */
+	list<Vertex *> * areConnected(Vertex * u, Vertex * v);
+
+  /* Find if two vertices are connected through a multi-hop path */
+  bool indirectPathExists(Vertex * u, Vertex * v);
 
   // Statistics
   uintmax_t getQueryCount(void);
