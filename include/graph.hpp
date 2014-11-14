@@ -31,11 +31,26 @@ public:
 	Vertex(int i);
 	~Vertex(void);
 
+  // Local types
+  typedef vector<Vertex *>::iterator iterator;
+
 	// Modificators
 	bool addPredecessor(Vertex * pred);
 	bool addSuccessor(Vertex * succ);
   bool removePredecessor(Vertex * pred);
   bool removeSuccessor(Vertex * succ);
+
+  // Access
+  int getNumberOfPredecessors(void);
+  int getNumberOfSuccessors(void);
+
+  // Iterators
+  iterator predecessors_begin(void);
+  iterator predecessors_end(void);
+
+  iterator successors_begin(void);
+  iterator successors_end(void);
+
 
 protected:
 	int orderLabel; /* Ordering in a reverse post-order traversal of the Graph */
@@ -56,8 +71,6 @@ protected:
 
 class Graph {
 public:
-	bool indexed; /* Indicates if the ordering of the graph has been done */
-
 	// Constructors & Destructor
 	Graph(void);
 	~Graph(void);
@@ -71,12 +84,16 @@ public:
   bool removeEdge(Vertex * s, Vertex * t);
 
   // Access
+  int getVertexCount(void);
   Vertex * getVertexFromId(int id);
 
 	// Queries
 	bool areConnected(Vertex * u, Vertex * v); /* The query function */
+  bool indirectPathExists(Vertex * u, Vertex * v); /* Find if two vertices are connected through a multi-hop path */
 
 protected:
+	bool indexed; /* Indicates if the ordering of the graph has been done */
+
 	vector<Vertex *> vertices;
 	vector<Vertex *> sources;
 	vector<Vertex *> sinks;

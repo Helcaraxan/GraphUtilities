@@ -1,3 +1,5 @@
+#include <set>
+#include <list>
 #include <stack>
 #include <vector>
 #include <cstring>
@@ -86,6 +88,43 @@ Vertex::removeSuccessor(Vertex * succ) {
   }
 
   return false;
+}
+
+
+int
+Vertex::getNumberOfPredecessors() {
+  return predecessors.size();
+}
+
+
+int
+Vertex::getNumberOfSuccessors() {
+  return successors.size();
+}
+
+
+// Iterators
+Vertex::iterator
+Vertex::predecessors_begin() {
+  return predecessors.begin();
+}
+
+
+Vertex::iterator
+Vertex::predecessors_end() {
+  return predecessors.end();
+}
+
+
+Vertex::iterator
+Vertex::successors_begin() {
+  return successors.begin();
+}
+
+
+Vertex::iterator
+Vertex::successors_end() {
+  return successors.end();
 }
 
 
@@ -179,7 +218,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 void
 Graph::fillFromDotFile(const char * fileName) {
   char dump[128];
-  int source, target;
+  int source, target, maxId;
   fstream input(fileName, fstream::in);
   
   if (input == NULL) {
@@ -203,7 +242,8 @@ Graph::fillFromDotFile(const char * fileName) {
 
     if (strchr(dump, '>')) {
       sscanf(dump, "%d -> %d", &source, &target);
-      while (vertices.size() <= (unsigned) target)
+      maxId = source < target ? target : source;
+      while (vertices.size() <= (unsigned) maxId)
         addVertex();
 
       addEdge(vertices[source], vertices[target]);
@@ -249,6 +289,12 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 
 
 // Access
+int
+Graph::getVertexCount() {
+  return vertices.size();
+}
+
+
 Vertex *
 Graph::getVertexFromId(int id) {
   return vertices[id];
@@ -300,6 +346,39 @@ bool Graph::areConnected(Vertex * u, Vertex * v) {
 	}
 
 	return false;
+}
+
+
+bool
+Graph::indirectPathExists(Vertex * u, Vertex * v) {
+  Vertex * currVertex;
+  list<Vertex *> toVisit;
+  set<Vertex *> scheduled;
+
+  // Fill up the initial toVisit list
+  for (auto it = u->successors.begin(); it != u->successors.end(); ++it) {
+    if (*it != v) {
+      toVisit.push_back(*it);
+      scheduled.insert(*it);
+    }
+  }
+
+  while (!toVisit.empty()) {
+    currVertex = toVisit.front();
+    toVisit.pop_front();
+
+    for (auto it = currVertex->successors.begin(); it != currVertex->successors.end(); ++it) {
+      if (*it == v)
+        return true;
+
+      if (scheduled.count(*it) == 0) {
+        toVisit.push_front(*it);
+        scheduled.insert(*it);
+      }
+    }
+  }
+
+  return false;
 }
 
 

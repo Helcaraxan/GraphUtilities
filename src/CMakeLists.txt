@@ -7,5 +7,5 @@ add_library(
 		)
 
 install(TARGETS GraphUtilities
-		LIBRARY DESTINATION "${PROJECT_SOURCE_DIR}/lib"
+		LIBRARY DESTINATION "lib"
 	   )

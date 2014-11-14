@@ -10,7 +10,6 @@
 #include "graph.hpp"
 
 
-bool alternativeConnectivity(Graph * graph, Vertex * source, Vertex * target);
 Graph * randomDAG(int vertices, int edges, int sources, int sinks);
 
 #endif//RANDOM_HPP
