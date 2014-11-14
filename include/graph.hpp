@@ -76,7 +76,7 @@ public:
 	~Graph(void);
 
   // Parser function
-  void fillFromDotFile(const char * fileName);
+  static Graph * createFromDotFile(const char * fileName);
 
 	// Modificators
 	Vertex * addVertex(void);

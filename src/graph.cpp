@@ -215,11 +215,12 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 /* This function parses a subset of Dot files. Only edges and nodes can be
  * defined without any attributes
  */
-void
-Graph::fillFromDotFile(const char * fileName) {
+Graph *
+Graph::createFromDotFile(const char * fileName) {
   char dump[128];
   int source, target, maxId;
   fstream input(fileName, fstream::in);
+  Graph * graph = new Graph();
   
   if (input == NULL) {
     fprintf(stderr, "Error while opening input Dot file.\n");
@@ -237,22 +238,24 @@ Graph::fillFromDotFile(const char * fileName) {
 
     if (strchr(dump, '}')) {
       input.close();
-      return;
+      return graph;
     }
 
     if (strchr(dump, '>')) {
       sscanf(dump, "%d -> %d", &source, &target);
       maxId = source < target ? target : source;
-      while (vertices.size() <= (unsigned) maxId)
-        addVertex();
+      while (graph->vertices.size() <= (unsigned) maxId)
+        graph->addVertex();
 
-      addEdge(vertices[source], vertices[target]);
+      graph->addEdge(graph->vertices[source], graph->vertices[target]);
     } else {
       sscanf(dump, "%d", &source);
-      while (vertices.size() <= (unsigned) source)
-        addVertex();
+      while (graph->vertices.size() <= (unsigned) source)
+        graph->addVertex();
     }
   }
+
+  return graph;
 }
 
 
