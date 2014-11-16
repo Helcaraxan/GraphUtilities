@@ -1,11 +1,14 @@
 #include <set>
+#include <list>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 
 #include "graph.hpp"
 
-#define ENABLE_STATISTICS
+#ifdef ENABLE_PAPI_BENCHMARKS
+#include <papi.h>
+#endif // ENABLE_PAPI_BENCHMARKS
 
 using namespace std;
 
@@ -29,14 +32,32 @@ Vertex::~Vertex(void)
 Graph::Graph(void) :
 	indexed(false),
   edgeCount(0),
-	queryID(0),
-  queryCount(0),
-  positiveQueryCount(0),
-  negativeQueryCount(0),
-  shortNegativeQueryCount(0),
-  positiveQueryOverhead(0.0L),
-  negativeQueryOverhead(0.0L)
-{}
+	queryID(0)
+{
+#ifdef ENABLE_STATISTICS
+  statisticsEnabled = true;
+  queryCount = 0;
+  positiveQueryCount = 0;
+  negativeQueryCount = 0;
+  shortNegativeQueryCount = 0;
+  positiveQueryOverhead = 0.0L;
+  negativeQueryOverhead = 0.0L;
+#else // ENABLE_STATISTICS
+  statisticsEnabled = false;
+#endif // ENABLE_STATISTICS
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  queryNumber = 0;
+  benchmarkEvents[0] = PAPI_TOT_CYC;
+
+  if (PAPI_num_counters() < 1)
+    papiBenchmarksEnabled = false;
+  else
+    papiBenchmarksEnabled = true;
+#else // ENABLE_PAPI_BENCHMARKS
+  papiBenchmarksEnabled = false;
+#endif // ENABLE_PAPI_BENCHMARKS
+}
 
 
 Graph::~Graph(void) {
@@ -324,10 +345,13 @@ Graph::getVertexFromId(int id) {
 // Queries
 
 /* Use the previously done indexation to answer to the query */
-list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, list<Vertex *> * path) {
-  uintmax_t searchedNodes = 0;
+vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 	Vertex * curr;
 	stack<Vertex *> searchStack;
+
+#ifdef ENABLE_STATISTICS
+  uintmax_t searchedNodes = 0;
+#endif // ENABLE_STATISTICS
 
   // Verify that the graph has been indexed
   if (!indexed)
@@ -336,11 +360,14 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, list<Vertex *> * pa
   // Clear the specified path container
   path->clear();
 
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_start_counters(benchmarkEvents, 1);
+#endif // ENABLE_PAPI_BENCHMARKS
+
 	// Are U and V the same vertex?
 	if (u == v) {
     path->push_back(u);
-    registerQueryStatistics(path, 1);
-		return path;
+    goto positiveEnd;
   }
 
 	// Can V be a descendant of U in the standard graph or U a descendant of V in
@@ -355,19 +382,21 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, list<Vertex *> * pa
 
 	while (!searchStack.empty()) {
 		curr = searchStack.top();
-    if (curr == path->back()) {
+    if (path->size() && (curr == path->back())) {
       path->pop_back();
       searchStack.pop();
       continue;
     }
 
+#ifdef ENABLE_STATISTICS
     searchedNodes++;
+#endif // ENABLE_STATISTICS
+
     path->push_back(curr);
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
       if (*it == v) {
         path->push_back(v);
-        registerQueryStatistics(path, searchedNodes + 1);
-        return path;
+        goto positiveEnd;
       }
 
 			if ((*it)->queryID != queryID) {
@@ -379,10 +408,24 @@ list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, list<Vertex *> * pa
 		}
 	}
 
+#ifdef ENABLE_PAPI_BENCHMARKS
+  long long counterValue;
+  PAPI_stop_counters(&counterValue, 1);
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+#endif // ENABLE_PAPI_BENCHMARKS
+
 negativeEnd:
+#ifdef ENABLE_STATISTICS
   registerQueryStatistics(NULL, searchedNodes);
-  delete path;
+#endif // ENABLE_STATISTICS
 	return NULL;
+
+positiveEnd:
+#ifdef ENABLE_STATISTICS
+  registerQueryStatistics(path, searchedNodes + 1);
+#endif // ENABLE_STATISTICS
+  return path;
 }
 
 
@@ -423,37 +466,61 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
 
 uintmax_t
 Graph::getQueryCount() {
+#ifdef ENABLE_STATISTICS
   return queryCount;
+#else // ENABLE_STATISTICS
+  return 0;
+#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
 Graph::getPositiveQueryCount() {
+#ifdef ENABLE_STATISTICS
   return positiveQueryCount;
+#else // ENABLE_STATISTICS
+  return 0;
+#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
 Graph::getNegativeQueryCount() {
+#ifdef ENABLE_STATISTICS
   return negativeQueryCount;
+#else // ENABLE_STATISTICS
+  return 0;
+#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
 Graph::getShortNegativeQueryCount() {
+#ifdef ENABLE_STATISTICS
   return shortNegativeQueryCount;
+#else // ENABLE_STATISTICS
+  return 0;
+#endif // ENABLE_STATISTICS
 }
 
 
 double
 Graph::getPositiveQueryOverhead() {
+#ifdef ENABLE_STATISTICS
   return positiveQueryOverhead;
+#else // ENABLE_STATISTICS
+  return 0.0L;
+#endif // ENABLE_STATISTICS
 }
 
 
 double
 Graph::getNegativeQueryOverhead() {
+#ifdef ENABLE_STATISTICS
   return negativeQueryOverhead;
+#else // ENABLE_STATISTICS
+  return 0.0L;
+#endif // ENABLE_STATISTICS
 }
 
 
@@ -461,7 +528,7 @@ void
 Graph::printStatistics(ostream &os) {
 #ifdef ENABLE_STATISTICS
   double shortFraction = ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
-  os << "\n---\nBenchmark statistics:\n";
+  os << "\n---\nStatistics:\n";
   os << "General statistics\n";
   os << "Number of vertices: " << vertices.size() << "\n";
   os << "Number of edges: " << edgeCount << "\n";
@@ -485,13 +552,66 @@ Graph::printStatistics(ostream &os) {
   }
   os << "---\n\n";
 #else // ENABLE_STATISTICS
-  os << "Statistics gathering not enabled at compile time.\n";
-  os << "To enable statistics uncomment the #define at the start of this file.\n\n";
+  os << "WARNING: Statistics gathering has not been enabled at compile time.\n";
+  os << "WARNING: To enable statistics uncomment the #define in the header file 'graph.h'.\n\n";
 #endif // ENABLE_STATISTICS
 }
 
 
+// Benchmarking
+
+bool
+Graph::benchmarksAreEnabled(void) {
+  return papiBenchmarksEnabled;
+}
+
+
+long long
+Graph::getQueryNumber(void) {
+#ifdef ENABLE_PAPI_BENCHMARKS
+  return queryNumber;
+#else // ENABLE_PAPI_BENCHMARKS
+  return 0;
+#endif // ENABLE_PAPI_BENCHMARKS
+}
+
+
+long long
+Graph::getCyclesSpentIndexing(void) {
+#ifdef ENABLE_PAPI_BENCHMARKS
+  return cyclesSpentIndexing;
+#else // ENABLE_PAPI_BENCHMARKS
+  return 0;
+#endif // ENABLE_PAPI_BENCHMARKS
+}
+
+
+long long
+Graph::getCyclesSpentQuerying(void) {
+#ifdef ENABLE_PAPI_BENCHMARKS
+  return cyclesSpentQuerying;
+#else // ENABLE_PAPI_BENCHMARKS
+  return 0;
+#endif // ENABLE_PAPI_BENCHMARKS
+}
+
+
+void
+Graph::printBenchmarks(ostream &os) {
+#ifdef ENABLE_PAPI_BENCHMARKS
+  os << "\n---\nBenchmarking\n";
+  os << "Cycles spent indexing: " << cyclesSpentIndexing << "\n";
+  os << "Cycles spent querying: " << cyclesSpentQuerying << "\n";
+  os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query.\n---\n\n";
+#else // ENABLE_PAPI_BENCHMARKS
+  os << "WARNING: Benchmarking has not been enabled at compile time.\n";
+  os << "WARNING: To enable benchmarks uncomment the #define in the header file 'graph.h'.\n\n";
+#endif // ENABLE_PAPI_BENCHMARKS
+}
+
+
 // Indexing
+
 void
 Graph::labelVertices(bool reverse) {
 	int currLabel = 0;
@@ -532,6 +652,10 @@ Graph::labelVertices(bool reverse) {
 
 void
 Graph::indexGraph() {
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_start_counters(benchmarkEvents, 1);
+#endif // ENABLE_PAPI_BENCHMARKS
+
 	// Create the vector with the source nodes
 	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
 		if ((*it)->predecessors.size() == 0)
@@ -545,12 +669,16 @@ Graph::indexGraph() {
 	labelVertices(true);
 
   indexed = true;
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_stop_counters(&cyclesSpentIndexing, 1);
+#endif // ENABLE_PAPI_BENCHMARKS
 }
 
 
-void
-Graph::registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes) {
 #ifdef ENABLE_STATISTICS
+void
+Graph::registerQueryStatistics(vector<Vertex *> * path, uintmax_t searchedNodes) {
   double coefficient, overhead;
 
   queryCount++;
@@ -576,5 +704,5 @@ Graph::registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes) {
       shortNegativeQueryCount++;
     }
   }
-#endif // ENABLE_STATISTICS
 }
+#endif // ENABLE_STATISTICS

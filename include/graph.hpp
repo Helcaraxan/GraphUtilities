@@ -11,9 +11,11 @@ class Graph;
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
-#include <list>
 #include <stack>
 #include <vector>
+
+#define ENABLE_STATISTICS
+#define ENABLE_PAPI_BENCHMARKS
 
 using namespace std;
 
@@ -91,12 +93,13 @@ public:
 
 	// Queries
   /* The query function returning NULL or the path connecting the nodes */
-	list<Vertex *> * areConnected(Vertex * u, Vertex * v, list<Vertex *> * path);
+	vector<Vertex *> * areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path);
 
   /* Find if two vertices are connected through a multi-hop path */
   bool indirectPathExists(Vertex * u, Vertex * v);
 
   // Statistics
+  bool statisticsAreEnabled(void);
   uintmax_t getQueryCount(void);
   uintmax_t getPositiveQueryCount(void);
   uintmax_t getNegativeQueryCount(void);
@@ -104,6 +107,13 @@ public:
   double getPositiveQueryOverhead(void);
   double getNegativeQueryOverhead(void);
   void printStatistics(ostream &os);
+
+  // Benchmarking
+  bool benchmarksAreEnabled(void);
+  long long getQueryNumber(void);
+  long long getCyclesSpentIndexing(void);
+  long long getCyclesSpentQuerying(void);
+  void printBenchmarks(ostream &os);
 
 protected:
 	bool indexed; /* Indicates if the ordering of the graph has been done */
@@ -120,6 +130,10 @@ protected:
 	void indexGraph(void);
 
 private:
+  bool statisticsEnabled;
+  bool papiBenchmarksEnabled;
+
+#ifdef ENABLE_STATISTICS
   // Counters
   uintmax_t queryCount;
   uintmax_t positiveQueryCount;
@@ -131,7 +145,18 @@ private:
   double negativeQueryOverhead;
 
   // Internal statistic maintenance
-  void registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes);
+  void registerQueryStatistics(vector<Vertex *> * path, uintmax_t searchedNodes);
+#endif // ENABLE_STATISTICS
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  // Counters
+  long long queryNumber;
+  long long cyclesSpentIndexing;
+  long long cyclesSpentQuerying;
+
+  // PAPI administration
+  int benchmarkEvents[1];
+#endif // ENABLE_PAPI_BENCHMARKS
 };
 
 #endif // GRAPH_HPP
