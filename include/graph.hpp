@@ -78,8 +78,9 @@ public:
 	Graph(void);
 	~Graph(void);
 
-  // Parser function
+  // Parser functions
   static Graph * createFromDotFile(const char * fileName);
+  static Graph * createFromGraFile(const char * fileName);
 
 	// Modificators
 	Vertex * addVertex(void);
@@ -130,6 +131,7 @@ protected:
 	void indexGraph(void);
 
 private:
+  // Compile-time determined functionality flags
   bool statisticsEnabled;
   bool papiBenchmarksEnabled;
 

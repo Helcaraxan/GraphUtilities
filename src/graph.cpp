@@ -287,6 +287,50 @@ Graph::createFromDotFile(const char * fileName) {
 }
 
 
+Graph *
+Graph::createFromGraFile(const char * fileName) {
+  char dump[128];
+  int source, target, lineNumber;
+  fstream input(fileName, fstream::in);
+  Graph * graph = new Graph();
+
+  // Get the first line out of the way
+  input.getline(dump, 127);
+
+  // Get the number of vertices / lines to read
+  input >> lineNumber;
+
+  // Create all vertices
+  for (int i = 0; i < lineNumber; i++)
+    graph->addVertex();
+
+  // Parse the adjacency list
+  for (int i = 0; i < lineNumber; i++) {
+    // Get the source at the start of the line
+    input.get(dump, 127, ' ');
+    source = atoi(dump);
+
+    while (true) {
+      input >> target;
+      if (!input.good())
+        break;
+      else
+        graph->addEdge(graph->vertices[source], graph->vertices[target]);
+    }
+
+    if (input.eof())
+      break;
+    else if (input.bad())
+      exit(EXIT_FAILURE);
+    else
+      input.clear();
+  }
+
+  input.close();
+  return graph;
+}
+
+
 // Modificators
 
 Vertex *
