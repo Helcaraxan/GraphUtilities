@@ -5,6 +5,8 @@
 
 #include "graph.hpp"
 
+#define ENABLE_STATISTICS
+
 using namespace std;
 
 
@@ -272,7 +274,6 @@ Graph::addVertex(void) {
 	Vertex * newVertex = new Vertex(id);
 
 	vertices.push_back(newVertex);
-  edgeCount++;
 
 	return newVertex;
 }
@@ -323,17 +324,17 @@ Graph::getVertexFromId(int id) {
 // Queries
 
 /* Use the previously done indexation to answer to the query */
-list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v) {
+list<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, list<Vertex *> * path) {
   uintmax_t searchedNodes = 0;
 	Vertex * curr;
-  list<Vertex *> * path = new list<Vertex *>();
 	stack<Vertex *> searchStack;
 
   // Verify that the graph has been indexed
   if (!indexed)
     indexGraph();
 
-  queryCount++;
+  // Clear the specified path container
+  path->clear();
 
 	// Are U and V the same vertex?
 	if (u == v) {
@@ -458,6 +459,7 @@ Graph::getNegativeQueryOverhead() {
 
 void
 Graph::printStatistics(ostream &os) {
+#ifdef ENABLE_STATISTICS
   double shortFraction = ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
   os << "\n---\nBenchmark statistics:\n";
   os << "General statistics\n";
@@ -482,6 +484,10 @@ Graph::printStatistics(ostream &os) {
     os << "- Average DFS length / graph-size ratio: " << negativeQueryOverhead << "\n";
   }
   os << "---\n\n";
+#else // ENABLE_STATISTICS
+  os << "Statistics gathering not enabled at compile time.\n";
+  os << "To enable statistics uncomment the #define at the start of this file.\n\n";
+#endif // ENABLE_STATISTICS
 }
 
 
@@ -544,7 +550,10 @@ Graph::indexGraph() {
 
 void
 Graph::registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes) {
+#ifdef ENABLE_STATISTICS
   double coefficient, overhead;
+
+  queryCount++;
 
   if (path) {
     positiveQueryCount++;
@@ -567,4 +576,5 @@ Graph::registerQueryStatistics(list<Vertex *> * path, uintmax_t searchedNodes) {
       shortNegativeQueryCount++;
     }
   }
+#endif // ENABLE_STATISTICS
 }

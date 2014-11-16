@@ -91,7 +91,7 @@ public:
 
 	// Queries
   /* The query function returning NULL or the path connecting the nodes */
-	list<Vertex *> * areConnected(Vertex * u, Vertex * v);
+	list<Vertex *> * areConnected(Vertex * u, Vertex * v, list<Vertex *> * path);
 
   /* Find if two vertices are connected through a multi-hop path */
   bool indirectPathExists(Vertex * u, Vertex * v);
