@@ -1,3 +1,4 @@
+#include <map>
 #include <set>
 #include <list>
 #include <cstring>
@@ -21,18 +22,24 @@ Vertex::Vertex(int i) :
 	reverseOrderLabel(-1),
 	inVisits(0),
 	outVisits(0),
-	queryID(0)
+	DFSId(0)
 {}
 
 
 Vertex::~Vertex(void)
-{}
+{
+  for (auto it = predecessors.begin(); it != predecessors.end(); ++it)
+    (*it)->removeSuccessor(this);
+
+  for (auto it = successors.begin(); it != successors.end(); ++it)
+    (*it)->removePredecessor(this);
+}
 
 
 Graph::Graph(void) :
 	indexed(false),
   edgeCount(0),
-	queryID(0)
+	DFSId(0)
 {
 #ifdef ENABLE_STATISTICS
   statisticsEnabled = true;
@@ -72,6 +79,9 @@ Graph::~Graph(void) {
 
 bool
 Vertex::addPredecessor(Vertex * pred) {
+  if (pred == this)
+    return false;
+
 	for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
 		if (*it == pred)
 			return false;
@@ -84,6 +94,9 @@ Vertex::addPredecessor(Vertex * pred) {
 
 bool
 Vertex::addSuccessor(Vertex * succ) {
+  if (succ == this)
+    return false;
+
 	for (auto it = successors.begin(); it != successors.end(); ++it) {
 		if (*it == succ)
 			return false;
@@ -164,7 +177,7 @@ Vertex::successors_end() {
  * The boolean reverse indicates if the graph traversal is on the normal graph
  * or on the inverse graph.
  * The main effect is the reordering of the successor/predecessor list according
- * to the order in which the parent nodes access this Vertex instance during
+ * to the order in which the parent vertices access this Vertex instance during
  * graph traversal.
  */
 void
@@ -180,7 +193,7 @@ Vertex::visit(Vertex * pred, bool reverse) {
   // Determine which Vertex vector should be reordered
 	orderedVertices = reverse ? &successors : &predecessors;
 
-  // If this is the first node to be visited there is no reordering
+  // If this is the first vertex to be visited there is no reordering
 	if (!pred)
     return;
     
@@ -215,7 +228,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 	upVertices = reverse ? &successors : &predecessors;
 	downVertices = reverse ? &predecessors : &successors;
 
-  /* Visit all the child nodes */
+  /* Visit all the child vertices */
 	while (outVisits < (int) downVertices->size()) {
 		(*downVertices)[outVisits]->visit(this, reverse);
 
@@ -225,12 +238,12 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 			outVisits++;
 	}
 
-  /* Push the node on the post-order stack only when all children have been
+  /* Push the vertex on the post-order stack only when all children have been
    * visited */
 	postOrder->push(this);
 
-  /* Return the predecessor from which the first visit to this node was made as
-   * next Vertex */
+  /* Return the predecessor from which the first visit to this vertex was made as
+   * next vertex */
   if (upVertices->size() == 0)
 		return NULL;
 	else
@@ -240,7 +253,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 
 // Parser
 
-/* This function parses a subset of Dot files. Only edges and nodes can be
+/* This function parses a subset of Dot files. Only edges and vertices can be
  * defined without any attributes
  */
 Graph *
@@ -265,8 +278,7 @@ Graph::createFromDotFile(const char * fileName) {
     input.getline(dump, 127);
 
     if (strchr(dump, '}')) {
-      input.close();
-      return graph;
+      break;
     }
 
     if (strchr(dump, '>')) {
@@ -282,6 +294,11 @@ Graph::createFromDotFile(const char * fileName) {
         graph->addVertex();
     }
   }
+
+  input.close();
+
+  // Make sure the graph is a DAG
+  graph->condenseGraph();
 
   return graph;
 }
@@ -327,6 +344,10 @@ Graph::createFromGraFile(const char * fileName) {
   }
 
   input.close();
+
+  // Make sure the graph is a DAG
+  graph->condenseGraph();
+
   return graph;
 }
 
@@ -339,8 +360,30 @@ Graph::addVertex(void) {
 	Vertex * newVertex = new Vertex(id);
 
 	vertices.push_back(newVertex);
+  indexed = false;
 
 	return newVertex;
+}
+
+
+void
+Graph::removeVertex(Vertex * v) {
+  vertices.back()->id = v->id;
+  vertices[v->id] = vertices.back();
+  vertices.pop_back();
+  delete v;
+}
+
+
+void
+Graph::mergeVertices(Vertex * s, Vertex * t) {
+  for (auto it = s->predecessors.begin(); it != s->predecessors.end(); ++it)
+    t->addPredecessor(*it);
+
+  for (auto it = s->successors.begin(); it != s->successors.end(); ++it)
+    t->addSuccessor(*it);
+
+  indexed = false;
 }
 
 
@@ -351,6 +394,8 @@ Graph::addEdge(Vertex * source, Vertex * target) {
 
 	target->addPredecessor(source);
   edgeCount++;
+  indexed = false;
+
 	return true;
 }
 
@@ -362,19 +407,20 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 
   source->removePredecessor(source);
   edgeCount--;
+
   return true;
 }
 
 
 // Access
 
-uintmax_t
+unsigned int
 Graph::getEdgeCount() {
   return edgeCount;
 }
 
 
-uintmax_t
+unsigned int
 Graph::getVertexCount() {
   return vertices.size();
 }
@@ -422,7 +468,7 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchStack.push(u);
-	queryID++;
+	DFSId++;
 
 	while (!searchStack.empty()) {
 		curr = searchStack.top();
@@ -443,8 +489,8 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
         goto positiveEnd;
       }
 
-			if ((*it)->queryID != queryID) {
-				(*it)->queryID = queryID;
+			if ((*it)->DFSId != DFSId) {
+				(*it)->DFSId = DFSId;
 
 				if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
 					searchStack.push(*it);
@@ -682,7 +728,7 @@ Graph::labelVertices(bool reverse) {
 		}
 	}
 
-  // Label the nodes in reverse post-order
+  // Label the vertices in reverse post-order
   while (!postOrder.empty()) {
     if (reverse)
       postOrder.top()->reverseOrderLabel = currLabel++;
@@ -700,11 +746,8 @@ Graph::indexGraph() {
   PAPI_start_counters(benchmarkEvents, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
 
-	// Create the vector with the source nodes
-	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
-		if ((*it)->predecessors.size() == 0)
-			sources.push_back(*it);
-	}
+	// Make sure we are indexing a DAG
+  condenseGraph();
 
 	// Perform the forward graph ordering
 	labelVertices(false);
@@ -717,6 +760,90 @@ Graph::indexGraph() {
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_stop_counters(&cyclesSpentIndexing, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
+}
+
+
+// Maintenance
+
+void
+Graph::discoverSources() {
+  sources.clear();
+
+	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+		if ((*it)->predecessors.size() == 0)
+			sources.push_back(*it);
+	}
+}
+
+
+void
+Graph::condenseGraph() {
+  // Make sure the sources list is up-to-date
+  discoverSources();
+
+  // Prepare for the upcoming DFSs
+  DFSId++;
+
+  // Iterate over the sources and condense
+  for (auto it = sources.begin(); it != sources.end(); ++it)
+    condenseFromSource(*it);
+}
+
+
+void
+Graph::condenseFromSource(Vertex * source) {
+  set<Vertex *> DFSSet;
+  vector<Vertex *> DFSPath;
+  stack<Vertex *> toVisit;
+  map<Vertex *, Vertex *> mergeMap;
+  Vertex * curr = NULL;
+
+  toVisit.push(source);
+
+  while (!toVisit.empty()) {
+    curr = toVisit.top();
+    if (!DFSPath.empty() && (curr == DFSPath.back())) {
+      DFSPath.pop_back();
+      DFSSet.erase(curr);
+      toVisit.pop();
+      continue;
+    }
+
+    // Insert the current vertex in to the DFS path
+    DFSPath.push_back(curr);
+    DFSSet.insert(curr);
+
+    // Iterate over the successors of the current vertex
+    for (auto it = curr->successors.begin(); it != curr->successors.end(); ++it) {
+      if (DFSSet.count(*it)) {
+        // Mark the cycle for merging into the first vertex of the cycle
+        auto it2 = DFSPath.rbegin();
+        while (*it2 != *it) {
+          if (mergeMap.count(*it2) == 0)
+            mergeMap[*it2] = *it;
+
+          it2++;
+        }
+      } else {
+        // See if we need to visit this successor
+        if ((*it)->DFSId != DFSId) {
+          (*it)->DFSId = DFSId;
+          toVisit.push(curr);
+        }
+      }
+    }
+  }
+
+  // Perform the necessary merging
+  for (auto it = mergeMap.begin(); it != mergeMap.end(); ++it) {
+    // Find the final merge target
+    Vertex * mergeTarget = it->second;
+    while (mergeMap.count(mergeTarget) == 1)
+      mergeTarget = mergeMap[mergeTarget];
+
+    // Merge the two vertices
+    mergeVertices(it->first, mergeTarget);
+  }
 }
 
 

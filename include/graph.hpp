@@ -55,13 +55,13 @@ public:
   iterator successors_end(void);
 
 
-protected:
+private:
 	int orderLabel; /* Ordering in a reverse post-order traversal of the Graph */
 	int reverseOrderLabel; /* Ordering in a reverse post-order traversal of the inverse Graph */
 
 	int inVisits; /* Variable used in reverse post-order */
 	int outVisits; /* Variable used in reverse post-order */
-	int queryID; /* Variable to distinguish searches for seperate reachability queries */
+	int DFSId; /* Variable to distinguish between seperate DFSs */
 
 	vector<Vertex *> predecessors;
 	vector<Vertex *> successors;
@@ -84,16 +84,18 @@ public:
 
 	// Modificators
 	Vertex * addVertex(void);
+  void removeVertex(Vertex * v);
+  void mergeVertices(Vertex * s, Vertex * t);
 	bool addEdge(Vertex * s, Vertex * t);
   bool removeEdge(Vertex * s, Vertex * t);
 
   // Access
-  uintmax_t getEdgeCount(void);
-  uintmax_t getVertexCount(void);
+  unsigned int getEdgeCount(void);
+  unsigned int getVertexCount(void);
   Vertex * getVertexFromId(int id);
 
 	// Queries
-  /* The query function returning NULL or the path connecting the nodes */
+  /* The query function returning NULL or the path connecting the vertices */
 	vector<Vertex *> * areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path);
 
   /* Find if two vertices are connected through a multi-hop path */
@@ -118,22 +120,29 @@ public:
 
 protected:
 	bool indexed; /* Indicates if the ordering of the graph has been done */
-  uintmax_t edgeCount;
+  unsigned int edgeCount;
 
 	vector<Vertex *> vertices;
 	vector<Vertex *> sources;
 	vector<Vertex *> sinks;
 
-	int queryID; /* Global ID to distinguish between seperate reachability queries */
+  // Global ID to distinguish between seperate DFSs
+	int DFSId;
 
 	// Indexing
 	void labelVertices(bool reverse);
 	void indexGraph(void);
 
+  // Maintenance
+  void discoverSources(void);
+  void condenseGraph(void);
+
 private:
-  // Compile-time determined functionality flags
   bool statisticsEnabled;
   bool papiBenchmarksEnabled;
+
+  // Maintenance
+  void condenseFromSource(Vertex * source);
 
 #ifdef ENABLE_STATISTICS
   // Counters
