@@ -38,6 +38,7 @@ Vertex::~Vertex(void)
 
 Graph::Graph(void) :
 	indexed(false),
+  condensed(false),
   edgeCount(0),
 	DFSId(0)
 {
@@ -263,17 +264,18 @@ Graph::createFromDotFile(const char * fileName) {
   fstream input(fileName, fstream::in);
   Graph * graph = new Graph();
   
-  if (input == NULL) {
-    fprintf(stderr, "Error while opening input Dot file.\n");
+  if (!input.good()) {
+    cerr << "Error while opening input Dot file.\n";
     exit(EXIT_FAILURE);
   }
 
   input.getline(dump, 127);
   if (!strstr(dump, "digraph")) {
-    fprintf(stderr, "Error - the supplied file is not a graph in Dot format.\n");
+    cerr << "Error - the supplied file is not a graph in Dot format.\n";
     exit(EXIT_FAILURE);
   }
 
+  cout << "Start parsing the graph definition from a Dot file.\n";
   while (input.good()) {
     input.getline(dump, 127);
 
@@ -295,6 +297,7 @@ Graph::createFromDotFile(const char * fileName) {
     }
   }
 
+  cout << "Finished parsing the graph from a Dot file.\n";
   input.close();
 
   // Make sure the graph is a DAG
@@ -310,6 +313,13 @@ Graph::createFromGraFile(const char * fileName) {
   int source, target, lineNumber;
   fstream input(fileName, fstream::in);
   Graph * graph = new Graph();
+
+  if (!input.good()) {
+    cerr << "Error while opening input Dot file.\n";
+    exit(EXIT_FAILURE);
+  }
+
+  cout << "Start parsing the graph definition from a Gra file.\n\n";
 
   // Get the first line out of the way
   input.getline(dump, 127);
@@ -343,6 +353,7 @@ Graph::createFromGraFile(const char * fileName) {
       input.clear();
   }
 
+  cout << "Finished parsing the graph from a Gra file.\n\n";
   input.close();
 
   // Make sure the graph is a DAG
@@ -383,6 +394,7 @@ Graph::mergeVertices(Vertex * s, Vertex * t) {
   for (auto it = s->successors.begin(); it != s->successors.end(); ++it)
     t->addSuccessor(*it);
 
+  removeVertex(s);
   indexed = false;
 }
 
@@ -395,6 +407,7 @@ Graph::addEdge(Vertex * source, Vertex * target) {
 	target->addPredecessor(source);
   edgeCount++;
   indexed = false;
+  condensed = false;
 
 	return true;
 }
@@ -778,15 +791,26 @@ Graph::discoverSources() {
 
 void
 Graph::condenseGraph() {
-  // Make sure the sources list is up-to-date
-  discoverSources();
+  if (condensed)
+    return;
+
+  cout << "Condensing the graph.\n";
+  cout << "Initial graph has " << vertices.size();
+  cout << " vertices and " << edgeCount << " edges.\n\n";
 
   // Prepare for the upcoming DFSs
   DFSId++;
 
-  // Iterate over the sources and condense
-  for (auto it = sources.begin(); it != sources.end(); ++it)
-    condenseFromSource(*it);
+  // Iterate over the vertices and condense
+  for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+    if ((*it)->DFSId != DFSId)
+      condenseFromSource(*it);
+  }
+
+  condensed = true;
+
+  cout << "Condensed graph has " << vertices.size();
+  cout << " vertices and " << edgeCount << " edges.\n\n";
 }
 
 
@@ -799,6 +823,7 @@ Graph::condenseFromSource(Vertex * source) {
   Vertex * curr = NULL;
 
   toVisit.push(source);
+  source->DFSId = DFSId;
 
   while (!toVisit.empty()) {
     curr = toVisit.top();
@@ -828,7 +853,7 @@ Graph::condenseFromSource(Vertex * source) {
         // See if we need to visit this successor
         if ((*it)->DFSId != DFSId) {
           (*it)->DFSId = DFSId;
-          toVisit.push(curr);
+          toVisit.push(*it);
         }
       }
     }

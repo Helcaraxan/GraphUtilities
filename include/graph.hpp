@@ -120,6 +120,7 @@ public:
 
 protected:
 	bool indexed; /* Indicates if the ordering of the graph has been done */
+  bool condensed;
   unsigned int edgeCount;
 
 	vector<Vertex *> vertices;
