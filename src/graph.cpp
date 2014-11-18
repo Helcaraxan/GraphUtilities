@@ -303,6 +303,8 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
 
   cout << "Finished parsing the graph from a Dot file.\n";
   input.close();
+  indexed = false;
+  condensed = false;
 
   // Make sure the graph is a DAG
   graph->condenseGraph();
@@ -367,6 +369,8 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   cout << "Finished parsing the graph from a Gra file.\n\n";
   input.close();
+  indexed = false;
+  condensed = false;
 
   // Make sure the graph is a DAG
   graph->condenseGraph();
