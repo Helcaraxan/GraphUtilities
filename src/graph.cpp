@@ -452,6 +452,7 @@ Graph::getVertexFromId(int id) {
 vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 	Vertex * curr;
 	stack<Vertex *> searchStack;
+  vector<Vertex *> * returnValue = NULL;
 
 #ifdef ENABLE_STATISTICS
   uintmax_t searchedNodes = 0;
@@ -471,14 +472,14 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 	// Are U and V the same vertex?
 	if (u == v) {
     path->push_back(u);
-    goto positiveEnd;
+    goto end;
   }
 
 	// Can V be a descendant of U in the standard graph or U a descendant of V in
   // the reverse graph?
 	if ((u->orderLabel > v->orderLabel) ||
       (v->reverseOrderLabel > u->reverseOrderLabel))
-    goto negativeEnd;
+    goto end;
 
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchStack.push(u);
@@ -500,7 +501,9 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
       if (*it == v) {
         path->push_back(v);
-        goto positiveEnd;
+        returnValue = path;
+        searchedNodes++;
+        goto end;
       }
 
 			if ((*it)->DFSId != DFSId) {
@@ -512,6 +515,7 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 		}
 	}
 
+end:
 #ifdef ENABLE_PAPI_BENCHMARKS
   long long counterValue;
   PAPI_stop_counters(&counterValue, 1);
@@ -519,17 +523,11 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
   queryNumber++;
 #endif // ENABLE_PAPI_BENCHMARKS
 
-negativeEnd:
 #ifdef ENABLE_STATISTICS
-  registerQueryStatistics(NULL, searchedNodes);
+  registerQueryStatistics(returnValue, searchedNodes);
 #endif // ENABLE_STATISTICS
-	return NULL;
 
-positiveEnd:
-#ifdef ENABLE_STATISTICS
-  registerQueryStatistics(path, searchedNodes + 1);
-#endif // ENABLE_STATISTICS
-  return path;
+  return returnValue;
 }
 
 
@@ -558,6 +556,35 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
       if (scheduled.count(*it) == 0) {
         toVisit.push_front(*it);
         scheduled.insert(*it);
+      }
+    }
+  }
+
+  return false;
+}
+
+
+bool
+Graph::areConnectedDFS(Vertex * u, Vertex * v) {
+  stack<Vertex *> toVisit;
+  Vertex * curr;
+
+  DFSId++;
+
+  toVisit.push(u);
+  u->DFSId = DFSId;
+
+  while (!toVisit.empty()) {
+    curr = toVisit.top();
+    toVisit.pop();
+
+    for (auto it = curr->successors.begin(); it != curr->successors.end(); ++it) {
+      if (*it == v)
+        return true;
+
+      if ((*it)->DFSId != DFSId) {
+        (*it)->DFSId = DFSId;
+        toVisit.push(*it);
       }
     }
   }
@@ -767,12 +794,15 @@ Graph::labelVertices(bool reverse) {
 
 void
 Graph::indexGraph() {
+	// Make sure we are indexing a DAG
+  condenseGraph();
+
+  // Make sure we discovered the sources
+  discoverSources();
+
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_start_counters(benchmarkEvents, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
-
-	// Make sure we are indexing a DAG
-  condenseGraph();
 
 	// Perform the forward graph ordering
 	labelVertices(false);
@@ -780,11 +810,11 @@ Graph::indexGraph() {
 	// Perform the reverse graph ordering
 	labelVertices(true);
 
-  indexed = true;
-
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_stop_counters(&cyclesSpentIndexing, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
+
+  indexed = true;
 }
 
 

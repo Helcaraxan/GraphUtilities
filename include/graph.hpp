@@ -101,6 +101,9 @@ public:
   /* Find if two vertices are connected through a multi-hop path */
   bool indirectPathExists(Vertex * u, Vertex * v);
 
+  /* Do a query without considering labels : standard DFS */
+  bool areConnectedDFS(Vertex * u, Vertex * v);
+
   // Statistics
   bool statisticsAreEnabled(void);
   uintmax_t getQueryCount(void);
