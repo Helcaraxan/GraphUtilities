@@ -501,9 +501,12 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
     path->push_back(curr);
 		for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
       if (*it == v) {
+#ifdef ENABLE_STATISTICS
+        searchedNodes++;
+#endif // ENABLE_STATISTICS
+
         path->push_back(v);
         returnValue = path;
-        searchedNodes++;
         goto end;
       }
 
