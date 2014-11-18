@@ -338,19 +338,20 @@ Graph::createFromGraFile(const char * fileName) {
     source = atoi(dump);
 
     while (true) {
-      input >> target;
-      if (!input.good())
-        break;
-      else
-        graph->addEdge(graph->vertices[source], graph->vertices[target]);
-    }
+      if (input.get() != ' ') {
+        cerr << "Error while reading the graph definition.\n";
+        exit(EXIT_FAILURE);
+      }
 
-    if (input.eof())
-      break;
-    else if (input.bad())
-      exit(EXIT_FAILURE);
-    else
-      input.clear();
+      if (input.peek() == '#') {
+        input.get(dump, 127);
+        break;
+      }
+
+      input.get(dump, 127, ' ');
+      target = atoi(dump);
+      graph->addEdge(graph->vertices[source], graph->vertices[target]);
+    }
   }
 
   cout << "Finished parsing the graph from a Gra file.\n\n";
