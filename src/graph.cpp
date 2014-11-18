@@ -568,6 +568,17 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
 
 // Benchmark statistics
 
+bool
+Graph::statisticsAreEnabled()
+{
+#ifdef ENABLE_STATISTICS
+  return true;
+#else // ENABLE_STATISTICS
+  return false;
+#endif // ENABLE_STATISTICS
+}
+
+
 uintmax_t
 Graph::getQueryCount() {
 #ifdef ENABLE_STATISTICS
