@@ -79,8 +79,8 @@ public:
 	~Graph(void);
 
   // Parser functions
-  static Graph * createFromDotFile(const char * fileName);
-  static Graph * createFromGraFile(const char * fileName);
+  static Graph * createFromDotFile(const char * fileName, bool noDoubleEdges = false);
+  static Graph * createFromGraFile(const char * fileName, bool noDoubleEdges = false);
 
 	// Modificators
 	Vertex * addVertex(void);
@@ -154,6 +154,9 @@ private:
   uintmax_t positiveQueryCount;
   uintmax_t negativeQueryCount;
   uintmax_t shortNegativeQueryCount;
+
+  // Maintenance
+  bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
   // DFS overhead statistics
   double positiveQueryOverhead;

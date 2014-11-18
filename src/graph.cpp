@@ -259,7 +259,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
  * defined without any attributes
  */
 Graph *
-Graph::createFromDotFile(const char * fileName) {
+Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, maxId;
   fstream input(fileName, fstream::in);
@@ -290,7 +290,10 @@ Graph::createFromDotFile(const char * fileName) {
       while (graph->vertices.size() <= (unsigned) maxId)
         graph->addVertex();
 
-      graph->addEdge(graph->vertices[source], graph->vertices[target]);
+      if (noDoubleEdges)
+        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
+      else
+        graph->addEdge(graph->vertices[source], graph->vertices[target]);
     } else {
       sscanf(dump, "%d", &source);
       while (graph->vertices.size() <= (unsigned) source)
@@ -309,7 +312,7 @@ Graph::createFromDotFile(const char * fileName) {
 
 
 Graph *
-Graph::createFromGraFile(const char * fileName) {
+Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, lineNumber;
   fstream input(fileName, fstream::in);
@@ -334,6 +337,9 @@ Graph::createFromGraFile(const char * fileName) {
 
   // Parse the adjacency list
   for (int i = 0; i < lineNumber; i++) {
+    if (((i % 100000) == 0) && (i != 0))
+      cerr << "Done " << i << " nodes.\n";
+
     // Get the source at the start of the line
     input.get(dump, 127, ' ');
     source = atoi(dump);
@@ -351,7 +357,11 @@ Graph::createFromGraFile(const char * fileName) {
 
       input.get(dump, 127, ' ');
       target = atoi(dump);
-      graph->addEdge(graph->vertices[source], graph->vertices[target]);
+
+      if (noDoubleEdges)
+        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
+      else
+        graph->addEdge(graph->vertices[source], graph->vertices[target]);
     }
   }
 
@@ -915,6 +925,15 @@ Graph::condenseFromSource(Vertex * source) {
     // Merge the two vertices
     mergeVertices(it->first, mergeTarget);
   }
+}
+
+
+bool
+Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
+  source->successors.push_back(target);
+  target->predecessors.push_back(source);
+  edgeCount++;
+  return true;
 }
 
 
