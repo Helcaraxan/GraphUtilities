@@ -28,10 +28,10 @@ Vertex::Vertex(int i) :
 
 Vertex::~Vertex(void)
 {
-  for (auto it = predecessors.begin(); it != predecessors.end(); ++it)
+  for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it)
     (*it)->removeSuccessor(this);
 
-  for (auto it = successors.begin(); it != successors.end(); ++it)
+  for (auto it = successors.begin(), end = successors.end(); it != end; ++it)
     (*it)->removePredecessor(this);
 }
 
@@ -69,7 +69,7 @@ Graph::Graph(void) :
 
 
 Graph::~Graph(void) {
-	for (auto it = vertices.begin(); it != vertices.end(); ++it)
+	for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
 		delete *it;
 
 	vertices.clear();
@@ -83,7 +83,7 @@ Vertex::addPredecessor(Vertex * pred) {
   if (pred == this)
     return false;
 
-	for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
+	for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
 		if (*it == pred)
 			return false;
 	}
@@ -98,7 +98,7 @@ Vertex::addSuccessor(Vertex * succ) {
   if (succ == this)
     return false;
 
-	for (auto it = successors.begin(); it != successors.end(); ++it) {
+	for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
 		if (*it == succ)
 			return false;
 	}
@@ -110,7 +110,7 @@ Vertex::addSuccessor(Vertex * succ) {
 
 bool
 Vertex::removePredecessor(Vertex * pred) {
-  for (auto it = predecessors.begin(); it != predecessors.end(); ++it) {
+  for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
     if (*it == pred) {
       predecessors.erase(it);
       return true;
@@ -123,7 +123,7 @@ Vertex::removePredecessor(Vertex * pred) {
 
 bool
 Vertex::removeSuccessor(Vertex * succ) {
-  for (auto it = successors.begin(); it != successors.end(); ++it) {
+  for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
     if (*it == succ) {
       successors.erase(it);
       return true;
@@ -206,7 +206,7 @@ Vertex::visit(Vertex * pred, bool reverse) {
 
   // When necessary reorder the Vertex vector as to put the parent provoking the
   // n-th visit of this Vertex on the n-th spot
-  for (auto it = orderedVertices->begin(); it != orderedVertices->end(); ++it) {
+  for (auto it = orderedVertices->begin(), end = orderedVertices->end(); it != end; ++it) {
     if (*it == pred) {
 			*it = (*orderedVertices)[inVisits];
 			(*orderedVertices)[inVisits++] = pred;
@@ -230,7 +230,8 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 	downVertices = reverse ? &predecessors : &successors;
 
   /* Visit all the child vertices */
-	while (outVisits < (int) downVertices->size()) {
+  int limit = (int) downVertices->size();
+	while (outVisits < limit) {
 		(*downVertices)[outVisits]->visit(this, reverse);
 
 		if ((*downVertices)[outVisits]->inVisits == 1)
@@ -389,10 +390,10 @@ Graph::removeVertex(Vertex * v) {
 
 void
 Graph::mergeVertices(Vertex * s, Vertex * t) {
-  for (auto it = s->predecessors.begin(); it != s->predecessors.end(); ++it)
+  for (auto it = s->predecessors.begin(), end = s->predecessors.end(); it != end; ++it)
     t->addPredecessor(*it);
 
-  for (auto it = s->successors.begin(); it != s->successors.end(); ++it)
+  for (auto it = s->successors.begin(), end = s->successors.end(); it != end; ++it)
     t->addSuccessor(*it);
 
   removeVertex(s);
@@ -487,7 +488,7 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 
 	while (!searchStack.empty()) {
 		curr = searchStack.top();
-    if (path->size() && (curr == path->back())) {
+    if (!path->empty() && (curr == path->back())) {
       path->pop_back();
       searchStack.pop();
       continue;
@@ -498,7 +499,7 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 #endif // ENABLE_STATISTICS
 
     path->push_back(curr);
-		for (auto it = curr->successors.begin(); it !=curr->successors.end(); ++it) {
+		for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
       if (*it == v) {
         path->push_back(v);
         returnValue = path;
@@ -538,7 +539,7 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
   set<Vertex *> scheduled;
 
   // Fill up the initial toVisit list
-  for (auto it = u->successors.begin(); it != u->successors.end(); ++it) {
+  for (auto it = u->successors.begin(), end = u->successors.end(); it != end; ++it) {
     if (*it != v) {
       toVisit.push_back(*it);
       scheduled.insert(*it);
@@ -549,7 +550,7 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
     currVertex = toVisit.front();
     toVisit.pop_front();
 
-    for (auto it = currVertex->successors.begin(); it != currVertex->successors.end(); ++it) {
+    for (auto it = currVertex->successors.begin(), end = currVertex->successors.end(); it != end; ++it) {
       if (*it == v)
         return true;
 
@@ -578,7 +579,7 @@ Graph::areConnectedDFS(Vertex * u, Vertex * v) {
     curr = toVisit.top();
     toVisit.pop();
 
-    for (auto it = curr->successors.begin(); it != curr->successors.end(); ++it) {
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
       if (*it == v)
         return true;
 
@@ -764,7 +765,7 @@ Graph::labelVertices(bool reverse) {
 	startVertices = reverse ? &sinks : &sources;
 
 	// Loop while there are unlabeled sources / sinks
-	for (auto it = startVertices->begin(); it != startVertices->end(); ++it) {
+	for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
 		// Initialize
 		nextVertex = *it;
 		(*it)->visit(NULL, reverse);
@@ -824,8 +825,8 @@ void
 Graph::discoverSources() {
   sources.clear();
 
-	for (auto it = vertices.begin(); it != vertices.end(); ++it) {
-		if ((*it)->predecessors.size() == 0)
+	for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
+		if ((*it)->predecessors.empty())
 			sources.push_back(*it);
 	}
 }
@@ -881,7 +882,7 @@ Graph::condenseFromSource(Vertex * source) {
     DFSSet.insert(curr);
 
     // Iterate over the successors of the current vertex
-    for (auto it = curr->successors.begin(); it != curr->successors.end(); ++it) {
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
       if (DFSSet.count(*it)) {
         // Mark the cycle for merging into the first vertex of the cycle
         auto it2 = DFSPath.rbegin();
@@ -902,7 +903,7 @@ Graph::condenseFromSource(Vertex * source) {
   }
 
   // Perform the necessary merging
-  for (auto it = mergeMap.begin(); it != mergeMap.end(); ++it) {
+  for (auto it = mergeMap.begin(), end = mergeMap.end(); it != end; ++it) {
     // Find the final merge target
     Vertex * mergeTarget = it->second;
     while (mergeMap.count(mergeTarget) == 1)
