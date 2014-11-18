@@ -14,6 +14,12 @@
 using namespace std;
 
 
+// Local global variables
+
+static PAPI_dmem_info_t memoryInfo;
+static long long baseMemoryUsage;
+
+
 // Constructors & destructors
 
 Vertex::Vertex(int i) :
@@ -56,6 +62,9 @@ Graph::Graph(void) :
 
 #ifdef ENABLE_PAPI_BENCHMARKS
   queryNumber = 0;
+  cyclesSpentIndexing = 0;
+  cyclesSpentQuerying = 0;
+  graphMemoryUsage = 0;
   benchmarkEvents[0] = PAPI_TOT_CYC;
 
   if (PAPI_num_counters() < 1)
@@ -263,8 +272,15 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, maxId;
   fstream input(fileName, fstream::in);
-  Graph * graph = new Graph();
-  
+  Graph * graph = NULL;
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_get_dmem_info(&memoryInfo);
+  baseMemoryUsage = memoryInfo.resident;
+#endif // ENABLE_PAPI_BENCHMARKS
+
+  graph = new Graph();
+
   if (!input.good()) {
     cerr << "Error while opening input Dot file.\n";
     exit(EXIT_FAILURE);
@@ -303,11 +319,16 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
 
   cout << "Finished parsing the graph from a Dot file.\n";
   input.close();
-  indexed = false;
-  condensed = false;
+  graph->indexed = false;
+  graph->condensed = false;
 
   // Make sure the graph is a DAG
   graph->condenseGraph();
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_get_dmem_info(&memoryInfo);
+  graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
+#endif // ENABLE_PAPI_BENCHMARKS
 
   return graph;
 }
@@ -318,7 +339,14 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, lineNumber;
   fstream input(fileName, fstream::in);
-  Graph * graph = new Graph();
+  Graph *  graph = NULL;
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_get_dmem_info(&memoryInfo);
+  baseMemoryUsage = memoryInfo.resident;
+#endif // ENABLE_PAPI_BENCHMARKS
+
+  graph = new Graph();
 
   if (!input.good()) {
     cerr << "Error while opening input Dot file.\n";
@@ -369,11 +397,16 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   cout << "Finished parsing the graph from a Gra file.\n\n";
   input.close();
-  indexed = false;
-  condensed = false;
+  graph->indexed = false;
+  graph->condensed = false;
 
   // Make sure the graph is a DAG
   graph->condenseGraph();
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_get_dmem_info(&memoryInfo);
+  graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
+#endif // ENABLE_PAPI_BENCHMARKS
 
   return graph;
 }
@@ -616,11 +649,7 @@ Graph::areConnectedDFS(Vertex * u, Vertex * v) {
 bool
 Graph::statisticsAreEnabled()
 {
-#ifdef ENABLE_STATISTICS
-  return true;
-#else // ENABLE_STATISTICS
-  return false;
-#endif // ENABLE_STATISTICS
+  return statisticsEnabled;
 }
 
 
@@ -759,10 +788,17 @@ Graph::getCyclesSpentQuerying(void) {
 void
 Graph::printBenchmarks(ostream &os) {
 #ifdef ENABLE_PAPI_BENCHMARKS
+  int indexMemoryUsage = (8 * vertices.size()) / 1024;
+  double indexOverhead = ((double) indexMemoryUsage) / ((double) graphMemoryUsage - indexMemoryUsage);
   os << "\n---\nBenchmarking\n";
+  os << "Speed performances:\n";
   os << "Cycles spent indexing: " << cyclesSpentIndexing << "\n";
   os << "Cycles spent querying: " << cyclesSpentQuerying << "\n";
-  os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query.\n---\n\n";
+  os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query.\n\n";
+  os << "Memory usage: " << graphMemoryUsage << " kilo-bytes.\n";
+  os << "Index memory requirement: " << indexMemoryUsage << " kilo-bytes\n";
+  os.precision(2);
+  os << "Index memory overhead: " << indexOverhead * 100 << "%\n---\n\n";
 #else // ENABLE_PAPI_BENCHMARKS
   os << "WARNING: Benchmarking has not been enabled at compile time.\n";
   os << "WARNING: To enable benchmarks uncomment the #define in the header file 'graph.h'.\n\n";

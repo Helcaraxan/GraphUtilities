@@ -171,6 +171,7 @@ private:
   long long queryNumber;
   long long cyclesSpentIndexing;
   long long cyclesSpentQuerying;
+  long long graphMemoryUsage;
 
   // PAPI administration
   int benchmarkEvents[1];
