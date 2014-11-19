@@ -28,7 +28,10 @@ Vertex::Vertex(int i) :
 	reverseOrderLabel(-1),
 	inVisits(0),
 	outVisits(0),
-	DFSId(0)
+	DFSId(0),
+  firstVisit(NULL),
+  predecessorCount(0),
+  successorCount(0)
 {}
 
 
@@ -98,6 +101,7 @@ Vertex::addPredecessor(Vertex * pred) {
 	}
 	
 	predecessors.push_back(pred);
+  predecessorCount++;
 	return true;
 }
 
@@ -113,6 +117,7 @@ Vertex::addSuccessor(Vertex * succ) {
 	}
 
 	successors.push_back(succ);
+  successorCount++;
 	return true;
 }
 
@@ -122,6 +127,7 @@ Vertex::removePredecessor(Vertex * pred) {
   for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
     if (*it == pred) {
       predecessors.erase(it);
+      predecessorCount--;
       return true;
     }
   }
@@ -135,6 +141,7 @@ Vertex::removeSuccessor(Vertex * succ) {
   for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
     if (*it == succ) {
       successors.erase(it);
+      successorCount--;
       return true;
     }
   }
@@ -145,13 +152,13 @@ Vertex::removeSuccessor(Vertex * succ) {
 
 int
 Vertex::getNumberOfPredecessors() {
-  return predecessors.size();
+  return predecessorCount;
 }
 
 
 int
 Vertex::getNumberOfSuccessors() {
-  return successors.size();
+  return successorCount;
 }
 
 
@@ -192,36 +199,33 @@ Vertex::successors_end() {
  */
 void
 Vertex::visit(Vertex * pred, bool reverse) {
-	vector<Vertex *> * orderedVertices;
-
-	// Reinitialize in case of reverse post-order traversal
-	if (reverse && ((inVisits + outVisits) == (int) (successors.size() + predecessors.size()))) {
+	// Reinitialize in case we are at the start of a new labeling traversal
+	if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
 		inVisits = 0;
 		outVisits = 0;
+
+    // Clear the vector that should be reordered
+    if (reverse)
+      successors.clear();
+    else
+      predecessors.clear();
 	}
 
-  // Determine which Vertex vector should be reordered
-	orderedVertices = reverse ? &successors : &predecessors;
+  // Register the first visiting node when necessary
+  if (inVisits == 0)
+    firstVisit = pred;
 
   // If this is the first vertex to be visited there is no reordering
 	if (!pred)
     return;
     
-  // If the ordering is OK do nothing except registering the current visit
-  if ((*orderedVertices)[inVisits] == pred) {
-    inVisits++;
-		return;
-  }
+  // Push the visiting parent on the reordered vector
+  if (reverse)
+    successors.push_back(pred);
+  else
+    predecessors.push_back(pred);
 
-  // When necessary reorder the Vertex vector as to put the parent provoking the
-  // n-th visit of this Vertex on the n-th spot
-  for (auto it = orderedVertices->begin(), end = orderedVertices->end(); it != end; ++it) {
-    if (*it == pred) {
-			*it = (*orderedVertices)[inVisits];
-			(*orderedVertices)[inVisits++] = pred;
-			break;
-		}
-	}
+  inVisits++;
 }
 
 
@@ -257,8 +261,8 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
    * next vertex */
   if (upVertices->size() == 0)
 		return NULL;
-	else
-		return (*upVertices)[0];
+  else
+    return firstVisit;
 }
 
 
@@ -971,7 +975,9 @@ Graph::condenseFromSource(Vertex * source) {
 bool
 Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
   source->successors.push_back(target);
+  source->successorCount++;
   target->predecessors.push_back(source);
+  target->predecessorCount++;
   edgeCount++;
   return true;
 }

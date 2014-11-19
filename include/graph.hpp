@@ -63,6 +63,10 @@ private:
 	int outVisits; /* Variable used in reverse post-order */
 	int DFSId; /* Variable to distinguish between seperate DFSs */
 
+  Vertex * firstVisit;
+
+  int predecessorCount;
+  int successorCount;
 	vector<Vertex *> predecessors;
 	vector<Vertex *> successors;
 
