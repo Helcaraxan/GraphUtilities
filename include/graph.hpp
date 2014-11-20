@@ -107,6 +107,7 @@ public:
 
   /* Do a query without considering labels : standard DFS */
   bool areConnectedDFS(Vertex * u, Vertex * v);
+  bool areConnectedBBFS(Vertex * u, Vertex * V);
 
   // Statistics
   bool statisticsAreEnabled(void);

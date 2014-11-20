@@ -1,6 +1,7 @@
 #include <map>
 #include <set>
 #include <list>
+#include <queue>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -230,25 +231,24 @@ Vertex::visit(Vertex * pred, bool reverse) {
 
 
 /* Compute the next Vertex to be visited in a post-order traversal of the graph
- * from the current Vertex instance. This allow for an iterative traversal and
+ * from the current Vertex instance. This allows for an iterative traversal and
  * not a recursive one in order to prevent stack-overflows on large graphs
  */
 Vertex *
 Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
-	vector<Vertex *> * upVertices;
-	vector<Vertex *> * downVertices;
+  int visitNumber;
+	vector<Vertex *> * nextVertices;
 
   /* Determine what is up and what is down depending on the reverse boolean */
-	upVertices = reverse ? &successors : &predecessors;
-	downVertices = reverse ? &predecessors : &successors;
+	nextVertices = reverse ? &predecessors : &successors;
+  visitNumber = reverse ? predecessorCount : successorCount;
 
   /* Visit all the child vertices */
-  int limit = (int) downVertices->size();
-	while (outVisits < limit) {
-		(*downVertices)[outVisits]->visit(this, reverse);
+	while (outVisits < visitNumber) {
+		(*nextVertices)[outVisits]->visit(this, reverse);
 
-		if ((*downVertices)[outVisits]->inVisits == 1)
-			return (*downVertices)[outVisits++];
+		if ((*nextVertices)[outVisits]->inVisits == 1)
+			return (*nextVertices)[outVisits++];
 		else
 			outVisits++;
 	}
@@ -259,7 +259,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 
   /* Return the predecessor from which the first visit to this vertex was made as
    * next vertex */
-  if (upVertices->size() == 0)
+  if ((reverse ? successorCount : predecessorCount) == 0)
 		return NULL;
   else
     return firstVisit;
@@ -501,7 +501,8 @@ Graph::getVertexFromId(int id) {
 // Queries
 
 /* Use the previously done indexation to answer to the query */
-vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
+vector<Vertex *> *
+Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 	Vertex * curr;
 	stack<Vertex *> searchStack;
   vector<Vertex *> * returnValue = NULL;
@@ -523,7 +524,11 @@ vector<Vertex *> * Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> 
 
 	// Are U and V the same vertex?
 	if (u == v) {
+#ifdef ENABLE_STATISTICS
+    searchedNodes++;
+#endif // ENABLE_STATISTICS
     path->push_back(u);
+    returnValue = path;
     goto end;
   }
 
@@ -645,6 +650,94 @@ Graph::areConnectedDFS(Vertex * u, Vertex * v) {
   }
 
   return false;
+}
+
+
+bool
+Graph::areConnectedBBFS(Vertex * u, Vertex * v) {
+  int forwardId, backwardId;
+  bool returnValue = false;
+	Vertex * curr;
+	queue<Vertex *> searchQueueForward;
+  queue<Vertex *> searchQueueBackward;
+
+  // Verify that the graph has been indexed
+  if (!indexed)
+    indexGraph();
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_start_counters(benchmarkEvents, 1);
+#endif // ENABLE_PAPI_BENCHMARKS
+
+	// Are U and V the same vertex?
+	if (u == v) {
+    returnValue = true;
+    goto end;
+  }
+
+	// Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+	if ((u->orderLabel > v->orderLabel) ||
+      (v->reverseOrderLabel > u->reverseOrderLabel))
+    goto end;
+
+	// Do a DFS on the subgraph specified by both orders to get the final answer
+	searchQueueForward.push(u);
+  searchQueueBackward.push(v);
+	forwardId = ++DFSId;
+  backwardId = ++DFSId;
+  u->DFSId = forwardId;
+  v->DFSId = backwardId;
+
+	while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
+    if (!searchQueueForward.empty()) {
+      curr = searchQueueForward.front();
+      searchQueueForward.pop();
+
+      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+        if ((*it)->DFSId == backwardId) {
+          returnValue = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId != forwardId) {
+          (*it)->DFSId = forwardId;
+
+          if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
+            searchQueueForward.push(*it);
+        }
+      }
+    }
+
+    if (!searchQueueBackward.empty()) {
+      curr = searchQueueBackward.front();
+      searchQueueBackward.pop();
+
+      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
+        if ((*it)->DFSId == forwardId) {
+          returnValue = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId != backwardId) {
+          (*it)->DFSId = backwardId;
+
+          if (((*it)->orderLabel < u->orderLabel) && ((*it)->reverseOrderLabel < u->reverseOrderLabel))
+            searchQueueBackward.push(*it);
+        }
+      }
+    }
+	}
+
+end:
+#ifdef ENABLE_PAPI_BENCHMARKS
+  long long counterValue;
+  PAPI_stop_counters(&counterValue, 1);
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+#endif // ENABLE_PAPI_BENCHMARKS
+
+  return returnValue;
 }
 
 
@@ -1000,7 +1093,7 @@ Graph::registerQueryStatistics(vector<Vertex *> * path, uintmax_t searchedNodes)
     positiveQueryOverhead += coefficient * overhead;
   } else {
     negativeQueryCount++;
-    
+
     if (searchedNodes) {
       coefficient = 1.0 / ((double) negativeQueryCount);
       overhead = ((double) searchedNodes) / ((double) vertices.size());
