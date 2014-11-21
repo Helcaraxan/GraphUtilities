@@ -14,6 +14,7 @@ class Graph;
 #include <stack>
 #include <vector>
 
+//#define ENABLE_RETRO_LABELS
 #define ENABLE_STATISTICS
 #define ENABLE_PAPI_BENCHMARKS
 
@@ -58,6 +59,10 @@ public:
 private:
 	int orderLabel; /* Ordering in a reverse post-order traversal of the Graph */
 	int reverseOrderLabel; /* Ordering in a reverse post-order traversal of the inverse Graph */
+#ifdef ENABLE_RETRO_LABELS
+  int retroOrderLabel;
+  int retroReverseOrderLabel;
+#endif // ENABLE_RETRO_LABELS
 
 	int inVisits; /* Variable used in reverse post-order */
 	int outVisits; /* Variable used in reverse post-order */
@@ -71,8 +76,8 @@ private:
 	vector<Vertex *> successors;
 
 	// Indexing
-	void visit(Vertex * pred, bool reverse); /* Function used in reverse post-order traversal */
-	Vertex * createPostOrder(stack<Vertex *> * postOrder, bool reverse); /* Idem */
+	void visit(Vertex * pred, bool reorder, bool reverse); /* Function used in post-order traversal */
+	Vertex * createPostOrder(stack<Vertex *> * postOrder, bool retro, bool reorder, bool reverse); /* Idem */
 };
 
 
@@ -139,11 +144,11 @@ protected:
 	int DFSId;
 
 	// Indexing
-	void labelVertices(bool reverse);
+	void labelVertices(bool retro, bool reorder, bool reverse);
 	void indexGraph(void);
 
   // Maintenance
-  void discoverSources(void);
+  void discoverExtremities(void);
   void condenseGraph(void);
 
 private:

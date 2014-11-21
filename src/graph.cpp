@@ -27,6 +27,10 @@ Vertex::Vertex(int i) :
 	id(i),
 	orderLabel(-1),
 	reverseOrderLabel(-1),
+#ifdef ENABLE_RETRO_LABELS
+  retroOrderLabel(-1),
+  retroReverseOrderLabel(-1),
+#endif // ENABLE_RETRO_LABELS
 	inVisits(0),
 	outVisits(0),
 	DFSId(0),
@@ -199,32 +203,29 @@ Vertex::successors_end() {
  * graph traversal.
  */
 void
-Vertex::visit(Vertex * pred, bool reverse) {
+Vertex::visit(Vertex * pred, bool reorder, bool reverse) {
 	// Reinitialize in case we are at the start of a new labeling traversal
 	if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
 		inVisits = 0;
 		outVisits = 0;
-
-    // Clear the vector that should be reordered
-    if (reverse)
-      successors.clear();
-    else
-      predecessors.clear();
 	}
+
+  // Clear the vector that should be reordered when requested
+  if (((inVisits + outVisits) == 0) && reorder)
+    reverse ? successors.clear() : predecessors.clear();
 
   // Register the first visiting node when necessary
   if (inVisits == 0)
     firstVisit = pred;
 
-  // If this is the first vertex to be visited there is no reordering
+  // If this is the first vertex to be visited (source vertex) then return
 	if (!pred)
     return;
     
+  // Whe necessary push the visiting parent on the reordered vector
   // Push the visiting parent on the reordered vector
-  if (reverse)
-    successors.push_back(pred);
-  else
-    predecessors.push_back(pred);
+  if (reorder)
+    reverse ? successors.push_back(pred) : predecessors.push_back(pred);
 
   inVisits++;
 }
@@ -235,8 +236,8 @@ Vertex::visit(Vertex * pred, bool reverse) {
  * not a recursive one in order to prevent stack-overflows on large graphs
  */
 Vertex *
-Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
-  int visitNumber;
+Vertex::createPostOrder(stack<Vertex *> * postOrder, bool retro, bool reorder, bool reverse) {
+  int visitIndex, visitNumber;
 	vector<Vertex *> * nextVertices;
 
   /* Determine what is up and what is down depending on the reverse boolean */
@@ -245,12 +246,13 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool reverse) {
 
   /* Visit all the child vertices */
 	while (outVisits < visitNumber) {
-		(*nextVertices)[outVisits]->visit(this, reverse);
+    visitIndex = retro ? visitNumber - outVisits - 1 : outVisits;
+		(*nextVertices)[visitIndex]->visit(this, reorder, reverse);
 
-		if ((*nextVertices)[outVisits]->inVisits == 1)
-			return (*nextVertices)[outVisits++];
-		else
-			outVisits++;
+    outVisits++;
+
+		if ((*nextVertices)[visitIndex]->inVisits == 1)
+			return (*nextVertices)[visitIndex];
 	}
 
   /* Push the vertex on the post-order stack only when all children have been
@@ -538,6 +540,12 @@ Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
       (v->reverseOrderLabel > u->reverseOrderLabel))
     goto end;
 
+#ifdef ENABLE_RETRO_LABELS
+  if ((u->retroOrderLabel > v->retroOrderLabel) ||
+      (v->retroReverseOrderLabel > u->retroReverseOrderLabel))
+    goto end;
+#endif // ENABLE_RETRO_LABELS
+
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchStack.push(u);
 	DFSId++;
@@ -569,7 +577,12 @@ Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 			if ((*it)->DFSId != DFSId) {
 				(*it)->DFSId = DFSId;
 
+#ifdef ENABLE_RETRO_LABELS
+        if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel) &&
+            ((*it)->retroOrderLabel < v->retroOrderLabel) && ((*it)->retroReverseOrderLabel > v->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
 				if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
 					searchStack.push(*it);
 			}
 		}
@@ -681,6 +694,12 @@ Graph::areConnectedBBFS(Vertex * u, Vertex * v) {
       (v->reverseOrderLabel > u->reverseOrderLabel))
     goto end;
 
+#ifdef ENABLE_RETRO_LABELS
+  if ((u->retroOrderLabel > v->retroOrderLabel) ||
+      (v->retroReverseOrderLabel > u->retroReverseOrderLabel))
+    goto end;
+#endif // ENABLE_RETRO_LABELS
+
 	// Do a DFS on the subgraph specified by both orders to get the final answer
 	searchQueueForward.push(u);
   searchQueueBackward.push(v);
@@ -722,7 +741,7 @@ Graph::areConnectedBBFS(Vertex * u, Vertex * v) {
         if ((*it)->DFSId != backwardId) {
           (*it)->DFSId = backwardId;
 
-          if (((*it)->orderLabel < u->orderLabel) && ((*it)->reverseOrderLabel < u->reverseOrderLabel))
+          if (((*it)->orderLabel > u->orderLabel) && ((*it)->reverseOrderLabel > u->reverseOrderLabel))
             searchQueueBackward.push(*it);
         }
       }
@@ -906,7 +925,7 @@ Graph::printBenchmarks(ostream &os) {
 // Indexing
 
 void
-Graph::labelVertices(bool reverse) {
+Graph::labelVertices(bool retro, bool reorder, bool reverse) {
 	int currLabel = 0;
 	stack<Vertex *> postOrder;
 	Vertex * nextVertex;
@@ -918,27 +937,32 @@ Graph::labelVertices(bool reverse) {
 	for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
 		// Initialize
 		nextVertex = *it;
-		(*it)->visit(NULL, reverse);
+		(*it)->visit(NULL, true, reverse);
 
-		// Run the DFS
-		while (nextVertex) {
-			// In case of the first forward labeling create the sinks list
-			if (!reverse && (nextVertex->successors.size() == 0))
-				sinks.push_back(nextVertex);
-
-			// Use an iterative method to prevent memory overflow in large graphs
-			nextVertex = nextVertex->createPostOrder(&postOrder, reverse);
-		}
+		// Run the DFS and use an iterative method to prevent memory overflow in large graphs
+		while (nextVertex)
+			nextVertex = nextVertex->createPostOrder(&postOrder, retro, reorder, reverse);
 	}
 
   // Label the vertices in reverse post-order
   while (!postOrder.empty()) {
-    if (reverse)
-      postOrder.top()->reverseOrderLabel = currLabel++;
-    else
-      postOrder.top()->orderLabel = currLabel++;;
+    if (retro) {
+#ifdef ENABLE_RETRO_LABELS
+      if (reverse)
+        postOrder.top()->retroReverseOrderLabel = currLabel++;
+      else
+        postOrder.top()->retroOrderLabel = currLabel++;;
 
-    postOrder.pop();
+      postOrder.pop();
+#endif // ENABLE_RETRO_LABELS
+    } else {
+      if (reverse)
+        postOrder.top()->reverseOrderLabel = currLabel++;
+      else
+        postOrder.top()->orderLabel = currLabel++;;
+
+      postOrder.pop();
+    }
   }
 }
 
@@ -949,17 +973,23 @@ Graph::indexGraph() {
   condenseGraph();
 
   // Make sure we discovered the sources
-  discoverSources();
+  discoverExtremities();
 
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_start_counters(benchmarkEvents, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
 
 	// Perform the forward graph ordering
-	labelVertices(false);
+	labelVertices(false, true, false);
 
 	// Perform the reverse graph ordering
-	labelVertices(true);
+	labelVertices(false, true, true);
+
+#ifdef ENABLE_RETRO_LABELS
+  labelVertices(true, false, false);
+
+  labelVertices(true, false, true);
+#endif // ENABLE_RETRO_LABELS
 
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_stop_counters(&cyclesSpentIndexing, 1);
@@ -972,12 +1002,16 @@ Graph::indexGraph() {
 // Maintenance
 
 void
-Graph::discoverSources() {
+Graph::discoverExtremities() {
   sources.clear();
+  sinks.clear();
 
 	for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
 		if ((*it)->predecessors.empty())
 			sources.push_back(*it);
+
+    if ((*it)->successors.empty())
+      sinks.push_back(*it);
 	}
 }
 
