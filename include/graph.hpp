@@ -28,33 +28,13 @@ class Graph;
 class Vertex {
 friend class Graph;
 
+// Local types
 public:
-	int id; /* A unique Vertex ID */
-
-	// Constructors & Destructor
-	Vertex(int i);
-	~Vertex(void);
-
-  // Local types
   typedef vector<Vertex *>::iterator iterator;
 
-	// Modificators
-	bool addPredecessor(Vertex * pred);
-	bool addSuccessor(Vertex * succ);
-  bool removePredecessor(Vertex * pred);
-  bool removeSuccessor(Vertex * succ);
-
-  // Access
-  int getNumberOfPredecessors(void);
-  int getNumberOfSuccessors(void);
-
-  // Iterators
-  iterator predecessors_begin(void);
-  iterator predecessors_end(void);
-
-  iterator successors_begin(void);
-  iterator successors_end(void);
-
+// Data members
+public:
+	int id; /* A unique Vertex ID */
 
 private:
 	int orderLabel; /* Ordering in a reverse post-order traversal of the Graph */
@@ -75,13 +55,94 @@ private:
 	vector<Vertex *> predecessors;
 	vector<Vertex *> successors;
 
+// Function members
+public:
+	// Constructors & Destructor
+	Vertex(int i);
+	~Vertex(void);
+
+	// Modificators
+	bool addPredecessor(Vertex * pred);
+	bool addSuccessor(Vertex * succ);
+  bool removePredecessor(Vertex * pred);
+  bool removeSuccessor(Vertex * succ);
+
+  // Access
+  int getNumberOfPredecessors(void);
+  int getNumberOfSuccessors(void);
+
+  // Iterators
+  iterator predecessors_begin(void);
+  iterator predecessors_end(void);
+
+  iterator successors_begin(void);
+  iterator successors_end(void);
+
+private:
 	// Indexing
-	void visit(Vertex * pred, bool reorder, bool reverse); /* Function used in post-order traversal */
-	Vertex * createPostOrder(stack<Vertex *> * postOrder, bool retro, bool reorder, bool reverse); /* Idem */
+	void visit(Vertex * pred, int method); /* Function used in post-order traversal */
+	Vertex * createPostOrder(stack<Vertex *> * postOrder, int method); /* Idem */
 };
 
 
 class Graph {
+// Local types
+public:
+  /* The IndexMethod values obey the following rules:
+   * 0x01 (first bit) Indicates if predecessors are rescheduled on traversal
+   * 0x02 (second bit) Indicates if successors are rescheduled on traversal
+   * 0x04 (third bit) Indicates if successors are ordered with their labels
+   */
+  typedef enum {
+    ShortIndexing = 0x00,
+    SuccessorOrder = 0x02,
+    Standard = 0x03,
+    DFSShortCut = 0x05,
+    UndefinedMethod = 0x10
+  } IndexMethod;
+
+// Data members
+protected:
+	bool indexed; /* Indicates if the ordering of the graph has been done */
+  bool condensed;
+  IndexMethod indexMethod;
+  unsigned int edgeCount;
+
+	vector<Vertex *> vertices;
+	vector<Vertex *> sources;
+	vector<Vertex *> sinks;
+
+  // Global ID to distinguish between seperate DFSs
+	int DFSId;
+
+private:
+  bool statisticsEnabled;
+  bool papiBenchmarksEnabled;
+
+#ifdef ENABLE_STATISTICS
+  // Counters
+  uintmax_t queryCount;
+  uintmax_t positiveQueryCount;
+  uintmax_t negativeQueryCount;
+  uintmax_t shortNegativeQueryCount;
+
+  // DFS overhead statistics
+  double positiveQueryOverhead;
+  double negativeQueryOverhead;
+#endif // ENABLE_STATISTICS
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  // Counters
+  long long queryNumber;
+  long long cyclesSpentIndexing;
+  long long cyclesSpentQuerying;
+  long long graphMemoryUsage;
+
+  // PAPI administration
+  int benchmarkEvents[1];
+#endif // ENABLE_PAPI_BENCHMARKS
+
+// Function members
 public:
 	// Constructors & Destructor
 	Graph(void);
@@ -97,11 +158,13 @@ public:
   void mergeVertices(Vertex * s, Vertex * t);
 	bool addEdge(Vertex * s, Vertex * t);
   bool removeEdge(Vertex * s, Vertex * t);
+  void setIndexMethod(IndexMethod newMethod);
 
   // Access
   unsigned int getEdgeCount(void);
   unsigned int getVertexCount(void);
   Vertex * getVertexFromId(int id);
+  IndexMethod getIndexMethod(void);
 
 	// Queries
   /* The query function returning NULL or the path connecting the vertices */
@@ -132,60 +195,25 @@ public:
   void printBenchmarks(ostream &os);
 
 protected:
-	bool indexed; /* Indicates if the ordering of the graph has been done */
-  bool condensed;
-  unsigned int edgeCount;
-
-	vector<Vertex *> vertices;
-	vector<Vertex *> sources;
-	vector<Vertex *> sinks;
-
-  // Global ID to distinguish between seperate DFSs
-	int DFSId;
-
 	// Indexing
-	void labelVertices(bool retro, bool reorder, bool reverse);
-	void indexGraph(void);
+	void labelVertices(bool retro, bool reverse);
+	void indexGraph();
 
   // Maintenance
   void discoverExtremities(void);
   void condenseGraph(void);
 
 private:
-  bool statisticsEnabled;
-  bool papiBenchmarksEnabled;
-
   // Maintenance
   void condenseFromSource(Vertex * source);
 
 #ifdef ENABLE_STATISTICS
-  // Counters
-  uintmax_t queryCount;
-  uintmax_t positiveQueryCount;
-  uintmax_t negativeQueryCount;
-  uintmax_t shortNegativeQueryCount;
-
   // Maintenance
   bool addEdgeUnsafe(Vertex * source, Vertex * target);
-
-  // DFS overhead statistics
-  double positiveQueryOverhead;
-  double negativeQueryOverhead;
 
   // Internal statistic maintenance
   void registerQueryStatistics(vector<Vertex *> * path, uintmax_t searchedNodes);
 #endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_PAPI_BENCHMARKS
-  // Counters
-  long long queryNumber;
-  long long cyclesSpentIndexing;
-  long long cyclesSpentQuerying;
-  long long graphMemoryUsage;
-
-  // PAPI administration
-  int benchmarkEvents[1];
-#endif // ENABLE_PAPI_BENCHMARKS
 };
 
 #endif // GRAPH_HPP

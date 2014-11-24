@@ -53,6 +53,7 @@ Vertex::~Vertex(void)
 Graph::Graph(void) :
 	indexed(false),
   condensed(false),
+  indexMethod(UndefinedMethod),
   edgeCount(0),
 	DFSId(0)
 {
@@ -203,18 +204,14 @@ Vertex::successors_end() {
  * graph traversal.
  */
 void
-Vertex::visit(Vertex * pred, bool reorder, bool reverse) {
+Vertex::visit(Vertex * pred, int method) {
 	// Reinitialize in case we are at the start of a new labeling traversal
 	if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
 		inVisits = 0;
 		outVisits = 0;
 	}
-
-  // Clear the vector that should be reordered when requested
-  if (((inVisits + outVisits) == 0) && reorder)
-    reverse ? successors.clear() : predecessors.clear();
-
-  // Register the first visiting node when necessary
+  
+  // Register the first visiting node
   if (inVisits == 0)
     firstVisit = pred;
 
@@ -222,10 +219,13 @@ Vertex::visit(Vertex * pred, bool reorder, bool reverse) {
 	if (!pred)
     return;
     
-  // Whe necessary push the visiting parent on the reordered vector
-  // Push the visiting parent on the reordered vector
-  if (reorder)
-    reverse ? successors.push_back(pred) : predecessors.push_back(pred);
+  // Clear the vector that should be reordered when requested
+  if (((inVisits + outVisits) == 0) && (method & 0x02))
+    (method & 0x01) ? successors.clear() : predecessors.clear();
+
+  // When necessary push the visiting parent on the reordered vector
+  if (method & 0x02)
+    (method & 0x01) ? successors.push_back(pred) : predecessors.push_back(pred);
 
   inVisits++;
 }
@@ -236,18 +236,18 @@ Vertex::visit(Vertex * pred, bool reorder, bool reverse) {
  * not a recursive one in order to prevent stack-overflows on large graphs
  */
 Vertex *
-Vertex::createPostOrder(stack<Vertex *> * postOrder, bool retro, bool reorder, bool reverse) {
+Vertex::createPostOrder(stack<Vertex *> * postOrder, int method) {
   int visitIndex, visitNumber;
 	vector<Vertex *> * nextVertices;
 
-  /* Determine what is up and what is down depending on the reverse boolean */
-	nextVertices = reverse ? &predecessors : &successors;
-  visitNumber = reverse ? predecessorCount : successorCount;
+  // Determine what is up and what is down depending on the reverse boolean
+	nextVertices = (method & 0x01) ? &predecessors : &successors;
+  visitNumber = (method & 0x01) ? predecessorCount : successorCount;
 
-  /* Visit all the child vertices */
+  // Visit all the child vertices
 	while (outVisits < visitNumber) {
-    visitIndex = retro ? visitNumber - outVisits - 1 : outVisits;
-		(*nextVertices)[visitIndex]->visit(this, reorder, reverse);
+    visitIndex = (method & 0x04) ? visitNumber - outVisits - 1 : outVisits;
+		(*nextVertices)[visitIndex]->visit(this, method);
 
     outVisits++;
 
@@ -255,16 +255,15 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, bool retro, bool reorder, b
 			return (*nextVertices)[visitIndex];
 	}
 
-  /* Push the vertex on the post-order stack only when all children have been
-   * visited */
+  // Push the vertex on the stack only when all children have been visited
 	postOrder->push(this);
 
-  /* Return the predecessor from which the first visit to this vertex was made as
-   * next vertex */
-  if ((reverse ? successorCount : predecessorCount) == 0)
-		return NULL;
-  else
-    return firstVisit;
+  // If required clear the successors vector
+  if (method & 0x08)
+    successors.clear();
+
+  // Return the predecessor from which the first visit to this vertex was made
+  return firstVisit;
 }
 
 
@@ -480,6 +479,12 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 }
 
 
+void
+Graph::setIndexMethod(Graph::IndexMethod newMethod) {
+  indexMethod = newMethod;
+}
+
+
 // Access
 
 unsigned int
@@ -497,6 +502,12 @@ Graph::getVertexCount() {
 Vertex *
 Graph::getVertexFromId(int id) {
   return vertices[id];
+}
+
+
+Graph::IndexMethod
+Graph::getIndexMethod() {
+  return indexMethod;
 }
 
 
@@ -564,6 +575,9 @@ Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 
     path->push_back(curr);
 		for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if ((indexMethod & 0x04) && ((*it)->orderLabel > v->orderLabel))
+        break;
+
       if (*it == v) {
 #ifdef ENABLE_STATISTICS
         searchedNodes++;
@@ -578,10 +592,13 @@ Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 				(*it)->DFSId = DFSId;
 
 #ifdef ENABLE_RETRO_LABELS
-        if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel) &&
-            ((*it)->retroOrderLabel < v->retroOrderLabel) && ((*it)->retroReverseOrderLabel > v->retroReverseOrderLabel))
+        if (((*it)->orderLabel < v->orderLabel) &&
+            ((*it)->reverseOrderLabel > v->reverseOrderLabel) &&
+            ((*it)->retroOrderLabel < v->retroOrderLabel) &&
+            ((*it)->retroReverseOrderLabel > v->retroReverseOrderLabel))
 #else // ENABLE_RETRO_LABELS
-				if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
+				if (((*it)->orderLabel < v->orderLabel) &&
+            ((*it)->reverseOrderLabel > v->reverseOrderLabel))
 #endif // ENABLE_RETRO_LABELS
 					searchStack.push(*it);
 			}
@@ -925,23 +942,50 @@ Graph::printBenchmarks(ostream &os) {
 // Indexing
 
 void
-Graph::labelVertices(bool retro, bool reorder, bool reverse) {
+Graph::labelVertices(bool retro, bool reverse) {
+  int traversalMethod = 0;
 	int currLabel = 0;
 	stack<Vertex *> postOrder;
 	Vertex * nextVertex;
 	vector<Vertex *> * startVertices;;
 
+#ifndef ENABLE_RETRO_LABELS
+  // In case retro labels have not been compiled we should abort
+  if (retro)
+    return;
+#endif // ENABLE_RETRO_LABELS
+
 	startVertices = reverse ? &sinks : &sources;
+
+  // Compose the method used for post-order labeling
+  if (reverse) {
+    traversalMethod |= 0x01;
+
+    if (retro)
+      traversalMethod |= 0x04;
+    else if ((indexMethod & 0x02) && !(indexMethod & 0x04))
+      traversalMethod |= 0x02;
+  } else {
+    if (retro) {
+      traversalMethod |= 0x04;
+    } else {
+      if (indexMethod & 0x02)
+        traversalMethod |= 0x02;
+
+      if (indexMethod & 0x04)
+        traversalMethod |= 0x08;
+    }
+  }
 
 	// Loop while there are unlabeled sources / sinks
 	for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
 		// Initialize
 		nextVertex = *it;
-		(*it)->visit(NULL, true, reverse);
+		(*it)->visit(NULL, traversalMethod);
 
 		// Run the DFS and use an iterative method to prevent memory overflow in large graphs
 		while (nextVertex)
-			nextVertex = nextVertex->createPostOrder(&postOrder, retro, reorder, reverse);
+			nextVertex = nextVertex->createPostOrder(&postOrder, traversalMethod);
 	}
 
   // Label the vertices in reverse post-order
@@ -956,10 +1000,19 @@ Graph::labelVertices(bool retro, bool reorder, bool reverse) {
       postOrder.pop();
 #endif // ENABLE_RETRO_LABELS
     } else {
-      if (reverse)
+      if (reverse) {
         postOrder.top()->reverseOrderLabel = currLabel++;
-      else
-        postOrder.top()->orderLabel = currLabel++;;
+      } else {
+        if (indexMethod & 0x4) {
+          nextVertex = postOrder.top();
+          nextVertex->orderLabel = currLabel++;
+          for (auto it = nextVertex->predecessors.begin(), end = nextVertex->predecessors.end();
+              it != end; ++it)
+            (*it)->successors.push_back(nextVertex);
+        } else {
+          postOrder.top()->orderLabel = currLabel++;
+        }
+      }
 
       postOrder.pop();
     }
@@ -975,20 +1028,27 @@ Graph::indexGraph() {
   // Make sure we discovered the sources
   discoverExtremities();
 
+  if (indexMethod == Graph::UndefinedMethod) {
+    cerr << "Unknown indexing method. Aborting.\n";
+    exit(EXIT_FAILURE);
+  }
+
 #ifdef ENABLE_PAPI_BENCHMARKS
   PAPI_start_counters(benchmarkEvents, 1);
 #endif // ENABLE_PAPI_BENCHMARKS
 
-	// Perform the forward graph ordering
-	labelVertices(false, true, false);
+  // First traversal
+  labelVertices(false, false);
 
-	// Perform the reverse graph ordering
-	labelVertices(false, true, true);
+  // Second traversal
+  labelVertices(false, true);
 
 #ifdef ENABLE_RETRO_LABELS
-  labelVertices(true, false, false);
+  // Third traversal
+  labelVertices(true, false);
 
-  labelVertices(true, false, true);
+  // Fourth traversal
+  labelVertices(true, true);
 #endif // ENABLE_RETRO_LABELS
 
 #ifdef ENABLE_PAPI_BENCHMARKS
