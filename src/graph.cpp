@@ -2,6 +2,7 @@
 #include <set>
 #include <list>
 #include <queue>
+#include <stack>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -236,7 +237,7 @@ Vertex::visit(Vertex * pred, int method) {
  * not a recursive one in order to prevent stack-overflows on large graphs
  */
 Vertex *
-Vertex::createPostOrder(stack<Vertex *> * postOrder, int method) {
+Vertex::createPostOrder(vector<Vertex *> * postOrder, int method) {
   int visitIndex, visitNumber;
 	vector<Vertex *> * nextVertices;
 
@@ -256,11 +257,7 @@ Vertex::createPostOrder(stack<Vertex *> * postOrder, int method) {
 	}
 
   // Push the vertex on the stack only when all children have been visited
-	postOrder->push(this);
-
-  // If required clear the successors vector
-  if (method & 0x08)
-    successors.clear();
+	postOrder->push_back(this);
 
   // Return the predecessor from which the first visit to this vertex was made
   return firstVisit;
@@ -515,7 +512,7 @@ Graph::getIndexMethod() {
 
 /* Use the previously done indexation to answer to the query */
 vector<Vertex *> *
-Graph::areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path) {
+Graph::areConnectedDFS(Vertex * u, Vertex * v, vector<Vertex *> * path) {
 	Vertex * curr;
 	stack<Vertex *> searchStack;
   vector<Vertex *> * returnValue = NULL;
@@ -622,6 +619,147 @@ end:
 
 
 bool
+Graph::areConnectedBBFS(Vertex * u, Vertex * v) {
+  int forwardId, backwardId;
+  bool returnValue = false;
+	Vertex * curr;
+	queue<Vertex *> searchQueueForward;
+  queue<Vertex *> searchQueueBackward;
+
+  // Verify that the graph has been indexed
+  if (!indexed)
+    indexGraph();
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  PAPI_start_counters(benchmarkEvents, 1);
+#endif // ENABLE_PAPI_BENCHMARKS
+
+	// Are U and V the same vertex?
+	if (u == v) {
+    returnValue = true;
+    goto end;
+  }
+
+	// Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+	if ((u->orderLabel > v->orderLabel) ||
+      (v->reverseOrderLabel > u->reverseOrderLabel)) {
+#ifdef ENABLE_STATISTICS
+    shortNegativeQueryCount++;
+#endif //ENABLE_STATISTICS
+    goto end;
+  }
+
+#ifdef ENABLE_RETRO_LABELS
+  if ((u->retroOrderLabel > v->retroOrderLabel) ||
+      (v->retroReverseOrderLabel > u->retroReverseOrderLabel)) {
+#ifdef ENABLE_STAtISTICS
+    shortNegativeQueryCount++;
+#endif // ENABLE_STATISTICS
+    goto end;
+  }
+#endif // ENABLE_RETRO_LABELS
+
+	// Do a DFS on the subgraph specified by both orders to get the final answer
+	searchQueueForward.push(u);
+  searchQueueBackward.push(v);
+	forwardId = ++DFSId;
+  backwardId = ++DFSId;
+  u->DFSId = forwardId;
+  v->DFSId = backwardId;
+
+	while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
+    if (!searchQueueForward.empty()) {
+      curr = searchQueueForward.front();
+      searchQueueForward.pop();
+
+      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel > v->orderLabel))
+          break;
+
+        if ((*it)->DFSId == backwardId) {
+          returnValue = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId != forwardId) {
+          (*it)->DFSId = forwardId;
+
+          if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
+            searchQueueForward.push(*it);
+        }
+      }
+    }
+
+    if (!searchQueueBackward.empty()) {
+      curr = searchQueueBackward.front();
+      searchQueueBackward.pop();
+
+      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel < u->orderLabel))
+          break;
+
+        if ((*it)->DFSId == forwardId) {
+          returnValue = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId != backwardId) {
+          (*it)->DFSId = backwardId;
+
+          if (((*it)->orderLabel > u->orderLabel) && ((*it)->reverseOrderLabel < u->reverseOrderLabel))
+            searchQueueBackward.push(*it);
+        }
+      }
+    }
+	}
+
+end:
+#ifdef ENABLE_STASTICS
+  (returnValue == NULL) ? negativeQueryCount++ : positiveQueryCount++;
+#endif // ENABLE_STATISTICS
+
+#ifdef ENABLE_PAPI_BENCHMARKS
+  long long counterValue;
+  PAPI_stop_counters(&counterValue, 1);
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+#endif // ENABLE_PAPI_BENCHMARKS
+
+  return returnValue;
+}
+
+
+bool
+Graph::areConnectedNoLabels(Vertex * u, Vertex * v) {
+  stack<Vertex *> toVisit;
+  Vertex * curr;
+
+  DFSId++;
+
+  toVisit.push(u);
+  u->DFSId = DFSId;
+
+  while (!toVisit.empty()) {
+    curr = toVisit.top();
+    toVisit.pop();
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if (*it == v)
+        return true;
+
+      if ((*it)->DFSId != DFSId) {
+        (*it)->DFSId = DFSId;
+        toVisit.push(*it);
+      }
+    }
+  }
+
+  return false;
+}
+
+
+bool
 Graph::indirectPathExists(Vertex * u, Vertex * v) {
   Vertex * currVertex;
   list<Vertex *> toVisit;
@@ -651,129 +789,6 @@ Graph::indirectPathExists(Vertex * u, Vertex * v) {
   }
 
   return false;
-}
-
-
-bool
-Graph::areConnectedDFS(Vertex * u, Vertex * v) {
-  stack<Vertex *> toVisit;
-  Vertex * curr;
-
-  DFSId++;
-
-  toVisit.push(u);
-  u->DFSId = DFSId;
-
-  while (!toVisit.empty()) {
-    curr = toVisit.top();
-    toVisit.pop();
-
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if (*it == v)
-        return true;
-
-      if ((*it)->DFSId != DFSId) {
-        (*it)->DFSId = DFSId;
-        toVisit.push(*it);
-      }
-    }
-  }
-
-  return false;
-}
-
-
-bool
-Graph::areConnectedBBFS(Vertex * u, Vertex * v) {
-  int forwardId, backwardId;
-  bool returnValue = false;
-	Vertex * curr;
-	queue<Vertex *> searchQueueForward;
-  queue<Vertex *> searchQueueBackward;
-
-  // Verify that the graph has been indexed
-  if (!indexed)
-    indexGraph();
-
-#ifdef ENABLE_PAPI_BENCHMARKS
-  PAPI_start_counters(benchmarkEvents, 1);
-#endif // ENABLE_PAPI_BENCHMARKS
-
-	// Are U and V the same vertex?
-	if (u == v) {
-    returnValue = true;
-    goto end;
-  }
-
-	// Can V be a descendant of U in the standard graph or U a descendant of V in
-  // the reverse graph?
-	if ((u->orderLabel > v->orderLabel) ||
-      (v->reverseOrderLabel > u->reverseOrderLabel))
-    goto end;
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((u->retroOrderLabel > v->retroOrderLabel) ||
-      (v->retroReverseOrderLabel > u->retroReverseOrderLabel))
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
-	// Do a DFS on the subgraph specified by both orders to get the final answer
-	searchQueueForward.push(u);
-  searchQueueBackward.push(v);
-	forwardId = ++DFSId;
-  backwardId = ++DFSId;
-  u->DFSId = forwardId;
-  v->DFSId = backwardId;
-
-	while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
-    if (!searchQueueForward.empty()) {
-      curr = searchQueueForward.front();
-      searchQueueForward.pop();
-
-      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-        if ((*it)->DFSId == backwardId) {
-          returnValue = true;
-          goto end;
-        }
-
-        if ((*it)->DFSId != forwardId) {
-          (*it)->DFSId = forwardId;
-
-          if (((*it)->orderLabel < v->orderLabel) && ((*it)->reverseOrderLabel > v->reverseOrderLabel))
-            searchQueueForward.push(*it);
-        }
-      }
-    }
-
-    if (!searchQueueBackward.empty()) {
-      curr = searchQueueBackward.front();
-      searchQueueBackward.pop();
-
-      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
-        if ((*it)->DFSId == forwardId) {
-          returnValue = true;
-          goto end;
-        }
-
-        if ((*it)->DFSId != backwardId) {
-          (*it)->DFSId = backwardId;
-
-          if (((*it)->orderLabel > u->orderLabel) && ((*it)->reverseOrderLabel > u->reverseOrderLabel))
-            searchQueueBackward.push(*it);
-        }
-      }
-    }
-	}
-
-end:
-#ifdef ENABLE_PAPI_BENCHMARKS
-  long long counterValue;
-  PAPI_stop_counters(&counterValue, 1);
-  cyclesSpentQuerying += counterValue;
-  queryNumber++;
-#endif // ENABLE_PAPI_BENCHMARKS
-
-  return returnValue;
 }
 
 
@@ -927,7 +942,7 @@ Graph::printBenchmarks(ostream &os) {
   os << "Speed performances:\n";
   os << "Cycles spent indexing: " << cyclesSpentIndexing << "\n";
   os << "Cycles spent querying: " << cyclesSpentQuerying << "\n";
-  os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query.\n\n";
+  os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query\n\n";
   os << "Memory usage: " << graphMemoryUsage << " kilo-bytes.\n";
   os << "Index memory requirement: " << indexMemoryUsage << " kilo-bytes\n";
   os.precision(2);
@@ -945,9 +960,9 @@ void
 Graph::labelVertices(bool retro, bool reverse) {
   int traversalMethod = 0;
 	int currLabel = 0;
-	stack<Vertex *> postOrder;
 	Vertex * nextVertex;
 	vector<Vertex *> * startVertices;;
+  vector<Vertex *> * postOrder = reverse ? &predecessorQueue : &successorQueue;
 
 #ifndef ENABLE_RETRO_LABELS
   // In case retro labels have not been compiled we should abort
@@ -958,24 +973,13 @@ Graph::labelVertices(bool retro, bool reverse) {
 	startVertices = reverse ? &sinks : &sources;
 
   // Compose the method used for post-order labeling
-  if (reverse) {
+  if (reverse)
     traversalMethod |= 0x01;
 
-    if (retro)
-      traversalMethod |= 0x04;
-    else if ((indexMethod & 0x02) && !(indexMethod & 0x04))
-      traversalMethod |= 0x02;
-  } else {
-    if (retro) {
-      traversalMethod |= 0x04;
-    } else {
-      if (indexMethod & 0x02)
-        traversalMethod |= 0x02;
-
-      if (indexMethod & 0x04)
-        traversalMethod |= 0x08;
-    }
-  }
+  if (retro)
+    traversalMethod |= 0x04;
+  else
+    traversalMethod |= (indexMethod & 0x02);
 
 	// Loop while there are unlabeled sources / sinks
 	for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
@@ -985,36 +989,23 @@ Graph::labelVertices(bool retro, bool reverse) {
 
 		// Run the DFS and use an iterative method to prevent memory overflow in large graphs
 		while (nextVertex)
-			nextVertex = nextVertex->createPostOrder(&postOrder, traversalMethod);
+			nextVertex = nextVertex->createPostOrder(postOrder, traversalMethod);
 	}
 
   // Label the vertices in reverse post-order
-  while (!postOrder.empty()) {
+  for (auto it = postOrder->rbegin(), end = postOrder->rend(); it != end; ++it) {
     if (retro) {
 #ifdef ENABLE_RETRO_LABELS
       if (reverse)
-        postOrder.top()->retroReverseOrderLabel = currLabel++;
+        (*it)->retroReverseOrderLabel = currLabel++;
       else
-        postOrder.top()->retroOrderLabel = currLabel++;;
-
-      postOrder.pop();
+        (*it)->retroOrderLabel = currLabel++;;
 #endif // ENABLE_RETRO_LABELS
     } else {
-      if (reverse) {
-        postOrder.top()->reverseOrderLabel = currLabel++;
-      } else {
-        if (indexMethod & 0x4) {
-          nextVertex = postOrder.top();
-          nextVertex->orderLabel = currLabel++;
-          for (auto it = nextVertex->predecessors.begin(), end = nextVertex->predecessors.end();
-              it != end; ++it)
-            (*it)->successors.push_back(nextVertex);
-        } else {
-          postOrder.top()->orderLabel = currLabel++;
-        }
-      }
-
-      postOrder.pop();
+      if (reverse)
+        (*it)->reverseOrderLabel = currLabel++;
+      else
+        (*it)->orderLabel = currLabel++;
     }
   }
 }
@@ -1043,12 +1034,42 @@ Graph::indexGraph() {
   // Second traversal
   labelVertices(false, true);
 
+  // When requested reorder the successors and predecessors in all vertices
+  if (indexMethod & 0x04) {
+    Vertex * curr;
+
+    while (!successorQueue.empty()) {
+      curr = successorQueue.back();
+      successorQueue.pop_back();
+
+      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it)
+        (*it)->successors.push_back(curr);
+
+      curr->successors.clear();
+    }
+
+    while (!predecessorQueue.empty()) {
+      curr = predecessorQueue.back();
+      predecessorQueue.pop_back();
+
+      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it)
+        (*it)->predecessors.push_back(curr);
+
+      curr->predecessors.clear();
+    }
+  } else {
+    successorQueue.clear();
+    predecessorQueue.clear();
+  }
 #ifdef ENABLE_RETRO_LABELS
   // Third traversal
   labelVertices(true, false);
 
   // Fourth traversal
   labelVertices(true, true);
+
+  successorQueue.clear();
+  predecessorQueue.clear();
 #endif // ENABLE_RETRO_LABELS
 
 #ifdef ENABLE_PAPI_BENCHMARKS

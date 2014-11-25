@@ -11,7 +11,6 @@ class Graph;
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
-#include <stack>
 #include <vector>
 
 //#define ENABLE_RETRO_LABELS
@@ -24,7 +23,7 @@ class Vertex;
 class Graph;
 
 
-/* Class declarations */
+// Class declarations
 class Vertex {
 friend class Graph;
 
@@ -34,19 +33,19 @@ public:
 
 // Data members
 public:
-	int id; /* A unique Vertex ID */
+	int id;
 
 private:
-	int orderLabel; /* Ordering in a reverse post-order traversal of the Graph */
-	int reverseOrderLabel; /* Ordering in a reverse post-order traversal of the inverse Graph */
+	int orderLabel;
+	int reverseOrderLabel;
 #ifdef ENABLE_RETRO_LABELS
   int retroOrderLabel;
   int retroReverseOrderLabel;
 #endif // ENABLE_RETRO_LABELS
 
-	int inVisits; /* Variable used in reverse post-order */
-	int outVisits; /* Variable used in reverse post-order */
-	int DFSId; /* Variable to distinguish between seperate DFSs */
+	int inVisits;
+	int outVisits;
+	int DFSId;
 
   Vertex * firstVisit;
 
@@ -80,8 +79,8 @@ public:
 
 private:
 	// Indexing
-	void visit(Vertex * pred, int method); /* Function used in post-order traversal */
-	Vertex * createPostOrder(stack<Vertex *> * postOrder, int method); /* Idem */
+	void visit(Vertex * pred, int method);
+	Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
 };
 
 
@@ -97,13 +96,13 @@ public:
     ShortIndexing = 0x00,
     SuccessorOrder = 0x02,
     Standard = 0x03,
-    DFSShortCut = 0x05,
+    LabelOrder = 0x07,
     UndefinedMethod = 0x10
   } IndexMethod;
 
 // Data members
 protected:
-	bool indexed; /* Indicates if the ordering of the graph has been done */
+	bool indexed;
   bool condensed;
   IndexMethod indexMethod;
   unsigned int edgeCount;
@@ -116,8 +115,13 @@ protected:
 	int DFSId;
 
 private:
+  // Flags
   bool statisticsEnabled;
   bool papiBenchmarksEnabled;
+
+  // Reordering vectors
+  vector<Vertex *> successorQueue;
+  vector<Vertex *> predecessorQueue;
 
 #ifdef ENABLE_STATISTICS
   // Counters
@@ -167,15 +171,10 @@ public:
   IndexMethod getIndexMethod(void);
 
 	// Queries
-  /* The query function returning NULL or the path connecting the vertices */
-	vector<Vertex *> * areConnected(Vertex * u, Vertex * v, vector<Vertex *> * path);
-
-  /* Find if two vertices are connected through a multi-hop path */
-  bool indirectPathExists(Vertex * u, Vertex * v);
-
-  /* Do a query without considering labels : standard DFS */
-  bool areConnectedDFS(Vertex * u, Vertex * v);
+	vector<Vertex *> * areConnectedDFS(Vertex * u, Vertex * v, vector<Vertex *> * path);
   bool areConnectedBBFS(Vertex * u, Vertex * V);
+  bool areConnectedNoLabels(Vertex * u, Vertex * v);
+  bool indirectPathExists(Vertex * u, Vertex * v);
 
   // Statistics
   bool statisticsAreEnabled(void);
