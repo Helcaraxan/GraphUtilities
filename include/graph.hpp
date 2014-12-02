@@ -14,13 +14,15 @@ class Graph;
 #include <vector>
 
 //#define ENABLE_RETRO_LABELS
-#define ENABLE_STATISTICS
-#define ENABLE_PAPI_BENCHMARKS
+//#define ENABLE_STATISTICS
+//#define ENABLE_PAPI_BENCHMARKS
 
 using namespace std;
 
 class Vertex;
 class Graph;
+class DFSlauncher;
+class BBFSlauncher;
 
 
 // Class declarations
@@ -100,6 +102,32 @@ public:
     UndefinedMethod = 0x10
   } IndexMethod;
 
+  typedef enum {
+    DFS,
+    BBFS,
+    NoLabels,
+    Undefined
+  } SearchMethod;
+
+private:
+  struct Query_t {
+    Vertex * source;
+    Vertex * target;
+    bool timed;
+    bool answer;
+    long long searchTime;
+
+    Query_t(Vertex * u, Vertex * v) :
+      source(u),
+      target(v),
+      timed(false),
+      answer(false),
+      searchTime(-1)
+    {}
+  };
+
+  typedef struct Query_t Query;
+
 // Data members
 protected:
 	bool indexed;
@@ -141,9 +169,6 @@ private:
   long long cyclesSpentIndexing;
   long long cyclesSpentQuerying;
   long long graphMemoryUsage;
-
-  // PAPI administration
-  int benchmarkEvents[1];
 #endif // ENABLE_PAPI_BENCHMARKS
 
 // Function members
@@ -171,9 +196,8 @@ public:
   IndexMethod getIndexMethod(void);
 
 	// Queries
-	vector<Vertex *> * areConnectedDFS(Vertex * u, Vertex * v, vector<Vertex *> * path);
-  bool areConnectedBBFS(Vertex * u, Vertex * V);
-  bool areConnectedNoLabels(Vertex * u, Vertex * v);
+  bool areConnected(Vertex * u, Vertex * v);
+  bool areConnected(Vertex * u, Vertex * v, SearchMethod method);
   bool indirectPathExists(Vertex * u, Vertex * v);
 
   // Statistics
@@ -196,7 +220,7 @@ public:
 protected:
 	// Indexing
 	void labelVertices(bool retro, bool reverse);
-	void indexGraph();
+	void indexGraph(void);
 
   // Maintenance
   void discoverExtremities(void);
@@ -206,13 +230,49 @@ private:
   // Maintenance
   void condenseFromSource(Vertex * source);
 
-#ifdef ENABLE_STATISTICS
+  // Internal query functions
+  void * areConnectedDFS(void * arg);
+  void * areConnectedBBFS(void * arg);
+  void * areConnectedNoLabels(void * arg);
+
+  // Declare launcher classes as friends
+  friend class DFSlauncher;
+  friend class BBFSlauncher;
+
   // Maintenance
   bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
+#ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
-  void registerQueryStatistics(vector<Vertex *> * path, uintmax_t searchedNodes);
+  void registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t searchedNodes);
 #endif // ENABLE_STATISTICS
 };
+
+
+class DFSlauncher {
+public:
+  void * runArg;
+  Graph * myGraph;
+
+  DFSlauncher(Graph * graph, void * arg);
+
+  void * runDFS(void);
+};
+
+
+class BBFSlauncher {
+public:
+  void * runArg;
+  Graph * myGraph;
+
+  BBFSlauncher(Graph * graph, void * arg);
+
+  void * runBBFS(void);
+};
+
+
+void * launchDFS(void * helper);
+void * launchBBFS(void * helper);
+
 
 #endif // GRAPH_HPP
