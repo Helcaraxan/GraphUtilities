@@ -13,9 +13,11 @@ class Graph;
 
 #include <vector>
 
-//#define ENABLE_RETRO_LABELS
-//#define ENABLE_STATISTICS
-//#define ENABLE_PAPI_BENCHMARKS
+// Let cmake choose which options are enabled
+#cmakedefine ENABLE_RETRO_LABELS
+#cmakedefine ENABLE_STATISTICS
+#cmakedefine ENABLE_BENCHMARKS
+
 
 using namespace std;
 
@@ -163,13 +165,13 @@ private:
   double negativeQueryOverhead;
 #endif // ENABLE_STATISTICS
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   // Counters
   long long queryNumber;
   long long cyclesSpentIndexing;
   long long cyclesSpentQuerying;
   long long graphMemoryUsage;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 // Function members
 public:

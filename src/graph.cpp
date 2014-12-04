@@ -18,10 +18,10 @@ using namespace std;
 
 // Local global variables
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
 static PAPI_dmem_info_t memoryInfo;
 static long long baseMemoryUsage;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 
 // Constructors & destructors
@@ -72,7 +72,7 @@ Graph::Graph(void) :
   statisticsEnabled = false;
 #endif // ENABLE_STATISTICS
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   queryNumber = 0;
   cyclesSpentIndexing = 0;
   cyclesSpentQuerying = 0;
@@ -82,9 +82,9 @@ Graph::Graph(void) :
     papiBenchmarksEnabled = false;
   else
     papiBenchmarksEnabled = true;
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   papiBenchmarksEnabled = false;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 }
 
 
@@ -290,10 +290,10 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   fstream input(fileName, fstream::in);
   Graph * graph = NULL;
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
   baseMemoryUsage = memoryInfo.resident;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   graph = new Graph();
 
@@ -341,10 +341,10 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   // Make sure the graph is a DAG
   graph->condenseGraph();
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
   graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   return graph;
 }
@@ -357,10 +357,10 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   fstream input(fileName, fstream::in);
   Graph *  graph = NULL;
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
   baseMemoryUsage = memoryInfo.resident;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   graph = new Graph();
 
@@ -419,10 +419,10 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   // Make sure the graph is a DAG
   graph->condenseGraph();
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
   graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   return graph;
 }
@@ -835,37 +835,37 @@ Graph::benchmarksAreEnabled(void) {
 
 long long
 Graph::getQueryNumber(void) {
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   return queryNumber;
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   return 0;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 }
 
 
 long long
 Graph::getCyclesSpentIndexing(void) {
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   return cyclesSpentIndexing;
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   return 0;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 }
 
 
 long long
 Graph::getCyclesSpentQuerying(void) {
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   return cyclesSpentQuerying;
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   return 0;
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 }
 
 
 void
 Graph::printBenchmarks(ostream &os) {
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   int indexMemoryUsage = (8 * vertices.size()) / 1024;
   double indexOverhead = ((double) indexMemoryUsage) / ((double) graphMemoryUsage - indexMemoryUsage);
   os << "\n---\nBenchmarking\n";
@@ -877,10 +877,10 @@ Graph::printBenchmarks(ostream &os) {
   os << "Index memory requirement: " << indexMemoryUsage << " kilo-bytes\n";
   os.precision(2);
   os << "Index memory overhead: " << indexOverhead * 100 << "%\n---\n\n";
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   os << "WARNING: Benchmarking has not been enabled at compile time.\n";
   os << "WARNING: To enable benchmarks uncomment the #define in the header file 'graph.h'.\n\n";
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 }
 
 
@@ -954,10 +954,10 @@ Graph::indexGraph() {
     exit(EXIT_FAILURE);
   }
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   int event = PAPI_TOT_CYC;
   PAPI_start_counters(&event, 1);
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   // First traversal
   labelVertices(false, false);
@@ -1003,9 +1003,9 @@ Graph::indexGraph() {
   predecessorQueue.clear();
 #endif // ENABLE_RETRO_LABELS
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&cyclesSpentIndexing, 1);
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
   indexed = true;
 }
@@ -1125,15 +1125,15 @@ Graph::areConnectedDFS(void * arg) {
   uintmax_t searchedNodes = 0;
 #endif // ENABLE_STATISTICS
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   int event = PAPI_TOT_CYC;
   PAPI_start_counters(&event, 1);
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   if (query->timed) {
     int event = PAPI_TOT_CYC;
     PAPI_start_counters(&event, 1);
   }
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 	// Are U and V the same vertex?
 	if (query->source == query->target) {
@@ -1209,7 +1209,7 @@ Graph::areConnectedDFS(void * arg) {
 	}
 
 end:
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   long long counterValue;
   PAPI_stop_counters(&counterValue, 1);
   if (query->timed) {
@@ -1218,13 +1218,13 @@ end:
     cyclesSpentQuerying += counterValue;
     queryNumber++;
   }
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   if (query->timed) {
     long long counterValue;
     PAPI_stop_counters(&counterValue, 1);
     query->searchTime = counterValue;
   }
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 #ifdef ENABLE_STATISTICS
   registerQueryStatistics(query->answer, path.size(), searchedNodes);
@@ -1242,15 +1242,15 @@ Graph::areConnectedBBFS(void * arg) {
 	queue<Vertex *> searchQueueForward;
   queue<Vertex *> searchQueueBackward;
 
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   int event = PAPI_TOT_CYC;
   PAPI_start_counters(&event, 1);
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   if (query->timed) {
     int event = PAPI_TOT_CYC;
     PAPI_start_counters(&event, 1);
   }
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 	// Are U and V the same vertex?
 	if (query->source == query->target) {
@@ -1335,7 +1335,7 @@ Graph::areConnectedBBFS(void * arg) {
 	}
 
 end:
-#ifdef ENABLE_PAPI_BENCHMARKS
+#ifdef ENABLE_BENCHMARKS
   long long counterValue;
   PAPI_stop_counters(&counterValue, 1);
   if (query->timed) {
@@ -1344,13 +1344,13 @@ end:
     cyclesSpentQuerying += counterValue;
     queryNumber++;
   }
-#else // ENABLE_PAPI_BENCHMARKS
+#else // ENABLE_BENCHMARKS
   if (query->timed) {
     long long counterValue;
     PAPI_stop_counters(&counterValue, 1);
     query->searchTime = counterValue;
   }
-#endif // ENABLE_PAPI_BENCHMARKS
+#endif // ENABLE_BENCHMARKS
 
 #ifdef ENABLE_STATISTICS
   query->answer ? negativeQueryCount++ : positiveQueryCount++;
