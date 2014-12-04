@@ -15,10 +15,13 @@ configure_file(
 	"${PROJECT_BINARY_DIR}/include/graph.hpp"
 	)
 
-# Set the compile options
-set(CMAKE_CXX_FLAGS "-std=c++11 -pedantic -Wall -O3")
+# Set the compile options depending on the build-type
+set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -g3")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -O3")
 
 # Include the code for building
 add_subdirectory(src)
 
+enable_testing()
+add_subdirectory(test)
 
