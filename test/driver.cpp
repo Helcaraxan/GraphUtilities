@@ -1,5 +1,7 @@
+#include <map>
 #include <chrono>
 #include <random>
+#include <thread>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -16,6 +18,11 @@ using namespace std;
 int dryFlag = 0;
 int uniqueFlag = 0;
 int verifyFlag = 0;
+bool poison = false;
+semaphore openQueries;
+map<Graph::Query *, bool> queryMap;
+vector<Graph::Query *> results;
+
 
 const struct option longopts[] = {
   {"input",     required_argument, 0, 'i'},
@@ -37,18 +44,102 @@ void
 printHelpMessage() {
   cout << "Usage: -i|--input=<input-file> [options]\n";
   cout << "File options:\n";
-  cout << "\t-o | --output= <output-file>\t\tFile to which query statistics and benchmarks are dumped (default: stdout)\n";
-  cout << "\t-t | --test= <test-file>\t\tFile from which queries are read (default: random queries)\n";
-  cout << "\t-g | --graph= <graph-dump-file>\t\tFile to which to dump the condensed graph with unique edges (default: no dump)\n";
-  cout << "\t-q | --queries= <query-dump-file>\tFile to which randomly generated queries should be dumpes (default: no dump)\n";
+  cout << "\t-o | --output=<output-file>\t\tFile to which query statistics and benchmarks are dumped (default: stdout)\n";
+  cout << "\t-t | --test=<test-file>\t\t\tFile from which queries are read (default: random queries)\n";
+  cout << "\t-g | --graph=<graph-dump-file>\t\tFile to which to dump the condensed graph with unique edges (default: no dump)\n";
+  cout << "\t-q | --queries=<query-dump-file>\tFile to which randomly generated queries should be dumpes (default: no dump)\n";
   cout << "\nQuery options:\n";
-  cout << "\t-m | --method= <index-method>\tMethod from <ShortIndexing|SuccessorOrder|Standard|LabelOrder> (default: Standard)\n";
-  cout << "\t-s | --search= <search-method>\tMethod from <DFS|BBFS> (default: automatically select the fastest for the graph)\n";
+  cout << "\t-m | --method=<index-method>\tMethod from <ShortIndexing|SuccessorOrder|Standard|LabelOrder> (default: Standard)\n";
+  cout << "\t-s | --search=<search-method>\tMethod from <DFS|BBFS> (default: automatically select the fastest for the graph)\n";
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
   cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large grpahs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
+}
+
+
+void
+queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
+  int i, a, b, res;
+  Graph::Query * newQuery = NULL;
+
+  // Fill the queries to process...
+  if (testFile->is_open()) {
+    cerr << "Parsing queries from a test file.\n";
+    // ... from the specified file
+    while (testFile->good()) {
+      (*testFile) >> a >> b >> res;
+
+      newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
+      queryMap[newQuery] = (res == 0 ? false : true);
+      graph->pushQuery(newQuery);
+      openQueries.post();
+    }
+
+    cerr << "Finished parsing queries from file.\n\n";
+
+    testFile->close();
+  } else {
+    // ... at random
+    default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
+    uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
+
+    for (i = 0; i < QUERY_NB; i++) {
+      a = queryDistribution(generator);
+      do {
+        b = queryDistribution(generator);
+      } while (a == b);
+
+      if (a < b)
+        newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
+      else
+        newQuery = new Graph::Query(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
+
+      queryMap.insert(pair<Graph::Query *, bool>(newQuery, false));
+      graph->pushQuery(newQuery);
+      openQueries.post();
+    }
+  }
+
+  poison = true;
+  openQueries.post();
+  return;
+}
+
+
+void
+resultAnalysis(Graph * graph, fstream * queryFile) {
+  Graph::Query * nextQuery = NULL;
+  map<Graph::Query *, bool>::iterator mapIt;
+
+  while (true) {
+    openQueries.wait();
+
+    if (poison && (queryMap.size() == results.size()))
+      break;
+
+    nextQuery = graph->pullResult();
+    mapIt = queryMap.find(nextQuery);
+
+    if (nextQuery->isError()) {
+      cerr << "Error when processing query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
+    } else if (verifyFlag) {
+      if (nextQuery->getAnswer() != mapIt->second)
+        cerr << "Wrong answer for query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
+    } else if (queryFile->is_open()) {
+      (*queryFile) << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
+      if (mapIt->second)
+        (*queryFile) << "1\n";
+      else
+        (*queryFile) << "0\n";
+    }
+
+    results.push_back(nextQuery);
+  }
+
+  if (queryFile->is_open())
+    queryFile->close();
 }
 
 
@@ -59,11 +150,8 @@ main(int argc, char * argv[]) {
   Graph::SearchMethod searchMethod = Graph::Undefined;
   fstream outputFile, testFile, dumpFile, queryFile;
   ostream * output = &cout;
-  int i, a, b, c, dump;
+  int i, c;
   char fileName[512] = {'\0'};
-  vector<Vertex *> queryU;
-  vector<Vertex *> queryV;
-  vector<bool> queryR;
 
   // Parse command-line options
   while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvud", longopts, NULL)) != -1) {
@@ -195,74 +283,14 @@ main(int argc, char * argv[]) {
   if (dryFlag)
     exit(EXIT_SUCCESS);
 
-  // Fill the queries to process...
-  if (testFile.is_open()) {
-    cerr << "Parsing queries from a test file.\n";
-    // ... from the specified file
-    while (testFile.good()) {
-      testFile >> a >> b >> dump;
-      queryU.push_back(graph->getVertexFromId(a));
-      queryV.push_back(graph->getVertexFromId(b));
-    }
+  // Process the queries with two threads
+  thread pushThread(queryGenerator, graph, &testFile, searchMethod);
+  thread pullThread(resultAnalysis, graph, &queryFile);
 
-    cerr << "Finished parsing queries from file.\n\n";
-
-    testFile.close();
-  } else {
-    // ... at random
-    default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
-    uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
-
-    for (i = 0; i < QUERY_NB; i++) {
-      a = queryDistribution(generator);
-      do {
-        b = queryDistribution(generator);
-      } while (a == b);
-
-      if (a < b) {
-        queryU.push_back(graph->getVertexFromId(a));
-        queryV.push_back(graph->getVertexFromId(b));
-      } else  {
-        queryU.push_back(graph->getVertexFromId(b));
-        queryV.push_back(graph->getVertexFromId(a));
-      }
-    }
-  }
-
-  // Perform the queries
-  for (i = 0; i < (int) queryU.size(); i++) {
-    bool verifyValue = false;
-    bool result;
-
-    switch (searchMethod) {
-      case Graph::Undefined:
-        result = graph->areConnected(queryU[i], queryV[i]);
-        break;
-      default:
-        result = graph->areConnected(queryU[i], queryV[i], searchMethod);
-    }
-    
-    if (verifyFlag) {
-      verifyValue = graph->areConnected(queryU[i], queryV[i], Graph::NoLabels);
-
-      if (verifyValue != result)
-        cerr << "Erroneous result for " << queryU[i]->id << " -> " << queryV[i]->id << "\n";
-    }
-
-    queryR.push_back(verifyFlag ? verifyValue : result);
-  }
-
-  // Dump the queries and their results to a new test file
-  if (queryFile.is_open()) {
-    for (i = 0; i < (int) queryU.size(); i++) {
-      queryFile << queryU[i]->id << " " << queryV[i]->id << " ";
-      if (queryR[i])
-        queryFile << "1\n";
-      else
-        queryFile << "0\n";
-    }
-    queryFile.close();
-  }
+  // Wait for the queries to be issued and treated
+  pushThread.join();
+  pullThread.join();
+  graph->endOfQueries();
 	
   // Dump the statistics of the queries...
   if (graph->statisticsAreEnabled())

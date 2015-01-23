@@ -1,15 +1,14 @@
 #include <map>
 #include <set>
-#include <list>
 #include <queue>
 #include <stack>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <iostream>
 
 #include <papi.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #include "graph.hpp"
 
@@ -23,90 +22,7 @@ static PAPI_dmem_info_t memoryInfo;
 static long long baseMemoryUsage;
 #endif // ENABLE_BENCHMARKS
 
-
-// Constructors & destructors
-
-Vertex::Vertex(int i) :
-	id(i),
-	orderLabel(-1),
-	reverseOrderLabel(-1),
-#ifdef ENABLE_RETRO_LABELS
-  retroOrderLabel(-1),
-  retroReverseOrderLabel(-1),
-#endif // ENABLE_RETRO_LABELS
-	inVisits(0),
-	outVisits(0),
-	DFSId(0),
-  firstVisit(NULL),
-  predecessorCount(0),
-  successorCount(0)
-{}
-
-
-Vertex::~Vertex(void)
-{
-  for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it)
-    (*it)->removeSuccessor(this);
-
-  for (auto it = successors.begin(), end = successors.end(); it != end; ++it)
-    (*it)->removePredecessor(this);
-}
-
-
-Graph::Graph(void) :
-	indexed(false),
-  condensed(false),
-  indexMethod(UndefinedMethod),
-  edgeCount(0),
-	DFSId(0)
-{
-#ifdef ENABLE_STATISTICS
-  statisticsEnabled = true;
-  queryCount = 0;
-  positiveQueryCount = 0;
-  negativeQueryCount = 0;
-  shortNegativeQueryCount = 0;
-  positiveQueryOverhead = 0.0L;
-  negativeQueryOverhead = 0.0L;
-#else // ENABLE_STATISTICS
-  statisticsEnabled = false;
-#endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_BENCHMARKS
-  queryNumber = 0;
-  cyclesSpentIndexing = 0;
-  cyclesSpentQuerying = 0;
-  graphMemoryUsage = 0;
-
-  if (PAPI_num_counters() < 1)
-    papiBenchmarksEnabled = false;
-  else
-    papiBenchmarksEnabled = true;
-#else // ENABLE_BENCHMARKS
-  papiBenchmarksEnabled = false;
-#endif // ENABLE_BENCHMARKS
-}
-
-
-Graph::~Graph(void) {
-	for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
-		delete *it;
-
-	vertices.clear();
-}
-
-
-DFSlauncher::DFSlauncher(Graph * graph, void * arg) :
-  runArg(arg),
-  myGraph(graph)
-{}
-
-
-BBFSlauncher::BBFSlauncher(Graph * graph, void * arg) :
-  runArg(arg),
-  myGraph(graph)
-{}
-
+thread_local int threadId;
 
 
 // Modificators
@@ -116,14 +32,14 @@ Vertex::addPredecessor(Vertex * pred) {
   if (pred == this)
     return false;
 
-	for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
-		if (*it == pred)
-			return false;
-	}
-	
-	predecessors.push_back(pred);
+  for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
+    if (*it == pred)
+      return false;
+  }
+  
+  predecessors.push_back(pred);
   predecessorCount++;
-	return true;
+  return true;
 }
 
 
@@ -132,14 +48,14 @@ Vertex::addSuccessor(Vertex * succ) {
   if (succ == this)
     return false;
 
-	for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
-		if (*it == succ)
-			return false;
-	}
+  for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
+    if (*it == succ)
+      return false;
+  }
 
-	successors.push_back(succ);
+  successors.push_back(succ);
   successorCount++;
-	return true;
+  return true;
 }
 
 
@@ -220,18 +136,18 @@ Vertex::successors_end() {
  */
 void
 Vertex::visit(Vertex * pred, int method) {
-	// Reinitialize in case we are at the start of a new labeling traversal
-	if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
-		inVisits = 0;
-		outVisits = 0;
-	}
+  // Reinitialize in case we are at the start of a new labeling traversal
+  if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
+    inVisits = 0;
+    outVisits = 0;
+  }
   
   // Register the first visiting node
   if (inVisits == 0)
     firstVisit = pred;
 
   // If this is the first vertex to be visited (source vertex) then return
-	if (!pred)
+  if (!pred)
     return;
     
   // Clear the vector that should be reordered when requested
@@ -253,28 +169,54 @@ Vertex::visit(Vertex * pred, int method) {
 Vertex *
 Vertex::createPostOrder(vector<Vertex *> * postOrder, int method) {
   int visitIndex, visitNumber;
-	vector<Vertex *> * nextVertices;
+  vector<Vertex *> * nextVertices;
 
   // Determine what is up and what is down depending on the reverse boolean
-	nextVertices = (method & 0x01) ? &predecessors : &successors;
+  nextVertices = (method & 0x01) ? &predecessors : &successors;
   visitNumber = (method & 0x01) ? predecessorCount : successorCount;
 
   // Visit all the child vertices
-	while (outVisits < visitNumber) {
+  while (outVisits < visitNumber) {
     visitIndex = (method & 0x04) ? visitNumber - outVisits - 1 : outVisits;
-		(*nextVertices)[visitIndex]->visit(this, method);
+    (*nextVertices)[visitIndex]->visit(this, method);
 
     outVisits++;
 
-		if ((*nextVertices)[visitIndex]->inVisits == 1)
-			return (*nextVertices)[visitIndex];
-	}
+    if ((*nextVertices)[visitIndex]->inVisits == 1)
+      return (*nextVertices)[visitIndex];
+  }
 
   // Push the vertex on the stack only when all children have been visited
-	postOrder->push_back(this);
+  postOrder->push_back(this);
 
   // Return the predecessor from which the first visit to this vertex was made
   return firstVisit;
+}
+
+
+// Query declarations
+
+Vertex *
+Graph::Query::getSource() {
+  return source;
+}
+
+
+Vertex *
+Graph::Query::getTarget() {
+  return target;
+}
+
+
+bool
+Graph::Query::getAnswer() {
+  return answer;
+}
+
+
+bool
+Graph::Query::isError() {
+  return error;
 }
 
 
@@ -320,7 +262,7 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
       sscanf(dump, "%d -> %d", &source, &target);
       maxId = source < target ? target : source;
       while (graph->vertices.size() <= (unsigned) maxId)
-        graph->addVertex();
+        graph->addVertexUnsafe();
 
       if (noDoubleEdges)
         graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
@@ -379,7 +321,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   // Create all vertices
   for (int i = 0; i < lineNumber; i++)
-    graph->addVertex();
+    graph->addVertexUnsafe();
 
   // Parse the adjacency list
   for (int i = 0; i < lineNumber; i++) {
@@ -432,13 +374,17 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
 Vertex *
 Graph::addVertex(void) {
-	int id = vertices.size();;
-	Vertex * newVertex = new Vertex(id);
+  startGlobalOperation();
 
-	vertices.push_back(newVertex);
+  int id = vertices.size();;
+  Vertex * newVertex = new Vertex(id);
+
+  vertices.push_back(newVertex);
   indexed = false;
 
-	return newVertex;
+  stopGlobalOperation();
+
+  return newVertex;
 }
 
 
@@ -453,6 +399,8 @@ Graph::removeVertex(Vertex * v) {
 
 void
 Graph::mergeVertices(Vertex * s, Vertex * t) {
+  startGlobalOperation();
+
   for (auto it = s->predecessors.begin(), end = s->predecessors.end(); it != end; ++it)
     t->addPredecessor(*it);
 
@@ -461,25 +409,32 @@ Graph::mergeVertices(Vertex * s, Vertex * t) {
 
   removeVertex(s);
   indexed = false;
+
+  stopGlobalOperation();
 }
 
 
 bool
 Graph::addEdge(Vertex * source, Vertex * target) {
-	if (!source->addSuccessor(target))
-		return false;
+  startGlobalOperation();
 
-	target->addPredecessor(source);
+  if (!source->addSuccessor(target))
+    return false;
+
+  target->addPredecessor(source);
   edgeCount++;
   indexed = false;
   condensed = false;
 
-	return true;
+  stopGlobalOperation();
+  return true;
 }
 
 
 bool
 Graph::removeEdge(Vertex * source, Vertex * target) {
+  startGlobalOperation();
+
   if (!source->removeSuccessor(target))
     return false;
 
@@ -487,6 +442,8 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
   edgeCount--;
 
   return true;
+
+  startGlobalOperation();
 }
 
 
@@ -524,15 +481,14 @@ Graph::getIndexMethod() {
 
 // Queries
 
-bool
-Graph::areConnected(Vertex * u, Vertex * v) {
-  static Graph::SearchMethod preferredMethod = Undefined;
-  static int DFSwin = 0;
-  static int BBFSwin = 0;
-  static long long totalDFStime = 0;
-  static long long totalBBFStime = 0;
-  static struct timespec backoffSpan = {0, 1000};
-  Query query(u, v);
+void
+Graph::pushQuery(Query * query) {
+  static atomic<Graph::SearchMethod> preferredMethod{Undefined};
+  static atomic<int> DFSwin{0};
+  static atomic<int> BBFSwin{0};
+  unique_lock<mutex> jobLock(jobMutex, defer_lock);
+  unique_lock<mutex> resultLock(resultMutex, defer_lock);
+  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
 
   // Verify that the graph has been indexed
   if (!indexed) {
@@ -542,192 +498,141 @@ Graph::areConnected(Vertex * u, Vertex * v) {
     BBFSwin = 0;
   }
 
-  // If there is no preferred method yet then find one
+  // If a method is specified use it
+  if (query->method != Undefined) {
+    jobLock.lock();
+    jobQueue.push_back(query);
+    jobSemaphore.post();
+    jobLock.unlock();
+    return;
+  }
+
+  // Else select the method automatically. If there is no
+  // preferred method yet then find one.
   if (preferredMethod == Undefined) {
-    int joinCode;
-    bool DFSresult = false;
-    bool BBFSresult = false;
-    pthread_t queryThread;
-    long long DFStime = 0;
-    long long BBFStime = 0;
-    DFSlauncher DFSindirection(this, (void *) &query);
-    BBFSlauncher BBFSindirection(this, (void *) &query);
+    Query * result = NULL;
+    Query DFSQuery(query->source, query->target, DFS);
+    Query BBFSQuery(query->source, query->target, BBFS);
 
-    PAPI_library_init(PAPI_VER_CURRENT);
-    query.timed = true;
+    DFSQuery.internal = true;
+    BBFSQuery.internal = true;
 
-    while ((DFStime == 0) && (BBFStime == 0)) {
-      // Perform a DFS query with a timeout
-      pthread_create(&queryThread, NULL, &launchDFS, (void *) &DFSindirection);
-      joinCode = pthread_timedjoin_np(queryThread, NULL, &backoffSpan);
+    jobLock.lock();
+    jobQueue.push_back(&DFSQuery);
+    jobQueue.push_back(&BBFSQuery);
+    jobSemaphore.post();
+    jobSemaphore.post();
+    jobLock.unlock();
 
-      if (joinCode == ETIMEDOUT) {
-        pthread_cancel(queryThread);
-        pthread_join(queryThread, NULL);
-      } else {
-        DFStime = query.searchTime;
-        totalDFStime += DFStime;
-        DFSresult = query.answer;
-      }
+    // Wait for the first result
+    while ((result != &DFSQuery) && (result != &BBFSQuery)) {
+      internalResultSemaphore.wait();
 
-      // Reset the query structure
-      query.searchTime = -1;
-      query.answer = false;
-
-      // Perform a BBFS query with a timeout
-      pthread_create(&queryThread, NULL, &launchBBFS, (void *) &BBFSindirection);
-      joinCode = pthread_timedjoin_np(queryThread, NULL, &backoffSpan);
-
-      if (joinCode == ETIMEDOUT) {
-        pthread_cancel(queryThread);
-        pthread_join(queryThread, NULL);
-      } else {
-        BBFStime = query.searchTime;
-        totalBBFStime += BBFStime;
-        BBFSresult = query.answer;
-      }
-
-      if ((DFStime == 0) && (BBFStime == 0)) {
-        // Apply a factor 10 backoff to the timeout limit
-        if (backoffSpan.tv_sec > 0)
-          backoffSpan.tv_sec *= 10;
-        else
-          backoffSpan.tv_nsec *= 10;
-
-        if (backoffSpan.tv_nsec == 1000000000) {
-          backoffSpan.tv_sec = 1;
-          backoffSpan.tv_nsec = 0;
+      internalResultLock.lock();
+      for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it) {
+        if (((*it) == &DFSQuery) || ((*it) == &BBFSQuery)) {
+          result = *it;
+          internalResultQueue.erase(it);
+          break;
         }
       }
+      internalResultSemaphore.post();
+      internalResultLock.unlock();
     }
+
+    // Cancel the jobs to stop the worker threads
+    DFSQuery.cancel = true;
+    BBFSQuery.cancel = true;
 
     // Only register winning search method on positive queries
-    if (DFSresult || BBFSresult) {
-      if (BBFStime == 0)
-        DFSwin++;
-      else if (DFStime == 0)
-        BBFSwin++;
-      else if (DFStime < BBFStime)
-        DFSwin++;
-      else
-        BBFSwin++;
-
-      if (DFSwin == 10) {
-        preferredMethod = DFS;
-        cerr << "\nMulti-thread calibration chose DFS as search-method.\n";
-        cerr << "Average search time was " << totalDFStime / 10 << " cycles per query\n\n";
-      } else if (BBFSwin == 10) {
-        preferredMethod = BBFS;
-        cerr << "\nMulti-thread calibration chose BBFS as search-method.\n";
-        cerr << "Average search time was " << totalBBFStime / 10 << " cycles per query\n\n";
-      }
+    if (result == &DFSQuery) {
+      DFSwin++;
+      query->answer = DFSQuery.answer;
+      query->method = DFS;
+    } else if (result == &BBFSQuery) {
+      BBFSwin++;
+      query->answer = BBFSQuery.answer;
+      query->method = BBFS;
     }
 
-    if (BBFStime == 0)
-      return DFSresult;
-    else
-      return BBFSresult;
+    resultLock.lock();
+    resultQueue.push_back(query);
+    resultSemaphore.post();
+    resultLock.unlock();
+
+    if (DFSwin == 10) {
+      preferredMethod = DFS;
+      cerr << "\nMulti-thread calibration chose DFS as search-method.\n";
+    } else if (BBFSwin == 10) {
+      preferredMethod = BBFS;
+      cerr << "\nMulti-thread calibration chose BBFS as search-method.\n";
+    }
+
+    // Clean-up
+    if (result == &DFSQuery)
+      result = &BBFSQuery;
+    else if (result == &BBFSQuery)
+      result = &DFSQuery;
+
+    if (!result->error) {
+      internalResultSemaphore.wait();
+
+      internalResultLock.lock();
+      for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it) {
+        if ((*it) == result) {
+          internalResultQueue.erase(it);
+          result = *it;
+          break;
+        }
+      }
+      internalResultLock.unlock();
+    }
+  } else {
+    query->method = preferredMethod;
+
+    jobLock.lock();
+    jobQueue.push_back(query);
+    jobSemaphore.post();
+    jobLock.unlock();
   }
 
-  // If there is a preferred method use it
-  switch (preferredMethod) {
-    case DFS:
-      areConnectedDFS((void *) &query);
-      return query.answer;
-      break;
-
-    case BBFS:
-      areConnectedBBFS((void *) &query);
-      return query.answer;
-      break;
-
-    case NoLabels:
-      areConnectedNoLabels((void *) &query);
-      return query.answer;
-      break;
-
-    case Undefined:
-      cerr << "\nError: the impossible has happened!\n\n";
-      exit(EXIT_FAILURE);
-  }
-
-  // Dummy return value
-  return false;
+  return;
 }
 
 
-bool
-Graph::areConnected(Vertex * u, Vertex * v, Graph::SearchMethod method) {
-  Query query(u, v);
-  // Verify that the graph has been indexed
-  if (!indexed)
-    indexGraph();
+Graph::Query *
+Graph::pullResult() {
+  Query * result = NULL;
+  unique_lock<mutex> resultLock(resultMutex, defer_lock);
 
-  switch (method) {
-    case DFS:
-      areConnectedDFS((void *) &query);
-      return query.answer;
-      break;
+  resultSemaphore.wait();
+  resultLock.lock();
+  result = resultQueue.front();
+  resultQueue.pop_front();
+  resultLock.unlock();
 
-    case BBFS:
-      areConnectedBBFS((void *) &query);
-      return query.answer;
-      break;
-
-    case NoLabels:
-      areConnectedNoLabels((void *) &query);
-      return query.answer;
-      break;
-
-    case Undefined:
-      cerr << "Error : tries to perform a query with an undefined method.\n";
-      exit(EXIT_FAILURE);
-  }
-
-  // Dummy return value
-  return false;
+  return result;
 }
 
 
-bool
-Graph::indirectPathExists(Vertex * u, Vertex * v) {
-  Vertex * currVertex;
-  list<Vertex *> toVisit;
-  set<Vertex *> scheduled;
+void
+Graph::endOfQueries() {
+  threadShutdown = true;
 
-  // Fill up the initial toVisit list
-  for (auto it = u->successors.begin(), end = u->successors.end(); it != end; ++it) {
-    if (*it != v) {
-      toVisit.push_back(*it);
-      scheduled.insert(*it);
-    }
-  }
-
-  while (!toVisit.empty()) {
-    currVertex = toVisit.front();
-    toVisit.pop_front();
-
-    for (auto it = currVertex->successors.begin(), end = currVertex->successors.end(); it != end; ++it) {
-      if (*it == v)
-        return true;
-
-      if (scheduled.count(*it) == 0) {
-        toVisit.push_front(*it);
-        scheduled.insert(*it);
-      }
-    }
-  }
-
-  return false;
+  for (int i = 0; i < MAX_THREADS; i++)
+    jobSemaphore.post();
 }
 
 
 // Benchmark statistics
 
 bool
-Graph::statisticsAreEnabled()
-{
-  return statisticsEnabled;
+Graph::statisticsAreEnabled() {
+#ifdef ENABLE_STATISTICS
+  return true;
+#else // ENABLE_STATISTICS
+  return false;
+#endif // ENABLE_STATISTICS
 }
 
 
@@ -829,7 +734,11 @@ Graph::printStatistics(ostream &os) {
 
 bool
 Graph::benchmarksAreEnabled(void) {
-  return papiBenchmarksEnabled;
+#ifdef ENABLE_BENCHMARKS
+  return true;
+#else // ENABLE_BENCHMARKS
+  return false;
+#endif // ENABLE_BENCHMARKS
 }
 
 
@@ -889,9 +798,9 @@ Graph::printBenchmarks(ostream &os) {
 void
 Graph::labelVertices(bool retro, bool reverse) {
   int traversalMethod = 0;
-	int currLabel = 0;
-	Vertex * nextVertex;
-	vector<Vertex *> * startVertices;;
+  int currLabel = 0;
+  Vertex * nextVertex;
+  vector<Vertex *> * startVertices;;
   vector<Vertex *> * postOrder = reverse ? &predecessorQueue : &successorQueue;
 
 #ifndef ENABLE_RETRO_LABELS
@@ -900,7 +809,7 @@ Graph::labelVertices(bool retro, bool reverse) {
     return;
 #endif // ENABLE_RETRO_LABELS
 
-	startVertices = reverse ? &sinks : &sources;
+  startVertices = reverse ? &sinks : &sources;
 
   // Compose the method used for post-order labeling
   if (reverse)
@@ -911,16 +820,16 @@ Graph::labelVertices(bool retro, bool reverse) {
   else
     traversalMethod |= (indexMethod & 0x02);
 
-	// Loop while there are unlabeled sources / sinks
-	for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
-		// Initialize
-		nextVertex = *it;
-		(*it)->visit(NULL, traversalMethod);
+  // Loop while there are unlabeled sources / sinks
+  for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
+    // Initialize
+    nextVertex = *it;
+    (*it)->visit(NULL, traversalMethod);
 
-		// Run the DFS and use an iterative method to prevent memory overflow in large graphs
-		while (nextVertex)
-			nextVertex = nextVertex->createPostOrder(postOrder, traversalMethod);
-	}
+    // Run the DFS and use an iterative method to prevent memory overflow in large graphs
+    while (nextVertex)
+      nextVertex = nextVertex->createPostOrder(postOrder, traversalMethod);
+  }
 
   // Label the vertices in reverse post-order
   for (auto it = postOrder->rbegin(), end = postOrder->rend(); it != end; ++it) {
@@ -943,7 +852,12 @@ Graph::labelVertices(bool retro, bool reverse) {
 
 void
 Graph::indexGraph() {
-	// Make sure we are indexing a DAG
+  unique_lock<mutex> indexLock(indexMutex);
+
+  if (indexed)
+    return;
+
+  // Make sure we are indexing a DAG
   condenseGraph();
 
   // Make sure we discovered the sources
@@ -1004,7 +918,9 @@ Graph::indexGraph() {
 #endif // ENABLE_RETRO_LABELS
 
 #ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&cyclesSpentIndexing, 1);
+  long long indexCycles;
+  PAPI_stop_counters(&indexCycles, 1);
+  cyclesSpentIndexing = indexCycles;
 #endif // ENABLE_BENCHMARKS
 
   indexed = true;
@@ -1018,13 +934,13 @@ Graph::discoverExtremities() {
   sources.clear();
   sinks.clear();
 
-	for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-		if ((*it)->predecessors.empty())
-			sources.push_back(*it);
+  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
+    if ((*it)->predecessors.empty())
+      sources.push_back(*it);
 
     if ((*it)->successors.empty())
       sinks.push_back(*it);
-	}
+  }
 }
 
 
@@ -1038,11 +954,11 @@ Graph::condenseGraph() {
   cout << " vertices and " << edgeCount << " edges.\n\n";
 
   // Prepare for the upcoming DFSs
-  DFSId++;
+  DFSId[0]++;
 
   // Iterate over the vertices and condense
   for (auto it = vertices.begin(); it != vertices.end(); ++it) {
-    if ((*it)->DFSId != DFSId)
+    if ((*it)->DFSId[0] != DFSId[0])
       condenseFromSource(*it);
   }
 
@@ -1053,6 +969,373 @@ Graph::condenseGraph() {
 }
 
 
+// Multi-threading
+void
+Graph::startQuery() {
+  unique_lock<mutex> queryLock(queryWaitMutex);
+
+  if (noQueries)
+    queryWaitCondition.wait(queryLock);
+
+  activeThreads++;
+  queryLock.unlock();
+}
+
+
+void
+Graph::stopQuery() {
+  activeThreads--;
+
+  if (noQueries && (activeThreads == 0)) {
+    unique_lock<mutex> globalLock(globalWaitMutex);
+    globalWaitCondition.notify_one();
+    globalLock.unlock();
+  }
+}
+
+
+void
+Graph::startGlobalOperation() {
+  unique_lock<mutex> queryLock(queryWaitMutex);
+  noQueries = true;
+  queryLock.unlock();
+
+  unique_lock<mutex> globalLock(globalWaitMutex);
+  if (activeThreads > 0)
+    globalWaitCondition.wait(globalLock);
+
+  globalLock.unlock();
+}
+
+
+void
+Graph::stopGlobalOperation() {
+  unique_lock<mutex> lock(queryWaitMutex);
+  noQueries = false;
+
+  queryWaitCondition.notify_all();
+  lock.unlock();
+}
+
+
+// Internal query functions
+
+/* Use the previously done indexation to answer to the query */
+void *
+Graph::areConnectedDFS(void * arg) {
+  Query * query = (Query *) arg;
+  Vertex * curr;
+  stack<Vertex *> searchStack;
+
+#ifdef ENABLE_STATISTICS
+  vector<Vertex *> path;
+  uintmax_t searchedNodes = 0;
+#endif // ENABLE_STATISTICS
+
+#ifdef ENABLE_BENCHMARKS
+  int event = PAPI_TOT_CYC;
+  long long counterValue;
+  PAPI_start_counters(&event, 1);
+#endif // ENABLE_BENCHMARKS
+
+  // Are U and V the same vertex?
+  if (query->source == query->target) {
+#ifdef ENABLE_STATISTICS
+    searchedNodes++;
+    path.push_back(query->source);
+#endif // ENABLE_STATISTICS
+    query->answer = true;
+    goto end;
+  }
+
+  // Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+  if ((query->source->orderLabel > query->target->orderLabel) ||
+      (query->target->reverseOrderLabel > query->source->reverseOrderLabel))
+    goto end;
+
+#ifdef ENABLE_RETRO_LABELS
+  if ((query->source->retroOrderLabel > query->target->retroOrderLabel) ||
+      (query->target->retroReverseOrderLabel > query->source->retroReverseOrderLabel))
+    goto end;
+#endif // ENABLE_RETRO_LABELS
+
+  // Do a DFS on the subgraph specified by both orders to get the final answer
+  searchStack.push(query->source);
+  DFSId[threadId]++;
+
+  while (!searchStack.empty()) {
+    if (query->cancel)
+      goto cancel;
+
+    curr = searchStack.top();
+
+#ifdef ENABLE_STATISTICS
+    if (!path.empty() && (curr == path.back())) {
+      path.pop_back();
+      searchStack.pop();
+      continue;
+    }
+
+    searchedNodes++;
+    path.push_back(curr);
+#else // ENABLE_STATISTICS
+    searchStack.pop();
+#endif // ENABLE_STATISTICS
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if ((indexMethod & 0x04) && ((*it)->orderLabel > query->target->orderLabel))
+        break;
+
+      if (*it == query->target) {
+#ifdef ENABLE_STATISTICS
+        searchedNodes++;
+        path.push_back(query->target);
+#endif // ENABLE_STATISTICS
+
+        query->answer = true;
+        goto end;
+      }
+
+      if ((*it)->DFSId[threadId] != DFSId[threadId]) {
+        (*it)->DFSId[threadId] = DFSId[threadId];
+
+#ifdef ENABLE_RETRO_LABELS
+        if (((*it)->orderLabel < query->target->orderLabel) &&
+            ((*it)->reverseOrderLabel > query->target->reverseOrderLabel) &&
+            ((*it)->retroOrderLabel < query->target->retroOrderLabel) &&
+            ((*it)->retroReverseOrderLabel > query->target->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+        if (((*it)->orderLabel < query->target->orderLabel) &&
+            ((*it)->reverseOrderLabel > query->target->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+          searchStack.push(*it);
+      }
+    }
+  }
+
+end:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+#endif // ENABLE_BENCHMARKS
+
+#ifdef ENABLE_STATISTICS
+  registerQueryStatistics(query->answer, path.size(), searchedNodes);
+#endif // ENABLE_STATISTICS
+
+  checkIdOverflow();
+
+  return arg;
+
+cancel:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+#endif // ENABLE_BENCHMARKS
+  
+  checkIdOverflow();
+  query->error = true;
+
+  return arg;
+}
+
+
+void *
+Graph::areConnectedBBFS(void * arg) {
+  int forwardId, backwardId;
+  Vertex * curr;
+  Query * query = (Query *) arg;
+  queue<Vertex *> searchQueueForward;
+  queue<Vertex *> searchQueueBackward;
+
+#ifdef ENABLE_BENCHMARKS
+  int event = PAPI_TOT_CYC;
+  long long counterValue;
+  PAPI_start_counters(&event, 1);
+#endif // ENABLE_BENCHMARKS
+
+  // Are U and V the same vertex?
+  if (query->source == query->target) {
+    query->answer = true;
+    goto end;
+  }
+
+  // Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+  if ((query->source->orderLabel > query->target->orderLabel) ||
+      (query->target->reverseOrderLabel > query->source->reverseOrderLabel)) {
+#ifdef ENABLE_STATISTICS
+    shortNegativeQueryCount++;
+#endif //ENABLE_STATISTICS
+    goto end;
+  }
+
+#ifdef ENABLE_RETRO_LABELS
+  if ((query->source->retroOrderLabel > query->target->retroOrderLabel) ||
+      (query->target->retroReverseOrderLabel > query->source->retroReverseOrderLabel)) {
+#ifdef ENABLE_STATISTICS
+    shortNegativeQueryCount++;
+#endif // ENABLE_STATISTICS
+    goto end;
+  }
+#endif // ENABLE_RETRO_LABELS
+
+  // Do a DFS on the subgraph specified by both orders to get the final answer
+  searchQueueForward.push(query->source);
+  searchQueueBackward.push(query->target);
+  forwardId = ++DFSId[threadId];
+  backwardId = ++DFSId[threadId];
+  query->source->DFSId[threadId] = forwardId;
+  query->target->DFSId[threadId] = backwardId;
+
+  while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
+    if (query->cancel)
+      goto cancel;
+
+    if (!searchQueueForward.empty()) {
+      curr = searchQueueForward.front();
+      searchQueueForward.pop();
+
+      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel > query->target->orderLabel))
+          break;
+
+        if ((*it)->DFSId[threadId] == backwardId) {
+          query->answer = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId[threadId] != forwardId) {
+          (*it)->DFSId[threadId] = forwardId;
+
+#ifdef ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel < query->target->orderLabel) &&
+              ((*it)->reverseOrderLabel > query->target->reverseOrderLabel) &&
+              ((*it)->retroOrderLabel < query->target->retroOrderLabel) &&
+              ((*it)->retroReverseOrderLabel > query->target->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel < query->target->orderLabel) &&
+              ((*it)->reverseOrderLabel > query->target->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+            searchQueueForward.push(*it);
+        }
+      }
+    }
+
+    if (!searchQueueBackward.empty()) {
+      curr = searchQueueBackward.front();
+      searchQueueBackward.pop();
+
+      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel < query->source->orderLabel))
+          break;
+
+        if ((*it)->DFSId[threadId] == forwardId) {
+          query->answer = true;
+          goto end;
+        }
+
+        if ((*it)->DFSId[threadId] != backwardId) {
+          (*it)->DFSId[threadId] = backwardId;
+
+#ifdef ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel > query->source->orderLabel) &&
+              ((*it)->reverseOrderLabel < query->source->reverseOrderLabel) &&
+              ((*it)->retroOrderLabel > query->source->retroOrderLabel) &&
+              ((*it)->retroReverseOrderLabel < query->source->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel > query->source->orderLabel) &&
+              ((*it)->reverseOrderLabel < query->source->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+            searchQueueBackward.push(*it);
+        }
+      }
+    }
+  }
+
+end:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+#endif // ENABLE_BENCHMARKS
+
+#ifdef ENABLE_STATISTICS
+  query->answer ? negativeQueryCount++ : positiveQueryCount++;
+#endif // ENABLE_STATISTICS
+
+  checkIdOverflow();
+
+  return arg;
+
+cancel:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+#endif // ENABLE_BENCHMARKS
+  
+  checkIdOverflow();
+  query->error = true;
+
+  return arg;
+}
+
+
+void *
+Graph::areConnectedNoLabels(void * arg) {
+  stack<Vertex *> toVisit;
+  Query * query = (Query *) arg;
+  Vertex * curr;
+
+  DFSId[threadId]++;
+
+  toVisit.push(query->source);
+  query->source->DFSId[threadId] = DFSId[threadId];
+
+  while (!toVisit.empty()) {
+    if (query->cancel)
+      return arg;
+
+    curr = toVisit.top();
+    toVisit.pop();
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if (*it == query->source) {
+        query->answer = true;
+        return arg;
+      }
+        ;
+
+      if ((*it)->DFSId[threadId] != DFSId[threadId]) {
+        (*it)->DFSId[threadId] = DFSId[threadId];
+        toVisit.push(*it);
+      }
+    }
+  }
+
+  checkIdOverflow();
+
+  return arg;
+}
+
+
+void
+Graph::checkIdOverflow() {
+  if (threadId >= MAX_THREADS) {
+    cerr << "Thread ID higher than maximum thread count." << endl;
+    return;
+  }
+
+  if (DFSId[threadId] > (UCHAR_MAX - 2)) {
+    DFSId[threadId] = 0;
+    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+      (*it)->DFSId[threadId] = 0;
+  }
+}
+
+
+// Maintenance
+
 void
 Graph::condenseFromSource(Vertex * source) {
   set<Vertex *> DFSSet;
@@ -1062,7 +1345,7 @@ Graph::condenseFromSource(Vertex * source) {
   Vertex * curr = NULL;
 
   toVisit.push(source);
-  source->DFSId = DFSId;
+  source->DFSId[0] = DFSId[0];
 
   while (!toVisit.empty()) {
     curr = toVisit.top();
@@ -1090,8 +1373,8 @@ Graph::condenseFromSource(Vertex * source) {
         }
       } else {
         // See if we need to visit this successor
-        if ((*it)->DFSId != DFSId) {
-          (*it)->DFSId = DFSId;
+        if ((*it)->DFSId[0] != DFSId[0]) {
+          (*it)->DFSId[0] = DFSId[0];
           toVisit.push(*it);
         }
       }
@@ -1111,289 +1394,17 @@ Graph::condenseFromSource(Vertex * source) {
 }
 
 
-// Internal query functions
+Vertex *
+Graph::addVertexUnsafe() {
+  int id = vertices.size();;
+  Vertex * newVertex = new Vertex(id);
 
-/* Use the previously done indexation to answer to the query */
-void *
-Graph::areConnectedDFS(void * arg) {
-  Query * query = (Query *) arg;
-	Vertex * curr;
-	stack<Vertex *> searchStack;
+  vertices.push_back(newVertex);
+  indexed = false;
 
-#ifdef ENABLE_STATISTICS
-  vector<Vertex *> path;
-  uintmax_t searchedNodes = 0;
-#endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_BENCHMARKS
-  int event = PAPI_TOT_CYC;
-  PAPI_start_counters(&event, 1);
-#else // ENABLE_BENCHMARKS
-  if (query->timed) {
-    int event = PAPI_TOT_CYC;
-    PAPI_start_counters(&event, 1);
-  }
-#endif // ENABLE_BENCHMARKS
-
-	// Are U and V the same vertex?
-	if (query->source == query->target) {
-#ifdef ENABLE_STATISTICS
-    searchedNodes++;
-    path.push_back(query->source);
-#endif // ENABLE_STATISTICS
-    query->answer = true;
-    goto end;
-  }
-
-	// Can V be a descendant of U in the standard graph or U a descendant of V in
-  // the reverse graph?
-	if ((query->source->orderLabel > query->target->orderLabel) ||
-      (query->target->reverseOrderLabel > query->source->reverseOrderLabel))
-    goto end;
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->source->retroOrderLabel > query->target->retroOrderLabel) ||
-      (query->target->retroReverseOrderLabel > query->source->retroReverseOrderLabel))
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
-	// Do a DFS on the subgraph specified by both orders to get the final answer
-	searchStack.push(query->source);
-	DFSId++;
-
-	while (!searchStack.empty()) {
-		curr = searchStack.top();
-
-#ifdef ENABLE_STATISTICS
-    if (!path.empty() && (curr == path.back())) {
-      path.pop_back();
-      searchStack.pop();
-      continue;
-    }
-
-    searchedNodes++;
-    path.push_back(curr);
-#else // ENABLE_STATISTICS
-    searchStack.pop();
-#endif // ENABLE_STATISTICS
-
-		for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if ((indexMethod & 0x04) && ((*it)->orderLabel > query->target->orderLabel))
-        break;
-
-      if (*it == query->target) {
-#ifdef ENABLE_STATISTICS
-        searchedNodes++;
-        path.push_back(query->target);
-#endif // ENABLE_STATISTICS
-
-        query->answer = true;
-        goto end;
-      }
-
-			if ((*it)->DFSId != DFSId) {
-				(*it)->DFSId = DFSId;
-
-#ifdef ENABLE_RETRO_LABELS
-        if (((*it)->orderLabel < query->target->orderLabel) &&
-            ((*it)->reverseOrderLabel > query->target->reverseOrderLabel) &&
-            ((*it)->retroOrderLabel < query->target->retroOrderLabel) &&
-            ((*it)->retroReverseOrderLabel > query->target->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
-				if (((*it)->orderLabel < query->target->orderLabel) &&
-            ((*it)->reverseOrderLabel > query->target->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
-					searchStack.push(*it);
-			}
-		}
-	}
-
-end:
-#ifdef ENABLE_BENCHMARKS
-  long long counterValue;
-  PAPI_stop_counters(&counterValue, 1);
-  if (query->timed) {
-    query->searchTime = counterValue;
-  } else {
-    cyclesSpentQuerying += counterValue;
-    queryNumber++;
-  }
-#else // ENABLE_BENCHMARKS
-  if (query->timed) {
-    long long counterValue;
-    PAPI_stop_counters(&counterValue, 1);
-    query->searchTime = counterValue;
-  }
-#endif // ENABLE_BENCHMARKS
-
-#ifdef ENABLE_STATISTICS
-  registerQueryStatistics(query->answer, path.size(), searchedNodes);
-#endif // ENABLE_STATISTICS
-
-  return arg;
+  return newVertex;
 }
 
-
-void *
-Graph::areConnectedBBFS(void * arg) {
-  int forwardId, backwardId;
-	Vertex * curr;
-  Query * query = (Query *) arg;
-	queue<Vertex *> searchQueueForward;
-  queue<Vertex *> searchQueueBackward;
-
-#ifdef ENABLE_BENCHMARKS
-  int event = PAPI_TOT_CYC;
-  PAPI_start_counters(&event, 1);
-#else // ENABLE_BENCHMARKS
-  if (query->timed) {
-    int event = PAPI_TOT_CYC;
-    PAPI_start_counters(&event, 1);
-  }
-#endif // ENABLE_BENCHMARKS
-
-	// Are U and V the same vertex?
-	if (query->source == query->target) {
-    query->answer = true;
-    goto end;
-  }
-
-	// Can V be a descendant of U in the standard graph or U a descendant of V in
-  // the reverse graph?
-	if ((query->source->orderLabel > query->target->orderLabel) ||
-      (query->target->reverseOrderLabel > query->source->reverseOrderLabel)) {
-#ifdef ENABLE_STATISTICS
-    shortNegativeQueryCount++;
-#endif //ENABLE_STATISTICS
-    goto end;
-  }
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->source->retroOrderLabel > query->target->retroOrderLabel) ||
-      (query->target->retroReverseOrderLabel > query->source->retroReverseOrderLabel)) {
-#ifdef ENABLE_STATISTICS
-    shortNegativeQueryCount++;
-#endif // ENABLE_STATISTICS
-    goto end;
-  }
-#endif // ENABLE_RETRO_LABELS
-
-	// Do a DFS on the subgraph specified by both orders to get the final answer
-	searchQueueForward.push(query->source);
-  searchQueueBackward.push(query->target);
-	forwardId = ++DFSId;
-  backwardId = ++DFSId;
-  query->source->DFSId = forwardId;
-  query->target->DFSId = backwardId;
-
-	while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
-    if (!searchQueueForward.empty()) {
-      curr = searchQueueForward.front();
-      searchQueueForward.pop();
-
-      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-        if ((indexMethod & 0x04) && ((*it)->orderLabel > query->target->orderLabel))
-          break;
-
-        if ((*it)->DFSId == backwardId) {
-          query->answer = true;
-          goto end;
-        }
-
-        if ((*it)->DFSId != forwardId) {
-          (*it)->DFSId = forwardId;
-
-          if (((*it)->orderLabel < query->target->orderLabel) &&
-              ((*it)->reverseOrderLabel > query->target->reverseOrderLabel))
-            searchQueueForward.push(*it);
-        }
-      }
-    }
-
-    if (!searchQueueBackward.empty()) {
-      curr = searchQueueBackward.front();
-      searchQueueBackward.pop();
-
-      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
-        if ((indexMethod & 0x04) && ((*it)->orderLabel < query->source->orderLabel))
-          break;
-
-        if ((*it)->DFSId == forwardId) {
-          query->answer = true;
-          goto end;
-        }
-
-        if ((*it)->DFSId != backwardId) {
-          (*it)->DFSId = backwardId;
-
-          if (((*it)->orderLabel > query->source->orderLabel) &&
-              ((*it)->reverseOrderLabel < query->source->reverseOrderLabel))
-            searchQueueBackward.push(*it);
-        }
-      }
-    }
-	}
-
-end:
-#ifdef ENABLE_BENCHMARKS
-  long long counterValue;
-  PAPI_stop_counters(&counterValue, 1);
-  if (query->timed) {
-    query->searchTime = counterValue;
-  } else {
-    cyclesSpentQuerying += counterValue;
-    queryNumber++;
-  }
-#else // ENABLE_BENCHMARKS
-  if (query->timed) {
-    long long counterValue;
-    PAPI_stop_counters(&counterValue, 1);
-    query->searchTime = counterValue;
-  }
-#endif // ENABLE_BENCHMARKS
-
-#ifdef ENABLE_STATISTICS
-  query->answer ? negativeQueryCount++ : positiveQueryCount++;
-#endif // ENABLE_STATISTICS
-
-  return arg;
-}
-
-
-void *
-Graph::areConnectedNoLabels(void * arg) {
-  stack<Vertex *> toVisit;
-  Query * query = (Query *) arg;
-  Vertex * curr;
-
-  DFSId++;
-
-  toVisit.push(query->source);
-  query->source->DFSId = DFSId;
-
-  while (!toVisit.empty()) {
-    curr = toVisit.top();
-    toVisit.pop();
-
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if (*it == query->source) {
-        query->answer = true;
-        return arg;
-      }
-        ;
-
-      if ((*it)->DFSId != DFSId) {
-        (*it)->DFSId = DFSId;
-        toVisit.push(*it);
-      }
-    }
-  }
-
-  return arg;
-}
-
-
-// Maintenance
 
 bool
 Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
@@ -1412,6 +1423,8 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
 void
 Graph::registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t searchedNodes) {
   double coefficient, overhead;
+
+  unique_lock<mutex> statisticsLock(statisticsMutex);
 
   queryCount++;
 
@@ -1440,30 +1453,57 @@ Graph::registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t sea
 #endif // ENABLE_STATISTICS
 
 
-// Multi-thread launchers
+// Local work function
 
-void *
-DFSlauncher::runDFS() {
-  return myGraph->areConnectedDFS(runArg);
-}
+void queryWorker(Graph * graph, int id) {
+  Graph::Query * query = NULL;
 
+  threadId = id;
 
-void *
-BBFSlauncher::runBBFS() {
-  return myGraph->areConnectedBBFS(runArg);
-}
+  while (1) {
+    graph->jobSemaphore.wait();
 
+    if (graph->threadShutdown)
+      return;
 
-// Multi-thread indirection functions
-void *
-launchDFS(void * helper) {
-  DFSlauncher * launcher = reinterpret_cast<DFSlauncher *>(helper);
-  return launcher->runDFS();
-}
+    unique_lock<mutex> jobLock(graph->jobMutex);
+    query = graph->jobQueue.front();
+    graph->jobQueue.pop_front();
+    jobLock.unlock();
 
+    graph->startQuery();
 
-void *
-launchBBFS(void * helper) {
-  BBFSlauncher * launcher = reinterpret_cast<BBFSlauncher *>(helper);
-  return launcher->runBBFS();
+    switch (query->method) {
+      case Graph::DFS:
+        graph->areConnectedDFS((void *) query);
+        break;
+
+      case Graph::BBFS:
+        graph->areConnectedBBFS((void *) query);
+        break;
+
+      case Graph::NoLabels:
+        graph->areConnectedNoLabels((void *) query);
+        break;
+
+      case Graph::Undefined:
+        query->error = true;
+        break;
+    }
+
+    graph->stopQuery();
+
+    if (query->internal) {
+      unique_lock<mutex> internalResultLock(graph->internalResultMutex);
+      graph->internalResultQueue.push_back(query);
+      graph->internalResultSemaphore.post();
+      internalResultLock.unlock();
+    } else {
+      unique_lock<mutex> resultLock(graph->resultMutex);
+      graph->resultQueue.push_back(query);
+      graph->resultSemaphore.post();
+      resultLock.unlock();
+    }
+
+  }
 }

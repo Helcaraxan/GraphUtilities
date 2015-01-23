@@ -11,23 +11,61 @@ class Graph;
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
+#include <list>
+#include <mutex>
+#include <atomic>
+#include <thread>
 #include <vector>
+#include <condition_variable>
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS
 #cmakedefine ENABLE_STATISTICS
 #cmakedefine ENABLE_BENCHMARKS
 
+// Let cmake choose the maximum number of parallel queries
+#define MAX_THREADS ${MAX_THREADS}
+
 
 using namespace std;
 
+
+// Supplementary STL class for a semaphore
+
+class semaphore {
+private:
+  mutex mtx;
+  condition_variable cv;
+  int count = 0;
+
+public:
+  void post(void) {
+    unique_lock<mutex> lck(mtx);
+    ++count;
+    cv.notify_one();
+  }
+
+  void wait(void) {
+    unique_lock<mutex> lck(mtx);
+     while (count == 0) {
+       cv.wait(lck);
+     }
+     count--;
+  }
+};
+
+
+// The Graph classes
+
 class Vertex;
 class Graph;
-class DFSlauncher;
-class BBFSlauncher;
+
+
+void queryWorker(Graph * graph, int threadId);
 
 
 // Class declarations
+
 class Vertex {
 friend class Graph;
 
@@ -37,36 +75,45 @@ public:
 
 // Data members
 public:
-	int id;
+  int id;
 
 private:
-	int orderLabel;
-	int reverseOrderLabel;
+  int orderLabel = -1;
+  int reverseOrderLabel = -1;
 #ifdef ENABLE_RETRO_LABELS
-  int retroOrderLabel;
-  int retroReverseOrderLabel;
+  int retroOrderLabel = -1;
+  int retroReverseOrderLabel = -1;
 #endif // ENABLE_RETRO_LABELS
 
-	int inVisits;
-	int outVisits;
-	int DFSId;
+  int inVisits = 0;
+  int outVisits = 0;
+  int DFSId[MAX_THREADS] = {0};
 
-  Vertex * firstVisit;
+  Vertex * firstVisit = NULL;
 
-  int predecessorCount;
-  int successorCount;
-	vector<Vertex *> predecessors;
-	vector<Vertex *> successors;
+  int predecessorCount = 0;
+  int successorCount = 0;
+  vector<Vertex *> predecessors;
+  vector<Vertex *> successors;
 
 // Function members
 public:
-	// Constructors & Destructor
-	Vertex(int i);
-	~Vertex(void);
+  // Constructors & Destructor
+  Vertex(int i) :
+    id(i)
+  {}
 
-	// Modificators
-	bool addPredecessor(Vertex * pred);
-	bool addSuccessor(Vertex * succ);
+  ~Vertex(void) {
+    for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it)
+      (*it)->removeSuccessor(this);
+
+    for (auto it = successors.begin(), end = successors.end(); it != end; ++it)
+      (*it)->removePredecessor(this);
+  }
+
+  // Modificators
+  bool addPredecessor(Vertex * pred);
+  bool addSuccessor(Vertex * succ);
   bool removePredecessor(Vertex * pred);
   bool removeSuccessor(Vertex * succ);
 
@@ -82,9 +129,9 @@ public:
   iterator successors_end(void);
 
 private:
-	// Indexing
-	void visit(Vertex * pred, int method);
-	Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
+  // Indexing
+  void visit(Vertex * pred, int method);
+  Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
 };
 
 
@@ -104,6 +151,7 @@ public:
     UndefinedMethod = 0x10
   } IndexMethod;
 
+
   typedef enum {
     DFS,
     BBFS,
@@ -111,83 +159,139 @@ public:
     Undefined
   } SearchMethod;
 
-private:
-  struct Query_t {
+
+  class Query {
+  friend class Graph;
+  friend void queryWorker(Graph * graph, int threadId);
+
+  // Data members
+  private:
     Vertex * source;
     Vertex * target;
-    bool timed;
-    bool answer;
-    long long searchTime;
+    bool answer = false;
+    bool error = false;
+    bool cancel = false;
+    bool internal = false;
+    long long searchTime = 0;
+    Graph::SearchMethod method;
 
-    Query_t(Vertex * u, Vertex * v) :
-      source(u),
-      target(v),
-      timed(false),
-      answer(false),
-      searchTime(-1)
-    {}
+  // Function members
+  public:
+    Query(Vertex * u, Vertex * v, SearchMethod searchMethod = Undefined) {
+      source = u;
+      target = v;
+      method = searchMethod;
+    }
+
+    Vertex * getSource(void);
+    Vertex * getTarget(void);
+    bool getAnswer(void);
+    bool isError(void);
   };
 
-  typedef struct Query_t Query;
 
 // Data members
 protected:
-	bool indexed;
-  bool condensed;
-  IndexMethod indexMethod;
-  unsigned int edgeCount;
+  bool indexed = false;
+  bool condensed = false;
+  IndexMethod indexMethod = UndefinedMethod;
+  unsigned int edgeCount = 0;
 
-	vector<Vertex *> vertices;
-	vector<Vertex *> sources;
-	vector<Vertex *> sinks;
+  vector<Vertex *> vertices;
+  vector<Vertex *> sources;
+  vector<Vertex *> sinks;
 
-  // Global ID to distinguish between seperate DFSs
-	int DFSId;
+  // Global IDs to distinguish between seperate DFSs
+  unsigned char DFSId[MAX_THREADS];
 
 private:
-  // Flags
-  bool statisticsEnabled;
-  bool papiBenchmarksEnabled;
+  // Indexing
+  mutex indexMutex;
+
+  // Queries
+  mutex jobMutex;
+  semaphore jobSemaphore;
+  list<Query *> jobQueue;
+
+  // Results
+  mutex resultMutex;
+  mutex internalResultMutex;
+  semaphore resultSemaphore;
+  semaphore internalResultSemaphore;
+  list<Query *> resultQueue;
+  list<Query *> internalResultQueue;
 
   // Reordering vectors
   vector<Vertex *> successorQueue;
   vector<Vertex *> predecessorQueue;
 
+  // Multi-threading
+  bool threadShutdown = false;
+  atomic<int> activeThreads{0};
+  atomic<bool> noQueries{true};
+  mutex queryWaitMutex;
+  mutex globalWaitMutex;
+  condition_variable queryWaitCondition;
+  condition_variable globalWaitCondition;
+  thread queryThreads[MAX_THREADS];
+
 #ifdef ENABLE_STATISTICS
   // Counters
-  uintmax_t queryCount;
-  uintmax_t positiveQueryCount;
-  uintmax_t negativeQueryCount;
-  uintmax_t shortNegativeQueryCount;
+  atomic<uintmax_t> queryCount{0};
+  atomic<uintmax_t> positiveQueryCount{0};
+  atomic<uintmax_t> negativeQueryCount{0};
+  atomic<uintmax_t> shortNegativeQueryCount{0};
 
   // DFS overhead statistics
-  double positiveQueryOverhead;
-  double negativeQueryOverhead;
+  mutex statisticsMutex;
+  double positiveQueryOverhead = 0.0L;
+  double negativeQueryOverhead = 0.0L;
 #endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_BENCHMARKS
   // Counters
-  long long queryNumber;
-  long long cyclesSpentIndexing;
-  long long cyclesSpentQuerying;
-  long long graphMemoryUsage;
+  atomic<long long> queryNumber{0};
+  atomic<long long> cyclesSpentIndexing{0};
+  atomic<long long> cyclesSpentQuerying{0};
+  atomic<long long> graphMemoryUsage{0};
 #endif // ENABLE_BENCHMARKS
 
 // Function members
 public:
-	// Constructors & Destructor
-	Graph(void);
-	~Graph(void);
+  // Constructors & Destructor
+  Graph(void) {
+    for (int i = 0; i < MAX_THREADS; i++)
+      queryThreads[i] = thread(queryWorker, this, i);
+  }
+
+  ~Graph(void) {
+    threadShutdown = true;
+
+    for (int i = 0; i < MAX_THREADS; i++)
+      jobSemaphore.post();
+
+    for (int i = 0; i < MAX_THREADS; i++)
+      queryThreads[i].join();
+
+    for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it)
+      (*it)->error = true;
+
+    for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it)
+      delete *it;
+    
+    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+      delete *it;
+  }
 
   // Parser functions
   static Graph * createFromDotFile(const char * fileName, bool noDoubleEdges = false);
   static Graph * createFromGraFile(const char * fileName, bool noDoubleEdges = false);
 
-	// Modificators
-	Vertex * addVertex(void);
+  // Modificators
+  Vertex * addVertex(void);
   void removeVertex(Vertex * v);
   void mergeVertices(Vertex * s, Vertex * t);
-	bool addEdge(Vertex * s, Vertex * t);
+  bool addEdge(Vertex * s, Vertex * t);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
 
@@ -197,10 +301,10 @@ public:
   Vertex * getVertexFromId(int id);
   IndexMethod getIndexMethod(void);
 
-	// Queries
-  bool areConnected(Vertex * u, Vertex * v);
-  bool areConnected(Vertex * u, Vertex * v, SearchMethod method);
-  bool indirectPathExists(Vertex * u, Vertex * v);
+  // Queries
+  void pushQuery(Query * query);
+  Query * pullResult(void);
+  void endOfQueries(void);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -220,61 +324,38 @@ public:
   void printBenchmarks(ostream &os);
 
 protected:
-	// Indexing
-	void labelVertices(bool retro, bool reverse);
-	void indexGraph(void);
+  // Indexing
+  void labelVertices(bool retro, bool reverse);
+  void indexGraph(void);
 
   // Maintenance
   void discoverExtremities(void);
   void condenseGraph(void);
 
+  // Multi-threading
+  void startQuery(void);
+  void stopQuery(void);
+  void startGlobalOperation(void);
+  void stopGlobalOperation(void);
+
 private:
   // Maintenance
   void condenseFromSource(Vertex * source);
+  Vertex * addVertexUnsafe(void);
+  bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
   // Internal query functions
   void * areConnectedDFS(void * arg);
   void * areConnectedBBFS(void * arg);
   void * areConnectedNoLabels(void * arg);
-
-  // Declare launcher classes as friends
-  friend class DFSlauncher;
-  friend class BBFSlauncher;
-
-  // Maintenance
-  bool addEdgeUnsafe(Vertex * source, Vertex * target);
+  void checkIdOverflow(void);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
   void registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t searchedNodes);
 #endif // ENABLE_STATISTICS
+
+  friend void queryWorker(Graph * graph, int id);
 };
-
-
-class DFSlauncher {
-public:
-  void * runArg;
-  Graph * myGraph;
-
-  DFSlauncher(Graph * graph, void * arg);
-
-  void * runDFS(void);
-};
-
-
-class BBFSlauncher {
-public:
-  void * runArg;
-  Graph * myGraph;
-
-  BBFSlauncher(Graph * graph, void * arg);
-
-  void * runBBFS(void);
-};
-
-
-void * launchDFS(void * helper);
-void * launchBBFS(void * helper);
-
 
 #endif // GRAPH_HPP
