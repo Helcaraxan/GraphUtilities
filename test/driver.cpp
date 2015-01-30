@@ -8,6 +8,7 @@
 #include <iostream>
 
 #include <getopt.h>
+#include "tbb/concurrent_hash_map.h"
 
 #include "graph.hpp"
 
@@ -20,7 +21,7 @@ int uniqueFlag = 0;
 int verifyFlag = 0;
 bool poison = false;
 semaphore openQueries;
-map<Graph::Query *, bool> queryMap;
+tbb::concurrent_hash_map<Graph::Query *, bool> queryMap;
 vector<Graph::Query *> results;
 
 
@@ -63,6 +64,7 @@ void
 queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
   int i, a, b, res;
   Graph::Query * newQuery = NULL;
+  tbb::concurrent_hash_map<Graph::Query *, bool>::accessor queryAccess;
 
   // Fill the queries to process...
   if (testFile->is_open()) {
@@ -72,7 +74,8 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
       (*testFile) >> a >> b >> res;
 
       newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
-      queryMap[newQuery] = (res == 0 ? false : true);
+      queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, (res == 0 ? false : true)));
+      queryAccess.release();
       graph->pushQuery(newQuery);
       openQueries.post();
     }
@@ -96,7 +99,8 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
       else
         newQuery = new Graph::Query(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
 
-      queryMap.insert(pair<Graph::Query *, bool>(newQuery, false));
+      queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, false));
+      queryAccess.release();
       graph->pushQuery(newQuery);
       openQueries.post();
     }
@@ -111,7 +115,8 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
 void
 resultAnalysis(Graph * graph, fstream * queryFile) {
   Graph::Query * nextQuery = NULL;
-  map<Graph::Query *, bool>::iterator mapIt;
+  tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
+
 
   while (true) {
     openQueries.wait();
@@ -120,21 +125,21 @@ resultAnalysis(Graph * graph, fstream * queryFile) {
       break;
 
     nextQuery = graph->pullResult();
-    mapIt = queryMap.find(nextQuery);
+    queryMap.find(queryAccess, nextQuery);
 
     if (nextQuery->isError()) {
       cerr << "Error when processing query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
     } else if (verifyFlag) {
-      if (nextQuery->getAnswer() != mapIt->second)
+      if (nextQuery->getAnswer() != queryAccess->second)
         cerr << "Wrong answer for query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
     } else if (queryFile->is_open()) {
       (*queryFile) << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
-      if (mapIt->second)
+      if (queryAccess->second)
         (*queryFile) << "1\n";
       else
         (*queryFile) << "0\n";
     }
-
+    queryAccess.release();
     results.push_back(nextQuery);
   }
 

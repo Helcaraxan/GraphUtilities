@@ -30,38 +30,32 @@ class Graph;
 using namespace std;
 
 
-// Supplementary STL class for a semaphore
+// Semaphore class (active wait variant)
 
 class semaphore {
 private:
   mutex mtx;
   condition_variable cv;
-  int count = 0;
+  volatile int count = 0;
 
 public:
-  void post(void) {
-    unique_lock<mutex> lck(mtx);
-    ++count;
-    cv.notify_one();
-  }
+  // Increment the counter value
+  void post(void);
 
-  void wait(void) {
-    unique_lock<mutex> lck(mtx);
-     while (count == 0) {
-       cv.wait(lck);
-     }
-     count--;
-  }
+  // Get or wait for a post to the semaphore
+  void wait(void);
 };
+
+
+// Function used as the base of a query thread
+//
+void queryWorker(Graph * graph, int threadId);
 
 
 // The Graph classes
 
 class Vertex;
 class Graph;
-
-
-void queryWorker(Graph * graph, int threadId);
 
 
 // Class declarations

@@ -25,6 +25,25 @@ static long long baseMemoryUsage;
 thread_local int threadId;
 
 
+// Semaphore class (active wait variant)
+
+void
+semaphore::post() {
+  unique_lock<mutex> lck(mtx);
+  count++;
+  cv.notify_one();
+}
+
+void
+semaphore::wait() {
+  unique_lock<mutex> lck(mtx);
+  while (count == 0) {
+    cv.wait(lck);
+  }
+  count--;
+}
+
+
 // Modificators
 
 bool

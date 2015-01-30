@@ -3,7 +3,7 @@ link_directories("${PROJECT_BINARY_DIR}/src")
 
 
 # Set the libraries necessary to build the driver
-set(USED_LIBRARIES GraphUtilities papi stdc++)
+set(USED_LIBRARIES GraphUtilities papi stdc++ tbb)
 
 
 # Define the driver executable
