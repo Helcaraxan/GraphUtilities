@@ -167,7 +167,7 @@ public:
     bool cancel = false;
     bool internal = false;
     long long searchTime = 0;
-    Graph::SearchMethod method;
+    Graph::SearchMethod method = Undefined;
 
   // Function members
   public:
@@ -196,7 +196,7 @@ protected:
   vector<Vertex *> sinks;
 
   // Global IDs to distinguish between seperate DFSs
-  unsigned char DFSId[MAX_THREADS];
+  unsigned char DFSId[MAX_THREADS] = {0};
 
 private:
   // Indexing
@@ -270,9 +270,6 @@ public:
     for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it)
       (*it)->error = true;
 
-    for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it)
-      delete *it;
-    
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;
   }

@@ -594,17 +594,21 @@ Graph::pushQuery(Query * query) {
       result = &DFSQuery;
 
     if (!result->error) {
-      internalResultSemaphore.wait();
+      while (result) {
+        internalResultSemaphore.wait();
 
-      internalResultLock.lock();
-      for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it) {
-        if ((*it) == result) {
-          internalResultQueue.erase(it);
-          result = *it;
-          break;
+        internalResultLock.lock();
+        for (auto it = internalResultQueue.begin(), end = internalResultQueue.end(); it != end; ++it) {
+          if ((*it) == result) {
+            internalResultQueue.erase(it);
+            result = NULL;
+            break;
+          }
         }
+        
+        internalResultSemaphore.post();
+        internalResultLock.unlock();
       }
-      internalResultLock.unlock();
     }
   } else {
     query->method = preferredMethod;

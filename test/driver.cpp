@@ -14,7 +14,7 @@
 
 using namespace std;
 
-#define QUERY_NB 100000
+#define QUERY_NB 10000000
 
 int dryFlag = 0;
 int uniqueFlag = 0;
@@ -304,6 +304,13 @@ main(int argc, char * argv[]) {
   // ...and the benchmarks
   if (graph->benchmarksAreEnabled())
     graph->printBenchmarks(*output);
+
+  // Clear up the query map
+  for (auto it = queryMap.begin(), end = queryMap.end(); it != end; ++it)
+    delete it->first;
+
+  queryMap.clear();
+  delete graph;
 
 	exit(EXIT_SUCCESS);
 }
