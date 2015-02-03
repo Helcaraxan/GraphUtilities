@@ -1431,11 +1431,13 @@ Graph::addVertexUnsafe() {
 
 bool
 Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
+  startGlobalOperation();
   source->successors.push_back(target);
   source->successorCount++;
   target->predecessors.push_back(source);
   target->predecessorCount++;
   edgeCount++;
+  stopGlobalOperation();
   return true;
 }
 

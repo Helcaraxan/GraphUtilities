@@ -222,7 +222,7 @@ private:
   // Multi-threading
   bool threadShutdown = false;
   atomic<int> activeThreads{0};
-  atomic<bool> noQueries{true};
+  atomic<bool> noQueries{false};
   mutex queryWaitMutex;
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;

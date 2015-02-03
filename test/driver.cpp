@@ -14,7 +14,7 @@
 
 using namespace std;
 
-#define QUERY_NB 10000000
+#define QUERY_NB 100000
 
 int dryFlag = 0;
 int uniqueFlag = 0;
@@ -68,7 +68,7 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
 
   // Fill the queries to process...
   if (testFile->is_open()) {
-    cerr << "Parsing queries from a test file.\n";
+    cout << "Parsing queries from a test file.\n";
     // ... from the specified file
     while (testFile->good()) {
       (*testFile) >> a >> b >> res;
@@ -80,7 +80,7 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
       openQueries.post();
     }
 
-    cerr << "Finished parsing queries from file.\n\n";
+    cout << "Finished parsing queries from file.\n\n";
 
     testFile->close();
   } else {
@@ -114,10 +114,12 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
 
 void
 resultAnalysis(Graph * graph, fstream * queryFile) {
+  int resultCounter = 0;
   Graph::Query * nextQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
 
 
+  cout << "Analyzed results: " << resultCounter;
   while (true) {
     openQueries.wait();
 
@@ -141,7 +143,11 @@ resultAnalysis(Graph * graph, fstream * queryFile) {
     }
     queryAccess.release();
     results.push_back(nextQuery);
+    resultCounter++;
+    cout << "\rAnalyzed results: " << resultCounter;
   }
+
+  cout << "\n";
 
   if (queryFile->is_open())
     queryFile->close();
@@ -269,7 +275,7 @@ main(int argc, char * argv[]) {
   if (dumpFile.is_open()) {
     Vertex * curr;
 
-    cerr << "Dump file for consistency check.\n";
+    cout << "Dump file for consistency check.\n";
     dumpFile << "graph_for_greach\n" << graph->getVertexCount() << "\n";
     for (i = 0; i < (int) graph->getVertexCount(); i++) {
       dumpFile << i << ":";
@@ -280,7 +286,7 @@ main(int argc, char * argv[]) {
       dumpFile << " #\n";
     }
 
-    cerr << "Finished dumping file.\n\n";
+    cout << "Finished dumping file.\n\n";
     dumpFile.close();
   }
 
