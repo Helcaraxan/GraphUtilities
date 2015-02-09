@@ -1,13 +1,14 @@
 #include <map>
 #include <chrono>
 #include <random>
-#include <thread>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 
 #include <getopt.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include "tbb/concurrent_hash_map.h"
 
 #include "graph.hpp"
@@ -20,7 +21,7 @@ int dryFlag = 0;
 int uniqueFlag = 0;
 int verifyFlag = 0;
 bool poison = false;
-semaphore openQueries;
+sem_t openQueries;
 tbb::concurrent_hash_map<Graph::Query *, bool> queryMap;
 vector<Graph::Query *> results;
 
@@ -60,8 +61,25 @@ printHelpMessage() {
 }
 
 
-void
-queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
+struct GeneratorArgs {
+  Graph * graphArg;
+  fstream * testFileArg;
+  Graph::SearchMethod methodArg;
+
+  GeneratorArgs(Graph * graph, fstream * testFile, Graph::SearchMethod method) :
+    graphArg(graph),
+    testFileArg(testFile),
+    methodArg(method)
+  {}
+};
+
+
+void *
+queryGenerator(void * args) {
+  struct GeneratorArgs * generatorArgs = (struct GeneratorArgs *) args;
+  Graph * graph = generatorArgs->graphArg;
+  fstream * testFile = generatorArgs->testFileArg;
+  Graph::SearchMethod method = generatorArgs->methodArg;;
   int i, a, b, res;
   Graph::Query * newQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::accessor queryAccess;
@@ -77,7 +95,7 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
       queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();
       graph->pushQuery(newQuery);
-      openQueries.post();
+      sem_post(&openQueries);
     }
 
     cout << "Finished parsing queries from file.\n\n";
@@ -102,18 +120,32 @@ queryGenerator(Graph * graph, fstream * testFile, Graph::SearchMethod method) {
       queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, false));
       queryAccess.release();
       graph->pushQuery(newQuery);
-      openQueries.post();
+      sem_post(&openQueries);
     }
   }
 
   poison = true;
-  openQueries.post();
-  return;
+  sem_post(&openQueries);
+  return NULL;
 }
 
 
-void
-resultAnalysis(Graph * graph, fstream * queryFile) {
+struct AnalysisArgs {
+  Graph * graphArg;
+  fstream * queryFileArg;
+
+  AnalysisArgs(Graph * graph, fstream * queryFile) :
+    graphArg(graph),
+    queryFileArg(queryFile)
+  {}
+};
+
+
+void *
+resultAnalysis(void * args) {
+  struct AnalysisArgs * analysisArgs = (struct AnalysisArgs *) args;
+  Graph * graph = analysisArgs->graphArg;
+  fstream * queryFile = analysisArgs->queryFileArg;
   int resultCounter = 0;
   Graph::Query * nextQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
@@ -121,7 +153,7 @@ resultAnalysis(Graph * graph, fstream * queryFile) {
 
   cout << "Analyzed results: " << resultCounter;
   while (true) {
-    openQueries.wait();
+    sem_wait(&openQueries);
 
     if (poison && (queryMap.size() == results.size()))
       break;
@@ -151,6 +183,8 @@ resultAnalysis(Graph * graph, fstream * queryFile) {
 
   if (queryFile->is_open())
     queryFile->close();
+
+  return NULL;
 }
 
 
@@ -163,6 +197,8 @@ main(int argc, char * argv[]) {
   ostream * output = &cout;
   int i, c;
   char fileName[512] = {'\0'};
+
+  sem_init(&openQueries, 0, 0);
 
   // Parse command-line options
   while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvud", longopts, NULL)) != -1) {
@@ -295,12 +331,17 @@ main(int argc, char * argv[]) {
     exit(EXIT_SUCCESS);
 
   // Process the queries with two threads
-  thread pushThread(queryGenerator, graph, &testFile, searchMethod);
-  thread pullThread(resultAnalysis, graph, &queryFile);
+  pthread_t pushThread;
+  struct GeneratorArgs * generatorArgs = new GeneratorArgs(graph, &testFile, searchMethod);
+  pthread_t pullThread;
+  struct AnalysisArgs * analysisArgs = new AnalysisArgs(graph, &queryFile);
+
+  pthread_create(&pushThread, NULL, &queryGenerator, (void *) generatorArgs);
+  pthread_create(&pullThread, NULL, &resultAnalysis, (void *) analysisArgs);
 
   // Wait for the queries to be issued and treated
-  pushThread.join();
-  pullThread.join();
+  pthread_join(pushThread, NULL);
+  pthread_join(pullThread, NULL);
   graph->endOfQueries();
 	
   // Dump the statistics of the queries...
@@ -317,6 +358,8 @@ main(int argc, char * argv[]) {
 
   queryMap.clear();
   delete graph;
+
+  sem_destroy(&openQueries);
 
 	exit(EXIT_SUCCESS);
 }
