@@ -12,9 +12,10 @@ class Graph;
 #define GRAPH_HPP
 
 #include <list>
+#include <mutex>
+#include <thread>
 #include <vector>
-#include <pthread.h>
-#include <semaphore.h>
+#include <condition_variable>
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS
@@ -28,18 +29,24 @@ class Graph;
 using namespace std;
 
 
-// Function used as the base of a query thread
-struct QueryWorkerArgs {
-  Graph * graphArg;
-  int threadIdArg;
+// Semaphore class (active wait variant)
 
-  QueryWorkerArgs(Graph * graph, int threadId) :
-    graphArg(graph),
-    threadIdArg(threadId)
-  {}
+class semaphore {
+private:
+  mutex mtx;
+  condition_variable cv;
+  volatile int count = 0;
+
+public:
+  // Increment the counter value
+  void post(void);
+
+  // Wait for a post to the semaphore
+  void wait(void);
 };
 
-void * queryWorker(void * args);
+
+void queryWorker(Graph * graph, int threadId);
 
 
 // The Graph classes
@@ -71,7 +78,7 @@ private:
 
   int inVisits = 0;
   int outVisits = 0;
-  int DFSId[MAX_THREADS] = {0};
+  uint64_t DFSId[MAX_THREADS] = {0};
 
   Vertex * firstVisit = NULL;
 
@@ -120,7 +127,7 @@ private:
 
 
 class Graph {
-friend void * queryWorker(void * args);
+friend void queryWorker(Graph * graph, int id);
 
 // Local types
 public:
@@ -148,17 +155,17 @@ public:
 
   class Query {
   friend class Graph;
-  friend void * queryWorker(void * args);
+  friend void queryWorker(Graph * graph, int threadId);
 
   // Data members
   private:
     Vertex * source;
     Vertex * target;
-    bool answer = false;
-    bool error = false;
-    bool cancel = false;
     bool internal = false;
-    long long searchTime = 0;
+    volatile bool answer = false;
+    volatile bool error = false;
+    volatile bool cancel = false;
+    volatile long long searchTime = 0;
     Graph::SearchMethod method = Undefined;
 
 #ifdef ENABLE_STATISTICS
@@ -193,26 +200,23 @@ protected:
   vector<Vertex *> sinks;
 
   // Global IDs to distinguish between seperate DFSs
-  unsigned char DFSId[MAX_THREADS] = {0};
+  uint64_t DFSId[MAX_THREADS] = {0};
 
 private:
   // Indexing
-  pthread_mutex_t indexMutex;
+  mutex indexMutex;
 
   // Queries
-  pthread_mutex_t methodMutex;
-  pthread_mutex_t jobMutex;
-  sem_t jobSemaphore;
+  mutex jobMutex;
+  mutex methodMutex;
+  semaphore jobSemaphore;
   list<Query *> jobQueue;
-  volatile SearchMethod preferredMethod = Undefined;
-  volatile int DFSwin = 0;
-  volatile int BBFSwin = 0;
 
   // Results
-  pthread_mutex_t resultMutex;
-  pthread_mutex_t internalResultMutex;
-  sem_t resultSemaphore;
-  sem_t internalResultSemaphore;
+  mutex resultMutex;
+  mutex internalResultMutex;
+  semaphore resultSemaphore;
+  semaphore internalResultSemaphore;
   list<Query *> resultQueue;
   list<Query *> internalResultQueue;
 
@@ -221,34 +225,34 @@ private:
   vector<Vertex *> predecessorQueue;
 
   // Multi-threading
+  int activeThreads = 0;
+  bool noQueries = false;
   bool threadShutdown = false;
-  volatile int activeThreads = 0;
-  volatile bool noQueries = false;
-  pthread_mutex_t queryWaitMutex;
-  pthread_mutex_t globalWaitMutex;
-  pthread_cond_t queryWaitCondition;
-  pthread_cond_t globalWaitCondition;
-  pthread_t queryThreads[MAX_THREADS];
+  mutex queryWaitMutex;
+  mutex globalWaitMutex;
+  condition_variable queryWaitCondition;
+  condition_variable globalWaitCondition;
+  thread queryThreads[MAX_THREADS];
 
 #ifdef ENABLE_STATISTICS
   // Counters
-  volatile uintmax_t queryCount{0};
-  volatile uintmax_t positiveQueryCount{0};
-  volatile uintmax_t negativeQueryCount{0};
-  volatile uintmax_t shortNegativeQueryCount{0};
+  uintmax_t queryCount = 0;
+  uintmax_t positiveQueryCount = 0;
+  uintmax_t negativeQueryCount = 0;
+  uintmax_t shortNegativeQueryCount = 0;
 
   // DFS overhead statistics
-  pthread_mutex_t statisticsMutex;
+  mutex statisticsMutex;
   double positiveQueryOverhead = 0.0L;
   double negativeQueryOverhead = 0.0L;
 #endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_BENCHMARKS
   // Counters
-  volatile long long queryNumber{0};
-  volatile long long cyclesSpentIndexing{0};
-  volatile long long cyclesSpentQuerying{0};
-  volatile long long graphMemoryUsage{0};
+  long long queryNumber{0};
+  long long cyclesSpentIndexing{0};
+  long long cyclesSpentQuerying{0};
+  long long graphMemoryUsage{0};
 
   pthread_mutex_t benchmarkMutex;
 #endif // ENABLE_BENCHMARKS
@@ -257,64 +261,24 @@ private:
 public:
   // Constructors & Destructor
   Graph(void) {
-    pthread_mutex_init(&indexMutex, NULL);
-	pthread_mutex_init(&methodMutex, NULL);
-    pthread_mutex_init(&jobMutex, NULL);
-    pthread_mutex_init(&resultMutex, NULL);
-    pthread_mutex_init(&internalResultMutex, NULL);
-    pthread_mutex_init(&queryWaitMutex, NULL);
-    pthread_mutex_init(&globalWaitMutex, NULL);
-#ifdef ENABLE_STATISTICS
-    pthread_mutex_init(&statisticsMutex, NULL);
-#endif // ENABLE_STATISTICS
-#ifdef ENABLE_BENCHMARKS
-	pthread_mutex_init(&benchmarkMutex, NULL);
-#endif // ENABLE_BENCHMARKS
-    sem_init(&jobSemaphore, 0, 0);
-    sem_init(&resultSemaphore, 0, 0);
-    sem_init(&internalResultSemaphore, 0, 0);
-	pthread_cond_init(&queryWaitCondition, NULL);
-	pthread_cond_init(&globalWaitCondition, NULL);
-	
-    for (int i = 0; i < MAX_THREADS; i++) {
-      QueryWorkerArgs * args = new QueryWorkerArgs(this, i);
-      pthread_create(&queryThreads[i], NULL, &queryWorker, (void *) args);
-    }
+    for (int i = 0; i < MAX_THREADS; i++)
+      queryThreads[i] = thread(queryWorker, this, i);
   }
 
   ~Graph(void) {
     threadShutdown = true;
 
     for (int i = 0; i < MAX_THREADS; i++)
-      sem_post(&jobSemaphore);
+      jobSemaphore.post();
 
     for (int i = 0; i < MAX_THREADS; i++)
-      pthread_join(queryThreads[i], NULL);
+      queryThreads[i].join();
 
     for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it)
       (*it)->error = true;
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;
-
-	pthread_mutex_destroy(&indexMutex);
-	pthread_mutex_destroy(&methodMutex);
-	pthread_mutex_destroy(&jobMutex);
-	pthread_mutex_destroy(&resultMutex);
-	pthread_mutex_destroy(&internalResultMutex);
-	pthread_mutex_destroy(&queryWaitMutex);
-	pthread_mutex_destroy(&globalWaitMutex);
-#ifdef ENABLE_STATISTICS
-	pthread_mutex_destroy(&statisticsMutex);
-#endif // ENABLE_STATISTICS
-#ifdef ENABLE_BENCHMARKS
-	pthread_mutex_destroy(&benchmarkMutex);
-#endif // ENABLE_BENCHMARKS
-	sem_destroy(&jobSemaphore);
-	sem_destroy(&resultSemaphore);
-	sem_destroy(&internalResultSemaphore);
-	pthread_cond_destroy(&queryWaitCondition);
-	pthread_cond_destroy(&globalWaitCondition);
   }
 
   // Parser functions
@@ -379,10 +343,9 @@ private:
   bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
   // Internal query functions
-  void * areConnectedDFS(void * arg);
-  void * areConnectedBBFS(void * arg);
-  void * areConnectedNoLabels(void * arg);
-  void checkIdOverflow(void);
+  void areConnectedDFS(Query * query, int threadId);
+  void areConnectedBBFS(Query * query, int threadId);
+  void areConnectedNoLabels(Query * query, int threadId);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance

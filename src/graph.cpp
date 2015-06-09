@@ -2,6 +2,7 @@
 #include <set>
 #include <queue>
 #include <stack>
+#include <chrono>
 #include <climits>
 #include <cstring>
 #include <fstream>
@@ -22,7 +23,26 @@ static PAPI_dmem_info_t memoryInfo;
 static long long baseMemoryUsage;
 #endif // ENABLE_BENCHMARKS
 
-thread_local int threadId;
+
+// Semaphore class (active wait variant)
+
+void
+semaphore::post() {
+  unique_lock<mutex> lck(mtx);
+  count++;
+  cv.notify_one();
+}
+
+
+void
+semaphore::wait() {
+  unique_lock<mutex> lck(mtx);
+  while (count == 0)
+    cv.wait(lck);
+
+  count--;
+}
+
 
 // Modificators
 
@@ -482,22 +502,31 @@ Graph::getIndexMethod() {
 
 void
 Graph::pushQuery(Query * query) {
+  static int DFSwin = 0;
+  static int BBFSwin = 0;
+  static Graph::SearchMethod preferredMethod = Undefined;
+
+  unique_lock<mutex> jobLock(jobMutex, defer_lock);
+  unique_lock<mutex> methodLock(methodMutex, defer_lock);
+  unique_lock<mutex> resultLock(resultMutex, defer_lock);
+  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
+
   // Verify that the graph has been indexed
   if (!indexed) {
     indexGraph();
-    pthread_mutex_lock(&methodMutex);
+    methodLock.lock();
     preferredMethod = Undefined;
     DFSwin = 0;
     BBFSwin = 0;
-    pthread_mutex_unlock(&methodMutex);
+    methodLock.unlock();
   }
 
   // If a method is specified use it
   if (query->method != Undefined) {
-    pthread_mutex_lock(&jobMutex);
+    jobLock.lock();
     jobQueue.push_back(query);
-    sem_post(&jobSemaphore);
-    pthread_mutex_unlock(&jobMutex);
+    jobSemaphore.post();
+    jobLock.unlock();
     return;
   }
 
@@ -511,17 +540,17 @@ Graph::pushQuery(Query * query) {
     DFSQuery.internal = true;
     BBFSQuery.internal = true;
 
-    pthread_mutex_lock(&jobMutex);
+    jobLock.lock();
     jobQueue.push_back(&DFSQuery);
     jobQueue.push_back(&BBFSQuery);
-    sem_post(&jobSemaphore);
-    sem_post(&jobSemaphore);
-    pthread_mutex_unlock(&jobMutex);
+    jobSemaphore.post();
+    jobSemaphore.post();
+    jobLock.unlock();
 
     // Wait for the first result
     while ((result != &DFSQuery) && (result != &BBFSQuery)) {
-      sem_wait(&internalResultSemaphore);
-      pthread_mutex_lock(&internalResultMutex);
+      internalResultSemaphore.wait();
+      internalResultLock.lock();
 
       auto it = internalResultQueue.begin();
       for (auto end = internalResultQueue.end(); it != end; ++it) {
@@ -533,9 +562,9 @@ Graph::pushQuery(Query * query) {
       }
 
       if (it == internalResultQueue.end())
-        sem_post(&internalResultSemaphore);
+        internalResultSemaphore.post();
 
-      pthread_mutex_unlock(&internalResultMutex);
+      internalResultLock.unlock();
     }
 
     // Cancel the jobs to stop the worker threads
@@ -544,32 +573,42 @@ Graph::pushQuery(Query * query) {
 
     // Only register winning search method on positive queries
     if (result->method == DFS) {
-      pthread_mutex_lock(&methodMutex);
+      methodLock.lock();
       DFSwin++;
-      pthread_mutex_unlock(&methodMutex);
+      methodLock.unlock();
 
       query->answer = DFSQuery.answer;
       query->method = DFS;
     } else if (result->method == BBFS) {
-      pthread_mutex_lock(&methodMutex);
+      methodLock.lock();
       BBFSwin++;
-      pthread_mutex_unlock(&methodMutex);
+      methodLock.unlock();
 
       query->answer = BBFSQuery.answer;
       query->method = BBFS;
     }
 
-    pthread_mutex_lock(&resultMutex);
-    resultQueue.push_back(query);
-    sem_post(&resultSemaphore);
-    pthread_mutex_unlock(&resultMutex);
+#ifdef ENABLE_STATISTICS
+    registerQueryStatistics(result);
+#endif // ENABLE_STATISTICS
 
-    if (DFSwin >= 10) {
-      preferredMethod = DFS;
-      cerr << "\nMulti-thread calibration chose DFS as search-method.\n";
-    } else if (BBFSwin >= 10) {
-      preferredMethod = BBFS;
-      cerr << "\nMulti-thread calibration chose BBFS as search-method.\n";
+    resultLock.lock();
+    resultQueue.push_back(query);
+    resultSemaphore.post();
+    resultLock.unlock();
+
+    if (preferredMethod == Undefined) {
+      methodLock.lock();
+
+      if (DFSwin >= 10) {
+        preferredMethod = DFS;
+        cerr << "\nMulti-thread calibration chose DFS as search-method.\n";
+      } else if (BBFSwin >= 10) {
+        preferredMethod = BBFS;
+        cerr << "\nMulti-thread calibration chose BBFS as search-method.\n";
+      }
+
+      methodLock.unlock();
     }
 
     // Clean-up
@@ -580,8 +619,8 @@ Graph::pushQuery(Query * query) {
 
     if (!result->error) {
       while (result) {
-        sem_wait(&internalResultSemaphore);
-        pthread_mutex_lock(&internalResultMutex);
+        internalResultSemaphore.wait();
+        internalResultLock.lock();
 
         auto it = internalResultQueue.begin();
         for (auto end = internalResultQueue.end(); it != end; ++it) {
@@ -593,18 +632,18 @@ Graph::pushQuery(Query * query) {
         }
 
         if (it == internalResultQueue.end())
-          sem_post(&internalResultSemaphore);
+          internalResultSemaphore.post();
 
-        pthread_mutex_unlock(&internalResultMutex);
+        internalResultLock.unlock();
       }
     }
   } else {
     query->method = preferredMethod;
 
-    pthread_mutex_lock(&jobMutex);
+    jobLock.lock();
     jobQueue.push_back(query);
-    sem_post(&jobSemaphore);
-    pthread_mutex_unlock(&jobMutex);
+    jobSemaphore.post();
+    jobLock.unlock();
   }
 
   return;
@@ -614,16 +653,13 @@ Graph::pushQuery(Query * query) {
 Graph::Query *
 Graph::pullResult() {
   Query * result = NULL;
+  unique_lock<mutex> resultLock(resultMutex, defer_lock);
 
-  sem_wait(&resultSemaphore);
-  pthread_mutex_lock(&resultMutex);
+  resultSemaphore.wait();
+  resultLock.lock();
   result = resultQueue.front();
   resultQueue.pop_front();
-  pthread_mutex_unlock(&resultMutex);
-
-#ifdef ENABLE_STATISTICS
-  registerQueryStatistics(result);
-#endif // ENABLE_STATISTICS
+  resultLock.unlock();
 
   return result;
 }
@@ -634,7 +670,7 @@ Graph::endOfQueries() {
   threadShutdown = true;
 
   for (int i = 0; i < MAX_THREADS; i++)
-    sem_post(&jobSemaphore);
+    jobSemaphore.post();
 }
 
 
@@ -866,7 +902,7 @@ Graph::labelVertices(bool retro, bool reverse) {
 
 void
 Graph::indexGraph() {
-  pthread_mutex_lock(&indexMutex);
+  unique_lock<mutex> indexLock(indexMutex);
 
   if (indexed)
     return;
@@ -938,8 +974,6 @@ Graph::indexGraph() {
 #endif // ENABLE_BENCHMARKS
 
   indexed = true;
-
-  pthread_mutex_unlock(&indexMutex);
 }
 
 
@@ -988,60 +1022,64 @@ Graph::condenseGraph() {
 // Multi-threading
 void
 Graph::startQuery() {
-  pthread_mutex_lock(&queryWaitMutex);
+  unique_lock<mutex> queryWaitLock(queryWaitMutex);
 
   if (noQueries)
-    pthread_cond_wait(&queryWaitCondition, &queryWaitMutex);
+    queryWaitCondition.wait(queryWaitLock);
 
   activeThreads++;
-  pthread_mutex_unlock(&queryWaitMutex);
 }
 
 
 void
 Graph::stopQuery() {
-  pthread_mutex_lock(&queryWaitMutex);
+  unique_lock<mutex> queryWaitLock(queryWaitMutex, defer_lock);
+  unique_lock<mutex> globalWaitLock(globalWaitMutex, defer_lock);
+
+  queryWaitLock.lock();
   activeThreads--;
-  pthread_mutex_unlock(&queryWaitMutex);
+  queryWaitLock.unlock();
 
   if (noQueries && (activeThreads == 0)) {
-    pthread_mutex_lock(&globalWaitMutex);
-    pthread_cond_signal(&globalWaitCondition);
-    pthread_mutex_unlock(&globalWaitMutex);
+    globalWaitLock.lock();
+    globalWaitCondition.notify_one();
+    globalWaitLock.unlock();
   }
 }
 
 
 void
 Graph::startGlobalOperation() {
-  pthread_mutex_lock(&queryWaitMutex);
+  unique_lock<mutex> queryWaitLock(queryWaitMutex, defer_lock);
+  unique_lock<mutex> globalWaitLock(globalWaitMutex, defer_lock);
+
+  queryWaitLock.lock();
   noQueries = true;
-  pthread_mutex_unlock(&queryWaitMutex);
+  queryWaitLock.unlock();
 
-  pthread_mutex_lock(&globalWaitMutex);
+  globalWaitLock.lock();
   if (activeThreads > 0)
-    pthread_cond_wait(&globalWaitCondition, &globalWaitMutex);
+    globalWaitCondition.wait(globalWaitLock);
 
-  pthread_mutex_unlock(&globalWaitMutex);
+  globalWaitLock.unlock();
 }
 
 
 void
 Graph::stopGlobalOperation() {
-  pthread_mutex_lock(&queryWaitMutex);
+  unique_lock<mutex> queryWaitLock(queryWaitMutex);
+
   noQueries = false;
 
-  pthread_cond_broadcast(&queryWaitCondition);
-  pthread_mutex_unlock(&queryWaitMutex);
+  queryWaitCondition.notify_all();
 }
 
 
 // Internal query functions
 
 /* Use the previously done indexation to answer to the query */
-void *
-Graph::areConnectedDFS(void * arg) {
-  Query * query = (Query *) arg;
+void
+Graph::areConnectedDFS(Query * query, int threadId) {
   Vertex * curr;
   stack<Vertex *> searchStack;
 
@@ -1049,6 +1087,7 @@ Graph::areConnectedDFS(void * arg) {
   int event = PAPI_TOT_CYC;
   long long counterValue;
   PAPI_start_counters(&event, 1);
+  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
 #endif // ENABLE_BENCHMARKS
 
   // Are U and V the same vertex?
@@ -1074,8 +1113,10 @@ Graph::areConnectedDFS(void * arg) {
 #endif // ENABLE_RETRO_LABELS
 
   // Do a DFS on the subgraph specified by both orders to get the final answer
+  DFSId[threadId] =
+    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
   searchStack.push(query->source);
-  DFSId[threadId]++;
 
   while (!searchStack.empty()) {
     if (query->cancel)
@@ -1130,33 +1171,28 @@ Graph::areConnectedDFS(void * arg) {
 end:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
-  pthread_mutex_lock(&benchmarkMutex);
+  benchmarkLock.lock();
   cyclesSpentQuerying += counterValue;
   queryNumber++;
-  pthread_mutex_unlock(&benchmarkMutex);
+  benchmarkLock.unlock();
 #endif // ENABLE_BENCHMARKS
 
-  checkIdOverflow();
-
-  return arg;
+  return;
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
   
-  checkIdOverflow();
   query->error = true;
-
-  return arg;
+  return;
 }
 
 
-void *
-Graph::areConnectedBBFS(void * arg) {
-  int forwardId, backwardId;
+void
+Graph::areConnectedBBFS(Query * query, int threadId) {
+  uint64_t forwardId, backwardId;
   Vertex * curr;
-  Query * query = (Query *) arg;
   queue<Vertex *> searchQueueForward;
   queue<Vertex *> searchQueueBackward;
 
@@ -1164,6 +1200,7 @@ Graph::areConnectedBBFS(void * arg) {
   int event = PAPI_TOT_CYC;
   long long counterValue;
   PAPI_start_counters(&event, 1);
+  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
 #endif // ENABLE_BENCHMARKS
 
   // Are U and V the same vertex?
@@ -1196,12 +1233,14 @@ Graph::areConnectedBBFS(void * arg) {
 #endif // ENABLE_RETRO_LABELS
 
   // Do a BBFS on the subgraph specified by both orders to get the final answer
-  searchQueueForward.push(query->source);
-  searchQueueBackward.push(query->target);
-  forwardId = ++DFSId[threadId];
-  backwardId = ++DFSId[threadId];
+  forwardId = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+  backwardId = forwardId + 1;
+
   query->source->DFSId[threadId] = forwardId;
   query->target->DFSId[threadId] = backwardId;
+
+  searchQueueForward.push(query->source);
+  searchQueueBackward.push(query->target);
 
   while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
     if (query->cancel)
@@ -1279,42 +1318,38 @@ Graph::areConnectedBBFS(void * arg) {
 end:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
-  pthread_mutex_lock(&benchmarkMutex);
+  benchmarkLock.lock();
   cyclesSpentQuerying += counterValue;
   queryNumber++;
-  pthread_mutex_unlock(&benchmarkMutex);
+  benchmarkLock.unlock();
 #endif // ENABLE_BENCHMARKS
 
-  checkIdOverflow();
-
-  return arg;
+  return;
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
   
-  checkIdOverflow();
   query->error = true;
-
-  return arg;
+  return;
 }
 
 
-void *
-Graph::areConnectedNoLabels(void * arg) {
+void
+Graph::areConnectedNoLabels(Query * query, int threadId) {
   stack<Vertex *> toVisit;
-  Query * query = (Query *) arg;
   Vertex * curr;
 
-  DFSId[threadId]++;
+  DFSId[threadId] =
+    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
   toVisit.push(query->source);
   query->source->DFSId[threadId] = DFSId[threadId];
 
   while (!toVisit.empty()) {
     if (query->cancel)
-      return arg;
+      return;
 
     curr = toVisit.top();
     toVisit.pop();
@@ -1322,34 +1357,14 @@ Graph::areConnectedNoLabels(void * arg) {
     for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
       if (*it == query->source) {
         query->answer = true;
-        return arg;
+        return;
       }
-        ;
 
       if ((*it)->DFSId[threadId] != DFSId[threadId]) {
         (*it)->DFSId[threadId] = DFSId[threadId];
         toVisit.push(*it);
       }
     }
-  }
-
-  checkIdOverflow();
-
-  return arg;
-}
-
-
-void
-Graph::checkIdOverflow() {
-  if (threadId >= MAX_THREADS) {
-    cerr << "ERROR: Thread ID higher than maximum thread count." << endl;
-    return;
-  }
-
-  if (DFSId[threadId] > (UCHAR_MAX - 2)) {
-    DFSId[threadId] = 0;
-    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
-      (*it)->DFSId[threadId] = 0;
   }
 }
 
@@ -1446,8 +1461,7 @@ void
 Graph::registerQueryStatistics(Query * query) {
   double coefficient = 1.0;
   double overhead = 1.0;
-
-  pthread_mutex_lock(&statisticsMutex);
+  unique_lock<mutex> statisticsLock(statisticsMutex);
 
   queryCount++;
 
@@ -1473,8 +1487,6 @@ Graph::registerQueryStatistics(Query * query) {
       shortNegativeQueryCount++;
     }
   }
-
-  pthread_mutex_unlock(&statisticsMutex);
 }
 
 #endif // ENABLE_STATISTICS
@@ -1482,37 +1494,37 @@ Graph::registerQueryStatistics(Query * query) {
 
 // Local work function
 
-void *
-queryWorker(void * args) {
-  struct QueryWorkerArgs * queryArgs = (struct QueryWorkerArgs *) args;
+void
+queryWorker(Graph * graph, int threadId) {
   Graph::Query * query = NULL;
-  Graph * graph = queryArgs->graphArg;
-  threadId = queryArgs->threadIdArg;
+  unique_lock<mutex> jobLock(graph->jobMutex, defer_lock);
+  unique_lock<mutex> resultLock(graph->resultMutex, defer_lock);
+  unique_lock<mutex> internalResultLock(graph->internalResultMutex, defer_lock);
 
   while (true) {
-    sem_wait(&graph->jobSemaphore);
+    graph->jobSemaphore.wait();
 
     if (graph->threadShutdown)
-      return NULL;
+      return;
 
-    pthread_mutex_lock(&graph->jobMutex);
+    jobLock.lock();
     query = graph->jobQueue.front();
     graph->jobQueue.pop_front();
-    pthread_mutex_unlock(&graph->jobMutex);
+    jobLock.unlock();
 
     graph->startQuery();
 
     switch (query->method) {
       case Graph::DFS:
-        graph->areConnectedDFS((void *) query);
+        graph->areConnectedDFS(query, threadId);
         break;
 
       case Graph::BBFS:
-        graph->areConnectedBBFS((void *) query);
+        graph->areConnectedBBFS(query, threadId);
         break;
 
       case Graph::NoLabels:
-        graph->areConnectedNoLabels((void *) query);
+        graph->areConnectedNoLabels(query, threadId);
         break;
 
       case Graph::Undefined:
@@ -1523,18 +1535,19 @@ queryWorker(void * args) {
     graph->stopQuery();
 
     if (query->internal) {
-      pthread_mutex_lock(&graph->internalResultMutex);
+      internalResultLock.lock();
       graph->internalResultQueue.push_back(query);
-      sem_post(&graph->internalResultSemaphore);
-      pthread_mutex_unlock(&graph->internalResultMutex);
+      graph->internalResultSemaphore.post();
+      internalResultLock.unlock();
     } else {
-      pthread_mutex_lock(&graph->resultMutex);
+#ifdef ENABLE_STATISTICS
+      graph->registerQueryStatistics(query);
+#endif // ENABLE_STATISTICS
+
+      resultLock.lock();
       graph->resultQueue.push_back(query);
-      sem_post(&graph->resultSemaphore);
-      pthread_mutex_unlock(&graph->resultMutex);
+      graph->resultSemaphore.post();
+      resultLock.unlock();
     }
-
   }
-
-  return NULL;
 }
