@@ -7,8 +7,6 @@
 #include <iostream>
 
 #include <getopt.h>
-#include <pthread.h>
-#include <semaphore.h>
 #include "tbb/concurrent_hash_map.h"
 
 #include "graph.hpp"
@@ -21,7 +19,7 @@ int dryFlag = 0;
 int uniqueFlag = 0;
 int verifyFlag = 0;
 bool poison = false;
-sem_t openQueries;
+semaphore openQueries;
 tbb::concurrent_hash_map<Graph::Query *, bool> queryMap;
 vector<Graph::Query *> results;
 
@@ -61,49 +59,32 @@ printHelpMessage() {
 }
 
 
-struct GeneratorArgs {
-  Graph * graphArg;
-  fstream * testFileArg;
-  Graph::SearchMethod methodArg;
-
-  GeneratorArgs(Graph * graph, fstream * testFile, Graph::SearchMethod method) :
-    graphArg(graph),
-    testFileArg(testFile),
-    methodArg(method)
-  {}
-};
-
-
-void *
-queryGenerator(void * args) {
-  struct GeneratorArgs * generatorArgs = (struct GeneratorArgs *) args;
-  Graph * graph = generatorArgs->graphArg;
-  fstream * testFile = generatorArgs->testFileArg;
-  Graph::SearchMethod method = generatorArgs->methodArg;;
+void
+queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
   int i, a, b, res;
   Graph::Query * newQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::accessor queryAccess;
 
   // Fill the queries to process...
-  if (testFile->is_open()) {
+  if (testFile.is_open()) {
     cout << "Parsing queries from a test file.\n";
     // ... from the specified file
-    while (testFile->good()) {
-      (*testFile) >> a >> b >> res;
+    while (testFile.good()) {
+      testFile >> a >> b >> res;
 
-      if (testFile->eof())
+      if (testFile.eof())
         break;
 
       newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
       queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();
       graph->pushQuery(newQuery);
-      sem_post(&openQueries);
+      openQueries.post();
     }
 
     cout << "Finished parsing queries from file.\n\n";
 
-    testFile->close();
+    testFile.close();
   } else {
     // ... at random
     default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
@@ -123,32 +104,17 @@ queryGenerator(void * args) {
       queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, false));
       queryAccess.release();
       graph->pushQuery(newQuery);
-      sem_post(&openQueries);
+      openQueries.post();
     }
   }
 
   poison = true;
-  sem_post(&openQueries);
-  return NULL;
+  openQueries.post();
 }
 
 
-struct AnalysisArgs {
-  Graph * graphArg;
-  fstream * queryFileArg;
-
-  AnalysisArgs(Graph * graph, fstream * queryFile) :
-    graphArg(graph),
-    queryFileArg(queryFile)
-  {}
-};
-
-
-void *
-resultAnalysis(void * args) {
-  struct AnalysisArgs * analysisArgs = (struct AnalysisArgs *) args;
-  Graph * graph = analysisArgs->graphArg;
-  fstream * queryFile = analysisArgs->queryFileArg;
+void
+resultAnalysis(Graph * graph, fstream &queryFile) {
   int resultCounter = 0;
   Graph::Query * nextQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
@@ -156,7 +122,7 @@ resultAnalysis(void * args) {
 
   cout << "Analyzed results: " << resultCounter;
   while (true) {
-    sem_wait(&openQueries);
+    openQueries.wait();
 
     if (poison && (queryMap.size() == results.size()))
       break;
@@ -169,12 +135,12 @@ resultAnalysis(void * args) {
     } else if (verifyFlag) {
       if (nextQuery->getAnswer() != queryAccess->second)
         cerr << "Wrong answer for query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
-    } else if (queryFile->is_open()) {
-      (*queryFile) << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
+    } else if (queryFile.is_open()) {
+      queryFile << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
       if (queryAccess->second)
-        (*queryFile) << "1\n";
+        queryFile << "1\n";
       else
-        (*queryFile) << "0\n";
+        queryFile << "0\n";
     }
     queryAccess.release();
     results.push_back(nextQuery);
@@ -184,10 +150,8 @@ resultAnalysis(void * args) {
 
   cout << "\n";
 
-  if (queryFile->is_open())
-    queryFile->close();
-
-  return NULL;
+  if (queryFile.is_open())
+    queryFile.close();
 }
 
 
@@ -200,8 +164,6 @@ main(int argc, char * argv[]) {
   ostream * output = &cout;
   int i, c;
   char fileName[512] = {'\0'};
-
-  sem_init(&openQueries, 0, 0);
 
   // Parse command-line options
   while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvud", longopts, NULL)) != -1) {
@@ -334,17 +296,12 @@ main(int argc, char * argv[]) {
     exit(EXIT_SUCCESS);
 
   // Process the queries with two threads
-  pthread_t pushThread;
-  struct GeneratorArgs * generatorArgs = new GeneratorArgs(graph, &testFile, searchMethod);
-  pthread_t pullThread;
-  struct AnalysisArgs * analysisArgs = new AnalysisArgs(graph, &queryFile);
-
-  pthread_create(&pushThread, NULL, &queryGenerator, (void *) generatorArgs);
-  pthread_create(&pullThread, NULL, &resultAnalysis, (void *) analysisArgs);
+  thread pushThread(queryGenerator, graph, ref(testFile), searchMethod);
+  thread pullThread(resultAnalysis, graph, ref(queryFile));
 
   // Wait for the queries to be issued and treated
-  pthread_join(pushThread, NULL);
-  pthread_join(pullThread, NULL);
+  pushThread.join();
+  pullThread.join();
   graph->endOfQueries();
 	
   // Dump the statistics of the queries...
@@ -361,8 +318,6 @@ main(int argc, char * argv[]) {
 
   queryMap.clear();
   delete graph;
-
-  sem_destroy(&openQueries);
 
 	exit(EXIT_SUCCESS);
 }
