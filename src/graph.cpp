@@ -239,13 +239,13 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   graph = new Graph();
 
   if (!input.good()) {
-    cerr << "Error while opening input Dot file.\n";
+    cerr << "ERROR: Could not open the Dot input file.\n";
     exit(EXIT_FAILURE);
   }
 
   input.getline(dump, 127);
   if (!strstr(dump, "digraph")) {
-    cerr << "Error - the supplied file is not a graph in Dot format.\n";
+    cerr << "ERROR: The supplied file is not a graph in Dot format.\n";
     exit(EXIT_FAILURE);
   }
 
@@ -306,7 +306,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   graph = new Graph();
 
   if (!input.good()) {
-    cerr << "Error while opening input Dot file.\n";
+    cerr << "ERROR: Could not open the Gra input file.\n";
     exit(EXIT_FAILURE);
   }
 
@@ -333,7 +333,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
     while (true) {
       if (input.get() != ' ') {
-        cerr << "Error while reading the graph definition.\n";
+        cerr << "ERROR: Could not correctly read the graph definition.\n";
         exit(EXIT_FAILURE);
       }
 
@@ -543,14 +543,14 @@ Graph::pushQuery(Query * query) {
     BBFSQuery.cancel = true;
 
     // Only register winning search method on positive queries
-    if (result == &DFSQuery) {
+    if (result->method == DFS) {
       pthread_mutex_lock(&methodMutex);
       DFSwin++;
       pthread_mutex_unlock(&methodMutex);
 
       query->answer = DFSQuery.answer;
       query->method = DFS;
-    } else if (result == &BBFSQuery) {
+    } else if (result->method == BBFS) {
       pthread_mutex_lock(&methodMutex);
       BBFSwin++;
       pthread_mutex_unlock(&methodMutex);
@@ -620,6 +620,10 @@ Graph::pullResult() {
   result = resultQueue.front();
   resultQueue.pop_front();
   pthread_mutex_unlock(&resultMutex);
+
+#ifdef ENABLE_STATISTICS
+  registerQueryStatistics(result);
+#endif // ENABLE_STATISTICS
 
   return result;
 }
@@ -735,7 +739,7 @@ Graph::printStatistics(ostream &os) {
   os << "---\n\n";
 #else // ENABLE_STATISTICS
   os << "WARNING: Statistics gathering has not been enabled at compile time.\n";
-  os << "WARNING: To enable statistics uncomment the #define in the header file 'graph.h'.\n\n";
+  os << "WARNING: To enable statistics invoke cmake with '-DENABLE_STATISTICS=1'.\n\n";
 #endif // ENABLE_STATISTICS
 }
 
@@ -798,7 +802,7 @@ Graph::printBenchmarks(ostream &os) {
   os << "Index memory overhead: " << indexOverhead * 100 << "%\n---\n\n";
 #else // ENABLE_BENCHMARKS
   os << "WARNING: Benchmarking has not been enabled at compile time.\n";
-  os << "WARNING: To enable benchmarks uncomment the #define in the header file 'graph.h'.\n\n";
+  os << "WARNING: To enable benchmarks invoke cmake with '-DENABLE_BENCHMARKS=1'.\n\n";
 #endif // ENABLE_BENCHMARKS
 }
 
@@ -874,7 +878,7 @@ Graph::indexGraph() {
   discoverExtremities();
 
   if (indexMethod == Graph::UndefinedMethod) {
-    cerr << "Unknown indexing method. Aborting.\n";
+    cerr << "ERROR: Unknown indexing method. Aborting.\n";
     exit(EXIT_FAILURE);
   }
 
@@ -1041,11 +1045,6 @@ Graph::areConnectedDFS(void * arg) {
   Vertex * curr;
   stack<Vertex *> searchStack;
 
-#ifdef ENABLE_STATISTICS
-  vector<Vertex *> path;
-  uintmax_t searchedNodes = 0;
-#endif // ENABLE_STATISTICS
-
 #ifdef ENABLE_BENCHMARKS
   int event = PAPI_TOT_CYC;
   long long counterValue;
@@ -1055,8 +1054,8 @@ Graph::areConnectedDFS(void * arg) {
   // Are U and V the same vertex?
   if (query->source == query->target) {
 #ifdef ENABLE_STATISTICS
-    searchedNodes++;
-    path.push_back(query->source);
+    query->searchedNodes++;
+    query->path.push_back(query->source);
 #endif // ENABLE_STATISTICS
     query->answer = true;
     goto end;
@@ -1085,14 +1084,14 @@ Graph::areConnectedDFS(void * arg) {
     curr = searchStack.top();
 
 #ifdef ENABLE_STATISTICS
-    if (!path.empty() && (curr == path.back())) {
-      path.pop_back();
+    if (!query->path.empty() && (curr == query->path.back())) {
+      query->path.pop_back();
       searchStack.pop();
       continue;
     }
 
-    searchedNodes++;
-    path.push_back(curr);
+    query->searchedNodes++;
+    query->path.push_back(curr);
 #else // ENABLE_STATISTICS
     searchStack.pop();
 #endif // ENABLE_STATISTICS
@@ -1103,8 +1102,8 @@ Graph::areConnectedDFS(void * arg) {
 
       if (*it == query->target) {
 #ifdef ENABLE_STATISTICS
-        searchedNodes++;
-        path.push_back(query->target);
+        query->searchedNodes++;
+        query->path.push_back(query->target);
 #endif // ENABLE_STATISTICS
 
         query->answer = true;
@@ -1136,10 +1135,6 @@ end:
   queryNumber++;
   pthread_mutex_unlock(&benchmarkMutex);
 #endif // ENABLE_BENCHMARKS
-
-#ifdef ENABLE_STATISTICS
-  registerQueryStatistics(query->answer, path.size(), searchedNodes);
-#endif // ENABLE_STATISTICS
 
   checkIdOverflow();
 
@@ -1173,6 +1168,9 @@ Graph::areConnectedBBFS(void * arg) {
 
   // Are U and V the same vertex?
   if (query->source == query->target) {
+#ifdef ENABLE_STATISTICS
+    query->searchedNodes++;
+#endif // ENABLE_STATISTICS
     query->answer = true;
     goto end;
   }
@@ -1197,7 +1195,7 @@ Graph::areConnectedBBFS(void * arg) {
   }
 #endif // ENABLE_RETRO_LABELS
 
-  // Do a DFS on the subgraph specified by both orders to get the final answer
+  // Do a BBFS on the subgraph specified by both orders to get the final answer
   searchQueueForward.push(query->source);
   searchQueueBackward.push(query->target);
   forwardId = ++DFSId[threadId];
@@ -1212,6 +1210,10 @@ Graph::areConnectedBBFS(void * arg) {
     if (!searchQueueForward.empty()) {
       curr = searchQueueForward.front();
       searchQueueForward.pop();
+
+#ifdef ENABLE_STATISTICS
+      query->searchedNodes++;
+#endif // ENABLE_STATISTICS
 
       for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
         if ((indexMethod & 0x04) && ((*it)->orderLabel > query->target->orderLabel))
@@ -1242,6 +1244,10 @@ Graph::areConnectedBBFS(void * arg) {
     if (!searchQueueBackward.empty()) {
       curr = searchQueueBackward.front();
       searchQueueBackward.pop();
+
+#ifdef ENABLE_STATISTICS
+      query->searchedNodes++;
+#endif // ENABLE_STATISTICS
 
       for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
         if ((indexMethod & 0x04) && ((*it)->orderLabel < query->source->orderLabel))
@@ -1278,10 +1284,6 @@ end:
   queryNumber++;
   pthread_mutex_unlock(&benchmarkMutex);
 #endif // ENABLE_BENCHMARKS
-
-#ifdef ENABLE_STATISTICS
-  registerQueryStatistics(query->answer, 0, 0);
-#endif // ENABLE_STATISTICS
 
   checkIdOverflow();
 
@@ -1340,7 +1342,7 @@ Graph::areConnectedNoLabels(void * arg) {
 void
 Graph::checkIdOverflow() {
   if (threadId >= MAX_THREADS) {
-    cerr << "Thread ID higher than maximum thread count." << endl;
+    cerr << "ERROR: Thread ID higher than maximum thread count." << endl;
     return;
   }
 
@@ -1441,27 +1443,29 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
 // Internal statistics maintenance
 
 void
-Graph::registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t searchedNodes) {
-  double coefficient, overhead;
+Graph::registerQueryStatistics(Query * query) {
+  double coefficient = 1.0;
+  double overhead = 1.0;
 
   pthread_mutex_lock(&statisticsMutex);
 
   queryCount++;
 
-  if (result) {
+  if (query->answer) {
     positiveQueryCount++;
 
     coefficient = 1.0 / ((double) positiveQueryCount);
-    overhead = ((double) searchedNodes) / ((double) pathSize);
+    if (query->method == DFS)
+      overhead = ((double) query->searchedNodes) / ((double) query->path.size());
 
     positiveQueryOverhead *= (1.0 - coefficient);
     positiveQueryOverhead += coefficient * overhead;
   } else {
     negativeQueryCount++;
 
-    if (searchedNodes) {
+    if (query->searchedNodes > 0) {
       coefficient = 1.0 / ((double) negativeQueryCount);
-      overhead = ((double) searchedNodes) / ((double) vertices.size());
+      overhead = ((double) query->searchedNodes) / ((double) vertices.size());
 
       negativeQueryOverhead *= (1.0 - coefficient);
       negativeQueryOverhead += coefficient * overhead;

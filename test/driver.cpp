@@ -91,6 +91,9 @@ queryGenerator(void * args) {
     while (testFile->good()) {
       (*testFile) >> a >> b >> res;
 
+      if (testFile->eof())
+        break;
+
       newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
       queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();

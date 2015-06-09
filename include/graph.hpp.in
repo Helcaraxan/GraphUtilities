@@ -161,6 +161,11 @@ public:
     long long searchTime = 0;
     Graph::SearchMethod method = Undefined;
 
+#ifdef ENABLE_STATISTICS
+	vector<Vertex *> path;
+	uintmax_t searchedNodes = 0;
+#endif // ENABLE_STATISTICS
+
   // Function members
   public:
     Query(Vertex * u, Vertex * v, SearchMethod searchMethod = Undefined) {
@@ -300,7 +305,7 @@ public:
 	pthread_mutex_destroy(&queryWaitMutex);
 	pthread_mutex_destroy(&globalWaitMutex);
 #ifdef ENABLE_STATISTICS
-	pthread_mutex_destory(&statisticsMutex);
+	pthread_mutex_destroy(&statisticsMutex);
 #endif // ENABLE_STATISTICS
 #ifdef ENABLE_BENCHMARKS
 	pthread_mutex_destroy(&benchmarkMutex);
@@ -381,7 +386,7 @@ private:
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
-  void registerQueryStatistics(bool result, unsigned int pathSize, uintmax_t searchedNodes);
+  void registerQueryStatistics(Query * query);
 #endif // ENABLE_STATISTICS
 };
 
