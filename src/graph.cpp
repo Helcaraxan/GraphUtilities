@@ -269,7 +269,6 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
     exit(EXIT_FAILURE);
   }
 
-  cout << "Start parsing the graph definition from a Dot file.\n";
   while (input.good()) {
     input.getline(dump, 127);
 
@@ -294,7 +293,6 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
     }
   }
 
-  cout << "Finished parsing the graph from a Dot file.\n";
   input.close();
   graph->indexed = false;
   graph->condensed = false;
@@ -329,8 +327,6 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
     cerr << "ERROR: Could not open the Gra input file.\n";
     exit(EXIT_FAILURE);
   }
-
-  cout << "Start parsing the graph definition from a Gra file.\n\n";
 
   // Get the first line out of the way
   input.getline(dump, 127);
@@ -372,7 +368,6 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
     }
   }
 
-  cout << "Finished parsing the graph from a Gra file.\n\n";
   input.close();
   graph->indexed = false;
   graph->condensed = false;
@@ -602,10 +597,8 @@ Graph::pushQuery(Query * query) {
 
       if (DFSwin >= 10) {
         preferredMethod = DFS;
-        cerr << "\nMulti-thread calibration chose DFS as search-method.\n";
       } else if (BBFSwin >= 10) {
         preferredMethod = BBFS;
-        cerr << "\nMulti-thread calibration chose BBFS as search-method.\n";
       }
 
       methodLock.unlock();
@@ -999,10 +992,6 @@ Graph::condenseGraph() {
   if (condensed)
     return;
 
-  cout << "Condensing the graph.\n";
-  cout << "Initial graph has " << vertices.size();
-  cout << " vertices and " << edgeCount << " edges.\n\n";
-
   // Prepare for the upcoming DFSs
   DFSId[0]++;
 
@@ -1013,9 +1002,6 @@ Graph::condenseGraph() {
   }
 
   condensed = true;
-
-  cout << "Condensed graph has " << vertices.size();
-  cout << " vertices and " << edgeCount << " edges.\n\n";
 }
 
 

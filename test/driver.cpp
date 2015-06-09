@@ -1,19 +1,23 @@
 #include <map>
 #include <chrono>
 #include <random>
+#include <string>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
 
 #include <getopt.h>
-#include "tbb/concurrent_hash_map.h"
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <tbb/concurrent_hash_map.h>
 
 #include "graph.hpp"
 
 using namespace std;
 
 #define QUERY_NB 100000
+
 
 int dryFlag = 0;
 int uniqueFlag = 0;
@@ -54,8 +58,43 @@ printHelpMessage() {
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
-  cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large grpahs)\n";
+  cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large graphs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
+}
+
+
+static inline void resultProgressBar(int progress) {
+  int intRatio;
+  int refreshModulo;
+  double floatRatio;
+  static int terminalWidth = 0;
+
+  if (terminalWidth == 0) {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    terminalWidth = w.ws_col;
+  }
+
+  refreshModulo = QUERY_NB / (terminalWidth - 7);
+
+  if (progress == QUERY_NB) {
+    cout << "100% [" << string(terminalWidth - 7, '=');
+    cout << "]\r" << flush;
+    return;
+  }
+
+  if (progress % refreshModulo != 0)
+    return;
+
+  intRatio = progress / refreshModulo;
+  floatRatio = ((double) progress) / ((double) QUERY_NB);
+
+  cout.width(3);
+  cout << right << (int) (floatRatio * 100) << "% [";
+
+  string completeString(intRatio, '=');
+  cout << string(intRatio, '=') << string(terminalWidth - 7 - intRatio, ' ') << "]\r" << flush;
 }
 
 
@@ -67,7 +106,6 @@ queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
 
   // Fill the queries to process...
   if (testFile.is_open()) {
-    cout << "Parsing queries from a test file.\n";
     // ... from the specified file
     while (testFile.good()) {
       testFile >> a >> b >> res;
@@ -81,8 +119,6 @@ queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
       graph->pushQuery(newQuery);
       openQueries.post();
     }
-
-    cout << "Finished parsing queries from file.\n\n";
 
     testFile.close();
   } else {
@@ -119,8 +155,6 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
   Graph::Query * nextQuery = NULL;
   tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
 
-
-  cout << "Analyzed results: " << resultCounter;
   while (true) {
     openQueries.wait();
 
@@ -131,10 +165,13 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
     queryMap.find(queryAccess, nextQuery);
 
     if (nextQuery->isError()) {
-      cerr << "Error when processing query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
+      cerr << "ERROR: Could not process query " << nextQuery->getSource()->id << " -> ";
+      cerr << nextQuery->getTarget()->id << "\n";
     } else if (verifyFlag) {
-      if (nextQuery->getAnswer() != queryAccess->second)
-        cerr << "Wrong answer for query " << nextQuery->getSource()->id << " -> " << nextQuery->getTarget()->id << "\n";
+      if (nextQuery->getAnswer() != queryAccess->second) {
+        cerr << "ERROR: Wrong answer for query " << nextQuery->getSource()->id << " -> ";
+        cerr << nextQuery->getTarget()->id << "\n";
+      }
     } else if (queryFile.is_open()) {
       queryFile << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
       if (queryAccess->second)
@@ -144,8 +181,7 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
     }
     queryAccess.release();
     results.push_back(nextQuery);
-    resultCounter++;
-    cout << "\rAnalyzed results: " << resultCounter;
+    resultProgressBar(++resultCounter);
   }
 
   cout << "\n";
@@ -175,7 +211,7 @@ main(int argc, char * argv[]) {
       case 'o':
         outputFile.open(optarg, fstream::out);
         if (!outputFile.good()) {
-          cerr << "Error: could not open the output file.\n";
+          cerr << "ERROR: Could not open the output file.\n";
           exit(EXIT_FAILURE);
         }
 
@@ -185,7 +221,7 @@ main(int argc, char * argv[]) {
       case 't':
         testFile.open(optarg, fstream::in);
         if (!testFile.good()) {
-          cerr << "Error: could not open the test file.\n";
+          cerr << "ERROR: Could not open the test file.\n";
           exit(EXIT_FAILURE);
         }
         break;
@@ -200,7 +236,7 @@ main(int argc, char * argv[]) {
         } else if (!strcmp(optarg, "LabelOrder")) {
           indexMethod = Graph::LabelOrder;
         } else {
-          cerr << "Error: unknown label method specified.\n";
+          cerr << "ERROR: Unknown label method specified.\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
         }
@@ -212,7 +248,7 @@ main(int argc, char * argv[]) {
         } else if (!strcmp(optarg, "BBFS")) {
           searchMethod = Graph::BBFS;
         } else {
-          cerr << "Error: unknown search method specified.\n";
+          cerr << "ERROR: Unknown search method specified.\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
         }
@@ -221,7 +257,7 @@ main(int argc, char * argv[]) {
       case 'g':
         dumpFile.open(optarg, fstream::out);
         if (!dumpFile.good()) {
-          cerr << "Error: could not open the graph dump file.\n";
+          cerr << "ERROR: Could not open the graph dump file.\n";
           exit(EXIT_FAILURE);
         }
         break;
@@ -229,7 +265,7 @@ main(int argc, char * argv[]) {
       case 'q':
         queryFile.open(optarg, fstream::out);
         if (!queryFile.good()) {
-          cerr << "Error: could not open the query dump file.\n";
+          cerr << "ERROR: Could not open the query dump file.\n";
           exit(EXIT_FAILURE);
         }
         break;
@@ -243,13 +279,13 @@ main(int argc, char * argv[]) {
         break;
 
       default:
-        cerr << "Error in GetOpt class while parsing command-line arguments.\n";
+        cerr << "ERROR: GetOpt class error while parsing command-line arguments.\n";
         exit(EXIT_FAILURE);
     }
   }
 
   if (fileName[0] == '\0') {
-    cerr << "Error: No input file was specified.\n\n";
+    cerr << "ERROR: No input file was specified.\n\n";
     printHelpMessage();
     exit(EXIT_FAILURE);
   }
@@ -259,12 +295,12 @@ main(int argc, char * argv[]) {
   } else if (strstr(fileName, ".gra")) {
     graph = Graph::createFromGraFile(fileName, uniqueFlag);
   } else {
-    cerr << "Error: Unknown graph-file extension. Only accepts .dot and .gra files.\n";
+    cerr << "ERROR: Unknown graph-file extension. Only accepts .dot and .gra files.\n";
     exit(EXIT_FAILURE);
   }
 
   if (!graph) {
-    cerr << "Error: No graph was generated from the input file.\n\n";
+    cerr << "ERROR: No graph was generated from the input file.\n\n";
     printHelpMessage();
     exit(EXIT_FAILURE);
   }
@@ -276,7 +312,6 @@ main(int argc, char * argv[]) {
   if (dumpFile.is_open()) {
     Vertex * curr;
 
-    cout << "Dump file for consistency check.\n";
     dumpFile << "graph_for_greach\n" << graph->getVertexCount() << "\n";
     for (i = 0; i < (int) graph->getVertexCount(); i++) {
       dumpFile << i << ":";
@@ -286,8 +321,6 @@ main(int argc, char * argv[]) {
 
       dumpFile << " #\n";
     }
-
-    cout << "Finished dumping file.\n\n";
     dumpFile.close();
   }
 
