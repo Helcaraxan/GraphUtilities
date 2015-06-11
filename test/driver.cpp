@@ -22,6 +22,7 @@ using namespace std;
 int dryFlag = 0;
 int uniqueFlag = 0;
 int verifyFlag = 0;
+int batchFlag = 0;
 bool poison = false;
 semaphore openQueries;
 tbb::concurrent_hash_map<Graph::Query *, bool> queryMap;
@@ -40,6 +41,7 @@ const struct option longopts[] = {
   {"verify",  no_argument, &verifyFlag, 1},
   {"unique-edges", no_argument, &uniqueFlag, 1},
   {"dry",       no_argument,  &dryFlag, 1},
+  {"batch",     no_argument,  &batchFlag, 1},
   {0,0,0,0}
 };
 
@@ -60,6 +62,7 @@ printHelpMessage() {
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
   cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large graphs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
+  cout << "\t-b | --batch\t\tDo not print progress-bar\n";
 }
 
 
@@ -68,6 +71,9 @@ static inline void resultProgressBar(int progress) {
   int refreshModulo;
   double floatRatio;
   static int terminalWidth = 0;
+
+  if (batchFlag == 1)
+    return;
 
   if (terminalWidth == 0) {
     struct winsize w;
@@ -164,7 +170,7 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
     nextQuery = graph->pullResult();
     queryMap.find(queryAccess, nextQuery);
 
-    if (nextQuery->isError()) {
+    if (nextQuery->getError()) {
       cerr << "ERROR: Could not process query " << nextQuery->getSource()->id << " -> ";
       cerr << nextQuery->getTarget()->id << "\n";
     } else if (verifyFlag) {
@@ -202,7 +208,7 @@ main(int argc, char * argv[]) {
   char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvud", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvudb", longopts, NULL)) != -1) {
     switch (c) {
       case 'i':
         strncpy(fileName, optarg, 511);

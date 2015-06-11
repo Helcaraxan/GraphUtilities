@@ -25,22 +25,22 @@ macro(graph_test filepath)
 	# Random query DFS test
 	add_test(${graph}-random-DFS
 		QueryDriver
-		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=DFS --unique-edges)
+		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=DFS --unique-edges --batch)
 
 	# Random query BBFS test
 	add_test(${graph}-random-BBFS
 		QueryDriver
-		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=BBFS --unique-edges)
+		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=BBFS --unique-edges --batch)
 
 	# Positive query test with automatic DFS / BBFS choice
 	add_test(${graph}-positive-automatic
 		QueryDriver
-		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test --unique-edges)
+		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test --unique-edges --batch)
 
 	# Deep positive query test with automatic DFS / BBFS choice
 	add_test(${graph}-deep-positive-automatic
 		QueryDriver
-		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test  --unique-edges)
+		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test  --unique-edges --batch)
 
 	# Set properties for random query tests
 	set_tests_properties(${graph}-random-DFS ${graph}-random-BBFS

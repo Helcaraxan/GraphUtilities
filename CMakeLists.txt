@@ -14,6 +14,11 @@ if(NOT MAX_THREADS)
 	set(MAX_THREADS "2")
 endif(NOT MAX_THREADS)
 
+if(NOT AUTO_THRESHOLD)
+  set(AUTO_THRESHOLD "10")
+endif(NOT AUTO_THRESHOLD)
+
+
 configure_file(
 	"${PROJECT_SOURCE_DIR}/include/graph.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/graph.hpp"

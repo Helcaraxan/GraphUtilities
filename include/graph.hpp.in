@@ -13,9 +13,12 @@ class Graph;
 
 #include <list>
 #include <mutex>
+#include <atomic>
 #include <thread>
 #include <vector>
 #include <condition_variable>
+
+#include <papi.h>
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS
@@ -24,24 +27,46 @@ class Graph;
 
 // Let cmake choose the maximum number of parallel queries
 #define MAX_THREADS ${MAX_THREADS}
+#define AUTO_THRESHOLD ${AUTO_THRESHOLD}
 
 
 using namespace std;
 
 
-// Semaphore class (active wait variant)
+// Semaphore class (passive wait variant)
 
 class semaphore {
 private:
   mutex mtx;
   condition_variable cv;
-  volatile int count = 0;
+  atomic<int> count{0};
 
 public:
   // Increment the counter value
   void post(void);
 
   // Wait for a post to the semaphore
+  void wait(void);
+};
+
+
+// Spinsemaphore class (passive wait variant)
+class spin_semaphore {
+private:
+  mutex mtx;
+  atomic<int> maxIdx{0};
+  atomic<int> currIdx{0};
+  atomic<int> overflow{0};
+  atomic<int> members{0};
+  condition_variable * cvs = NULL;
+
+public:
+  void initialize(int memberCount);
+
+  void reset(void);
+
+  void post(void);
+
   void wait(void);
 };
 
@@ -78,7 +103,7 @@ private:
 
   int inVisits = 0;
   int outVisits = 0;
-  uint64_t DFSId[MAX_THREADS] = {0};
+  atomic<uint64_t> DFSId[MAX_THREADS] = {{0}};
 
   Vertex * firstVisit = NULL;
 
@@ -121,6 +146,8 @@ public:
 
 private:
   // Indexing
+  void setDFSId(int idx, uint64_t id);
+  uint64_t getDFSId(int idx);
   void visit(Vertex * pred, int method);
   Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
 };
@@ -159,32 +186,42 @@ public:
 
   // Data members
   private:
-    Vertex * source;
-    Vertex * target;
-    bool internal = false;
-    volatile bool answer = false;
-    volatile bool error = false;
-    volatile bool cancel = false;
-    volatile long long searchTime = 0;
-    Graph::SearchMethod method = Undefined;
+    atomic<Vertex *> source;
+    atomic<Vertex *> target;
+    atomic<bool> answer{false};
+    atomic<bool> error{false};
+    atomic<bool> cancel{false};
+    atomic<uint64_t> internal{0};
+    atomic<Graph::SearchMethod> method{Undefined};
 
 #ifdef ENABLE_STATISTICS
-	vector<Vertex *> path;
-	uintmax_t searchedNodes = 0;
+  vector<Vertex *> path;
+  atomic<uintmax_t> searchedNodes{0};
 #endif // ENABLE_STATISTICS
 
   // Function members
   public:
     Query(Vertex * u, Vertex * v, SearchMethod searchMethod = Undefined) {
-      source = u;
-      target = v;
-      method = searchMethod;
+      source.store(u, memory_order_release);
+      target.store(v, memory_order_release);
+      method.store(searchMethod, memory_order_release);
     }
 
     Vertex * getSource(void);
     Vertex * getTarget(void);
     bool getAnswer(void);
-    bool isError(void);
+    bool getError(void);
+    Graph::SearchMethod getMethod(void);
+
+
+  private:
+    void setAnswer(bool value);
+    void setError(bool value);
+    void setCancel(bool value);
+    void setInternal(uint64_t value);
+    void setMethod(Graph::SearchMethod value);
+    bool getCancel(void);
+    uint64_t getInternal(void);
   };
 
 
@@ -199,8 +236,8 @@ protected:
   vector<Vertex *> sources;
   vector<Vertex *> sinks;
 
-  // Global IDs to distinguish between seperate DFSs
-  uint64_t DFSId[MAX_THREADS] = {0};
+  // Global timestamp to distinguish between condensation DFSs
+  uint64_t globalTimestamp;
 
 private:
   // Indexing
@@ -211,12 +248,13 @@ private:
   mutex methodMutex;
   semaphore jobSemaphore;
   list<Query *> jobQueue;
+  atomic<SearchMethod> searchMethod{Undefined};
 
   // Results
   mutex resultMutex;
   mutex internalResultMutex;
+  spin_semaphore internalResultSpinSemaphore;
   semaphore resultSemaphore;
-  semaphore internalResultSemaphore;
   list<Query *> resultQueue;
   list<Query *> internalResultQueue;
 
@@ -261,6 +299,9 @@ private:
 public:
   // Constructors & Destructor
   Graph(void) {
+    PAPI_library_init(PAPI_VER_CURRENT);
+    internalResultSpinSemaphore.initialize(MAX_THREADS);
+
     for (int i = 0; i < MAX_THREADS; i++)
       queryThreads[i] = thread(queryWorker, this, i);
   }
@@ -273,6 +314,8 @@ public:
 
     for (int i = 0; i < MAX_THREADS; i++)
       queryThreads[i].join();
+
+    internalResultSpinSemaphore.reset();
 
     for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it)
       (*it)->error = true;
@@ -346,6 +389,8 @@ private:
   void areConnectedDFS(Query * query, int threadId);
   void areConnectedBBFS(Query * query, int threadId);
   void areConnectedNoLabels(Query * query, int threadId);
+  SearchMethod getMethod(void);
+  void setMethod(SearchMethod method);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
