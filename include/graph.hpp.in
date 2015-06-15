@@ -292,7 +292,7 @@ private:
   long long cyclesSpentQuerying{0};
   long long graphMemoryUsage{0};
 
-  pthread_mutex_t benchmarkMutex;
+  mutex benchmarkMutex;
 #endif // ENABLE_BENCHMARKS
 
 // Function members
