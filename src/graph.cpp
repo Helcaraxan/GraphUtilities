@@ -524,20 +524,8 @@ Graph::getMetisGraph() {
   graph_t * metisGraph = new graph_t;
 
   metisGraph->nvtxs = getVertexCount();
-  metisGraph->nedges = getEdgeCount();
   metisGraph->xadj = new idx_t[metisGraph->nvtxs + 1];
-  metisGraph->vwgt = NULL;
-  metisGraph->vsize = NULL;
-  metisGraph->adjncy = new idx_t[metisGraph->nedges];
-  metisGraph->adjwgt = NULL;
-  metisGraph->tvwgt = NULL;
-  metisGraph->invtvwgt = NULL;
-
-  metisGraph->free_xadj = 0;
-  metisGraph->free_vwgt = 0;
-  metisGraph->free_vsize = 0;
-  metisGraph->free_adjncy = 0;
-  metisGraph->free_adjwgt = 0;
+  metisGraph->adjncy = new idx_t[getEdgeCount()];
 
   metisGraph->xadj[0] = adjIdx;
 
