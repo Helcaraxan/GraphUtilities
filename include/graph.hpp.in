@@ -11,6 +11,7 @@ class Graph;
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
+#include <set>
 #include <list>
 #include <mutex>
 #include <atomic>
@@ -19,6 +20,9 @@ class Graph;
 #include <condition_variable>
 
 #include <papi.h>
+
+#include "queries.hpp"
+#include "metis-extra.h"
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS
@@ -50,7 +54,7 @@ public:
 };
 
 
-// Spinsemaphore class (passive wait variant)
+// Spin-semaphore class (passive wait variant)
 class spin_semaphore {
 private:
   mutex mtx;
@@ -89,11 +93,14 @@ friend class Graph;
 public:
   typedef vector<Vertex *>::iterator iterator;
 
+
 // Data members
 public:
   int id;
 
+
 private:
+  // Reachability data
   int orderLabel = -1;
   int reverseOrderLabel = -1;
 #ifdef ENABLE_RETRO_LABELS
@@ -107,10 +114,15 @@ private:
 
   Vertex * firstVisit = NULL;
 
+  // Partioning data
+  int partitionID = 0;
+
+  // General data
   int predecessorCount = 0;
   int successorCount = 0;
   vector<Vertex *> predecessors;
   vector<Vertex *> successors;
+
 
 // Function members
 public:
@@ -144,6 +156,7 @@ public:
   iterator successors_begin(void);
   iterator successors_end(void);
 
+
 private:
   // Indexing
   void setDFSId(int idx, uint64_t id);
@@ -158,80 +171,18 @@ friend void queryWorker(Graph * graph, int id);
 
 // Local types
 public:
-  /* The IndexMethod values obey the following rules:
-   * 0x01 (first bit) Indicates if predecessors are rescheduled on traversal
-   * 0x02 (second bit) Indicates if successors are rescheduled on traversal
-   * 0x04 (third bit) Indicates if successors are ordered with their labels
-   */
-  typedef enum {
-    ShortIndexing = 0x00,
-    SuccessorOrder = 0x02,
-    Standard = 0x03,
-    LabelOrder = 0x07,
-    UndefinedMethod = 0x10
-  } IndexMethod;
-
-
-  typedef enum {
-    DFS,
-    BBFS,
-    NoLabels,
-    Undefined
-  } SearchMethod;
-
-
-  class Query {
-  friend class Graph;
-  friend void queryWorker(Graph * graph, int threadId);
-
-  // Data members
-  private:
-    atomic<Vertex *> source;
-    atomic<Vertex *> target;
-    atomic<bool> answer{false};
-    atomic<bool> error{false};
-    atomic<bool> cancel{false};
-    atomic<uint64_t> internal{0};
-    atomic<Graph::SearchMethod> method{Undefined};
-
-#ifdef ENABLE_STATISTICS
-  vector<Vertex *> path;
-  atomic<uintmax_t> searchedNodes{0};
-#endif // ENABLE_STATISTICS
-
-  // Function members
-  public:
-    Query(Vertex * u, Vertex * v, SearchMethod searchMethod = Undefined) {
-      source.store(u, memory_order_release);
-      target.store(v, memory_order_release);
-      method.store(searchMethod, memory_order_release);
-    }
-
-    Vertex * getSource(void);
-    Vertex * getTarget(void);
-    bool getAnswer(void);
-    bool getError(void);
-    Graph::SearchMethod getMethod(void);
-
-
-  private:
-    void setAnswer(bool value);
-    void setError(bool value);
-    void setCancel(bool value);
-    void setInternal(uint64_t value);
-    void setMethod(Graph::SearchMethod value);
-    bool getCancel(void);
-    uint64_t getInternal(void);
-  };
+  typedef vector<set<Vertex *> *> PartitionSet;
 
 
 // Data members
 protected:
+  // Reachability data
   bool indexed = false;
-  bool condensed = false;
-  IndexMethod indexMethod = UndefinedMethod;
-  unsigned int edgeCount = 0;
+  IndexMethod indexMethod = UndefinedIndexMethod;
 
+  // General data
+  bool condensed = false;
+  unsigned int edgeCount = 0;
   vector<Vertex *> vertices;
   vector<Vertex *> sources;
   vector<Vertex *> sinks;
@@ -239,7 +190,9 @@ protected:
   // Global timestamp to distinguish between condensation DFSs
   uint64_t globalTimestamp;
 
+
 private:
+  /* Reachability data */
   // Indexing
   mutex indexMutex;
 
@@ -248,7 +201,7 @@ private:
   mutex methodMutex;
   semaphore jobSemaphore;
   list<Query *> jobQueue;
-  atomic<SearchMethod> searchMethod{Undefined};
+  atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
 
   // Results
   mutex resultMutex;
@@ -262,6 +215,12 @@ private:
   vector<Vertex *> successorQueue;
   vector<Vertex *> predecessorQueue;
 
+  /* Partitioning data */
+  // General
+  int partitionCount = 0;
+  atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
+
+  /* General data */
   // Multi-threading
   int activeThreads = 0;
   bool noQueries = false;
@@ -273,6 +232,7 @@ private:
   thread queryThreads[MAX_THREADS];
 
 #ifdef ENABLE_STATISTICS
+  /* Statistics data */
   // Counters
   uintmax_t queryCount = 0;
   uintmax_t positiveQueryCount = 0;
@@ -286,14 +246,17 @@ private:
 #endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_BENCHMARKS
+  /* Benchmark data */
   // Counters
   long long queryNumber{0};
   long long cyclesSpentIndexing{0};
   long long cyclesSpentQuerying{0};
   long long graphMemoryUsage{0};
 
+  // Multi-threading
   mutex benchmarkMutex;
 #endif // ENABLE_BENCHMARKS
+
 
 // Function members
 public:
@@ -317,8 +280,10 @@ public:
 
     internalResultSpinSemaphore.reset();
 
-    for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it)
-      (*it)->error = true;
+    for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it) {
+      if ((*it)->type == Reachability)
+        (*it)->query.reachability.setError(true);
+    }
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;
@@ -337,15 +302,20 @@ public:
   void setIndexMethod(IndexMethod newMethod);
 
   // Access
+  graph_t * getMetisGraph(void);
   unsigned int getEdgeCount(void);
   unsigned int getVertexCount(void);
   Vertex * getVertexFromId(int id);
   IndexMethod getIndexMethod(void);
 
-  // Queries
+  // Reachability queries
   void pushQuery(Query * query);
   Query * pullResult(void);
   void endOfQueries(void);
+
+  // Partitioning queries
+  int getPartitionCount(void);
+  PartitionSet * getPartitionSet(int count);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -364,12 +334,13 @@ public:
   long long getCyclesSpentQuerying(void);
   void printBenchmarks(ostream &os);
 
+
 protected:
   // Indexing
   void labelVertices(bool retro, bool reverse);
   void indexGraph(void);
 
-  // Maintenance
+  // Graph maintenance
   void discoverExtremities(void);
   void condenseGraph(void);
 
@@ -379,22 +350,27 @@ protected:
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
 
+
 private:
   // Maintenance
   void condenseFromSource(Vertex * source);
   Vertex * addVertexUnsafe(void);
   bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
-  // Internal query functions
-  void areConnectedDFS(Query * query, int threadId, vector<Vertex *> &searchStack);
-  void areConnectedBBFS(Query * query, int threadId);
-  void areConnectedNoLabels(Query * query, int threadId);
+  // Internal reachability query functions
+  void processReachabilityQuery(int threadId, Query * query);
+  void areConnectedDFS(ReachabilityQuery &query, int threadId, vector<Vertex *> &searchStack);
+  void areConnectedBBFS(ReachabilityQuery &query, int threadId);
+  void areConnectedNoLabels(ReachabilityQuery &query, int threadId);
   SearchMethod getMethod(void);
   void setMethod(SearchMethod method);
 
+  // Internal partitioning query functions
+  void processPartitionQuery(int threadId, Query * query);
+
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
-  void registerQueryStatistics(Query * query);
+  void registerQueryStatistics(ReachabilityQuery &query);
 #endif // ENABLE_STATISTICS
 };
 

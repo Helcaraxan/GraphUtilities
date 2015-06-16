@@ -5,7 +5,7 @@ project(GraphUtilities)
 option(ENABLE_STATISTICS
 	"Gather statistics from each query about the algorithm's effectiveness" ON)
 option(ENABLE_BENCHMARKS
-	"Perform benchmark measures on indexing and queries" ON)
+	"Perform benchmark measures on indexing and queries" OFF)
 option(ENABLE_RETRO_LABELS
 	"During labeling perform a 3rd and 4th reversed pass for stricter labeling" OFF)
 
@@ -22,6 +22,16 @@ endif(NOT AUTO_THRESHOLD)
 configure_file(
 	"${PROJECT_SOURCE_DIR}/include/graph.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/graph.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/include/queries.hpp"
+	"${PROJECT_BINARY_DIR}/include/queries.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/include/metis-extra.h"
+	"${PROJECT_BINARY_DIR}/include/metis-extra.h"
 	)
 
 # Set the compile options depending on the build-type

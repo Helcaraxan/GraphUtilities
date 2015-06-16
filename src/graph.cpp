@@ -287,80 +287,6 @@ Vertex::createPostOrder(vector<Vertex *> * postOrder, int method) {
 }
 
 
-// Query declarations
-
-Vertex *
-Graph::Query::getSource() {
-  return source.load(memory_order_acquire);
-}
-
-
-Vertex *
-Graph::Query::getTarget() {
-  return target.load(memory_order_acquire);
-}
-
-
-bool
-Graph::Query::getAnswer() {
-  return answer.load(memory_order_acquire);
-}
-
-
-bool
-Graph::Query::getError() {
-  return error.load(memory_order_acquire);
-}
-
-
-Graph::SearchMethod
-Graph::Query::getMethod() {
-  return method.load(memory_order_acquire);
-}
-
-
-void
-Graph::Query::setAnswer(bool value) {
-  answer.store(value, memory_order_release);
-}
-
-
-void
-Graph::Query::setError(bool value) {
-  error.store(value, memory_order_release);
-}
-
-
-void
-Graph::Query::setCancel(bool value) {
-  cancel.store(value, memory_order_release);
-}
-
-
-void
-Graph::Query::setInternal(uint64_t value) {
-  internal.store(value, memory_order_release);
-}
-
-
-void
-Graph::Query::setMethod(Graph::SearchMethod value) {
-  method.store(value, memory_order_release);
-}
-
-
-bool
-Graph::Query::getCancel() {
-  return cancel.load(memory_order_acquire);
-}
-
-
-uint64_t
-Graph::Query::getInternal() {
-  return internal.load(memory_order_acquire);
-}
-
-
 // Parser
 
 /* This function parses a subset of Dot files. Only edges and vertices can be
@@ -584,12 +510,52 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 
 
 void
-Graph::setIndexMethod(Graph::IndexMethod newMethod) {
+Graph::setIndexMethod(IndexMethod newMethod) {
   indexMethod = newMethod;
 }
 
 
 // Access
+
+graph_t *
+Graph::getMetisGraph() {
+  int adjIdx = 0;
+
+  graph_t * metisGraph = new graph_t;
+
+  metisGraph->nvtxs = getVertexCount();
+  metisGraph->nedges = getEdgeCount();
+  metisGraph->xadj = new idx_t[metisGraph->nvtxs + 1];
+  metisGraph->vwgt = NULL;
+  metisGraph->vsize = NULL;
+  metisGraph->adjncy = new idx_t[metisGraph->nedges];
+  metisGraph->adjwgt = NULL;
+  metisGraph->tvwgt = NULL;
+  metisGraph->invtvwgt = NULL;
+
+  metisGraph->free_xadj = 0;
+  metisGraph->free_vwgt = 0;
+  metisGraph->free_vsize = 0;
+  metisGraph->free_adjncy = 0;
+  metisGraph->free_adjwgt = 0;
+
+  metisGraph->xadj[0] = adjIdx;
+
+  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
+     for (auto it2 = (*it)->predecessors_begin(), end2 = (*it)->predecessors_end();
+         it2 != end2; ++it2)
+       metisGraph->adjncy[adjIdx++] = (*it)->id;
+
+     for (auto it2 = (*it)->successors_begin(), end2 = (*it)->successors_end();
+         it2 != end2; ++it2)
+       metisGraph->adjncy[adjIdx++] = (*it)->id;
+
+     metisGraph->xadj[(*it)->id + 1] = adjIdx;
+  }
+
+  return metisGraph;
+}
+
 
 unsigned int
 Graph::getEdgeCount() {
@@ -609,7 +575,7 @@ Graph::getVertexFromId(int id) {
 }
 
 
-Graph::IndexMethod
+IndexMethod
 Graph::getIndexMethod() {
   return indexMethod;
 }
@@ -631,14 +597,15 @@ Graph::pushQuery(Query * query) {
   if (!indexed) {
     indexGraph();
     methodLock.lock();
-    setMethod(Undefined);
+    setMethod(UndefinedSearchMethod);
     DFSwin = 0;
     BBFSwin = 0;
     methodLock.unlock();
   }
 
   // If a method is specified use it
-  if (query->getMethod() != Undefined) {
+  if ((query->type != Reachability) ||
+      (query->query.reachability.getMethod() != UndefinedSearchMethod)) {
     jobLock.lock();
     jobQueue.push_back(query);
     jobSemaphore.post();
@@ -648,13 +615,17 @@ Graph::pushQuery(Query * query) {
 
   // Else select the method automatically. If there is no
   // preferred method yet then find one.
-  if (getMethod() == Undefined) {
+  if (getMethod() == UndefinedSearchMethod) {
     int results = 0;
-    Query DFSQuery(query->getSource(), query->getTarget(), DFS);
-    Query BBFSQuery(query->getSource(), query->getTarget(), BBFS);
+    ReachabilityQuery &reachQuery = query->query.reachability;
+    ReachabilityQuery DFSReachQuery(reachQuery.getSource(), reachQuery.getTarget(), DFS);
+    ReachabilityQuery BBFSReachQuery(reachQuery.getSource(), reachQuery.getTarget(), BBFS);
 
-    DFSQuery.setInternal(1);
-    BBFSQuery.setInternal(1);
+    DFSReachQuery.setInternal(1);
+    BBFSReachQuery.setInternal(1);
+
+    Query DFSQuery(Reachability, DFSReachQuery);
+    Query BBFSQuery(Reachability, BBFSReachQuery);
 
     jobLock.lock();
     jobQueue.push_back(&DFSQuery);
@@ -684,38 +655,38 @@ Graph::pushQuery(Query * query) {
     }
 
     // Check for errors in the queries
-    if (DFSQuery.getError() || BBFSQuery.getError()) {
+    if (DFSReachQuery.getError() || BBFSReachQuery.getError()) {
       cerr << "ERROR: Could not correctly process BBFS or DFS search." << endl;
       exit(EXIT_FAILURE);
     }
 
     // Check for coherency between queries
-    if (DFSQuery.getAnswer() != BBFSQuery.getAnswer()) {
+    if (DFSReachQuery.getAnswer() != BBFSReachQuery.getAnswer()) {
       cerr << "ERROR: Incoherent results between BBFS and DFS search." << endl;
       exit(EXIT_FAILURE);
     }
     
     // Find the fastest search method and register the win
     methodLock.lock();
-    if (DFSQuery.getInternal() < BBFSQuery.getInternal()) {
-      if ((++DFSwin >= AUTO_THRESHOLD) && (getMethod() == Undefined))
+    if (DFSReachQuery.getInternal() < BBFSReachQuery.getInternal()) {
+      if ((++DFSwin >= AUTO_THRESHOLD) && (getMethod() == UndefinedSearchMethod))
         setMethod(DFS);
 
-      query->setAnswer(DFSQuery.getAnswer());
-      query->setMethod(DFS);
+      query->query.reachability.setAnswer(DFSReachQuery.getAnswer());
+      query->query.reachability.setMethod(DFS);
 
 #ifdef ENABLE_STATISTICS
-      registerQueryStatistics(&DFSQuery);
+      registerQueryStatistics(&DFSReachQuery);
 #endif // ENABLE_STATISTICS
     } else {
-      if ((++BBFSwin >= AUTO_THRESHOLD) && (getMethod() == Undefined))
+      if ((++BBFSwin >= AUTO_THRESHOLD) && (getMethod() == UndefinedSearchMethod))
         setMethod(BBFS);
 
-      query->setAnswer(BBFSQuery.getAnswer());
-      query->setMethod(BBFS);
+      query->query.reachability.setAnswer(BBFSReachQuery.getAnswer());
+      query->query.reachability.setMethod(BBFS);
 
 #ifdef ENABLE_STATISTICS
-      registerQueryStatistics(&BBFSQuery);
+      registerQueryStatistics(&BBFSReachQuery);
 #endif // ENABLE_STATISTICS
     }
     methodLock.unlock();
@@ -725,7 +696,7 @@ Graph::pushQuery(Query * query) {
     resultSemaphore.post();
     resultLock.unlock();
   } else {
-    query->setMethod(getMethod());
+    query->query.reachability.setMethod(getMethod());
 
     jobLock.lock();
     jobQueue.push_back(query);
@@ -737,7 +708,7 @@ Graph::pushQuery(Query * query) {
 }
 
 
-Graph::Query *
+Query *
 Graph::pullResult() {
   Query * result = NULL;
   unique_lock<mutex> resultLock(resultMutex, defer_lock);
@@ -1002,7 +973,7 @@ Graph::indexGraph() {
   // Make sure we discovered the sources
   discoverExtremities();
 
-  if (indexMethod == Graph::UndefinedMethod) {
+  if (indexMethod == UndefinedIndexMethod) {
     cerr << "ERROR: Unknown indexing method. Aborting.\n";
     exit(EXIT_FAILURE);
   }
@@ -1158,329 +1129,6 @@ Graph::stopGlobalOperation() {
 }
 
 
-// Internal query functions
-
-/* Use the previously done indexation to answer to the query */
-void
-Graph::areConnectedDFS(Query * query, int threadId, vector<Vertex *> &searchStack) {
-  int event = PAPI_TOT_CYC;
-  long long counterValue;
-  uint64_t timestamp;
-  Vertex * curr;
-
-#ifdef ENABLE_BENCHMARKS
-  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
-  PAPI_start_counters(&event, 1);
-#else // ENABLE_BENCHMARKS
-  if (query->getInternal() == 1)
-    PAPI_start_counters(&event, 1);
-#endif // ENABLE_BENCHMARKS
-
-  // Are U and V the same vertex?
-  if (query->getSource() == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-    query->searchedNodes++;
-    query->path.push_back(query->getSource());
-#endif // ENABLE_STATISTICS
-    query->setAnswer(true);
-    goto end;
-  }
-
-  // Can V be a descendant of U in the standard graph or U a descendant of V in
-  // the reverse graph?
-  if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel))
-    goto end;
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel))
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
-  // Do a DFS on the subgraph specified by both orders to get the final answer
-  timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-
-  searchStack.push_back(query->getSource());
-
-  while (!searchStack.empty()) {
-    if (query->getCancel())
-      goto cancel;
-
-    curr = searchStack.back();
-
-#ifdef ENABLE_STATISTICS
-    if (!query->path.empty() && (curr == query->path.back())) {
-      query->path.pop_back();
-      searchStack.pop_back();
-      continue;
-    }
-
-    query->searchedNodes++;
-    query->path.push_back(curr);
-#else // ENABLE_STATISTICS
-    searchStack.pop_back();
-#endif // ENABLE_STATISTICS
-
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if ((indexMethod & 0x04) && ((*it)->orderLabel > query->getTarget()->orderLabel))
-        break;
-
-      if (*it == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-        query->searchedNodes++;
-        query->path.push_back(query->getTarget());
-#endif // ENABLE_STATISTICS
-
-        query->setAnswer(true);
-        goto end;
-      }
-
-      if ((*it)->getDFSId(threadId) != timestamp) {
-        (*it)->setDFSId(threadId, timestamp);
-
-#ifdef ENABLE_RETRO_LABELS
-        if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-            ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel) &&
-            ((*it)->retroOrderLabel < query->getTarget()->retroOrderLabel) &&
-            ((*it)->retroReverseOrderLabel > query->getTarget()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
-        if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-            ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
-          searchStack.push_back(*it);
-      }
-    }
-  }
-
-end:
-#ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
-  benchmarkLock.lock();
-  cyclesSpentQuerying += counterValue;
-  queryNumber++;
-  benchmarkLock.unlock();
-
-  // Set the query time
-  if (query->getInternal() == 1)
-    query->setInternal(counterValue);
-#else // ENABLE_BENCHMARKS
-  // In the case of an internal query register the query time
-  if (query->getInternal() == 1) {
-    PAPI_stop_counters(&counterValue, 1);
-    query->setInternal(counterValue);
-  }
-#endif // ENABLE_BENCHMARKS
-
-  return;
-
-cancel:
-#ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
-#endif // ENABLE_BENCHMARKS
-  
-  query->setError(true);
-  return;
-}
-
-
-void
-Graph::areConnectedBBFS(Query * query, int threadId) {
-  int event = PAPI_TOT_CYC;
-  long long counterValue;
-  uint64_t forwardId, backwardId;
-  Vertex * curr;
-  queue<Vertex *> searchQueueForward;
-  queue<Vertex *> searchQueueBackward;
-
-#ifdef ENABLE_BENCHMARKS
-  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
-  PAPI_start_counters(&event, 1);
-#else // ENABLE_BENCHMARKS
-  if (query->getInternal() == 1)
-    PAPI_start_counters(&event, 1);
-#endif // ENABLE_BENCHMARKS
-
-  // Are U and V the same vertex?
-  if (query->getSource() == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-    query->searchedNodes++;
-#endif // ENABLE_STATISTICS
-    query->setAnswer(true);
-    goto end;
-  }
-
-  // Can V be a descendant of U in the standard graph or U a descendant of V in
-  // the reverse graph?
-  if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel))
-    goto end;
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel)) {
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
-  // Do a BBFS on the subgraph specified by both orders to get the final answer
-  forwardId = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-  backwardId = forwardId + 1;
-
-  query->getSource()->setDFSId(threadId, forwardId);
-  query->getTarget()->setDFSId(threadId, backwardId);
-
-  searchQueueForward.push(query->getSource());
-  searchQueueBackward.push(query->getTarget());
-
-  while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
-    if (query->getCancel())
-      goto cancel;
-
-    if (!searchQueueForward.empty()) {
-      curr = searchQueueForward.front();
-      searchQueueForward.pop();
-
-#ifdef ENABLE_STATISTICS
-      query->searchedNodes++;
-#endif // ENABLE_STATISTICS
-
-      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-        if ((indexMethod & 0x04) && ((*it)->orderLabel > query->getTarget()->orderLabel))
-          break;
-
-        if ((*it)->getDFSId(threadId) == backwardId) {
-          query->setAnswer(true);
-          goto end;
-        }
-
-        if ((*it)->getDFSId(threadId) != forwardId) {
-          (*it)->setDFSId(threadId, forwardId);
-
-#ifdef ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-              ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel) &&
-              ((*it)->retroOrderLabel < query->getTarget()->retroOrderLabel) &&
-              ((*it)->retroReverseOrderLabel > query->getTarget()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-              ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
-            searchQueueForward.push(*it);
-        }
-      }
-    }
-
-    if (!searchQueueBackward.empty()) {
-      curr = searchQueueBackward.front();
-      searchQueueBackward.pop();
-
-#ifdef ENABLE_STATISTICS
-      query->searchedNodes++;
-#endif // ENABLE_STATISTICS
-
-      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
-        if ((indexMethod & 0x04) && ((*it)->orderLabel < query->getSource()->orderLabel))
-          break;
-
-        if ((*it)->getDFSId(threadId) == forwardId) {
-          query->setAnswer(true);
-          goto end;
-        }
-
-        if ((*it)->getDFSId(threadId) != backwardId) {
-          (*it)->setDFSId(threadId, backwardId);
-
-#ifdef ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel > query->getSource()->orderLabel) &&
-              ((*it)->reverseOrderLabel < query->getSource()->reverseOrderLabel) &&
-              ((*it)->retroOrderLabel > query->getSource()->retroOrderLabel) &&
-              ((*it)->retroReverseOrderLabel < query->getSource()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel > query->getSource()->orderLabel) &&
-              ((*it)->reverseOrderLabel < query->getSource()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
-            searchQueueBackward.push(*it);
-        }
-      }
-    }
-  }
-
-end:
-#ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
-  benchmarkLock.lock();
-  cyclesSpentQuerying += counterValue;
-  queryNumber++;
-  benchmarkLock.unlock();
-
-  // Set the query time
-  if (query->getInternal() == 1)
-    query->setInternal(counterValue);
-#else // ENABLE_BENCHMARKS
-  // In the case of an internal query register the query time
-  if (query->getInternal() == 1) {
-    PAPI_stop_counters(&counterValue, 1);
-    query->setInternal(counterValue);
-  }
-#endif // ENABLE_BENCHMARKS
-
-  return;
-
-cancel:
-#ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
-#endif // ENABLE_BENCHMARKS
-  
-  query->setError(true);
-  return;
-}
-
-
-void
-Graph::areConnectedNoLabels(Query * query, int threadId) {
-  uint64_t timestamp;
-  stack<Vertex *> toVisit;
-  Vertex * curr;
-
-  timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-
-  toVisit.push(query->getSource());
-  query->getSource()->setDFSId(threadId, timestamp);
-
-  while (!toVisit.empty()) {
-    if (query->getCancel())
-      return;
-
-    curr = toVisit.top();
-    toVisit.pop();
-
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if (*it == query->getSource()) {
-        query->setAnswer(true);
-        return;
-      }
-
-      if ((*it)->getDFSId(threadId) != timestamp) {
-        (*it)->setDFSId(threadId, timestamp);
-        toVisit.push(*it);
-      }
-    }
-  }
-}
-
-
-Graph::SearchMethod
-Graph::getMethod() {
-  return searchMethod.load(memory_order_acquire);
-}
-
-
-void
-Graph::setMethod(Graph::SearchMethod method) {
-  searchMethod.store(method, memory_order_release);
-}
-
-
 // Maintenance
 
 void
@@ -1566,32 +1214,406 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
 }
 
 
+// Internal reachability query functions
+
+void
+Graph::processReachabilityQuery(int threadId, Query * query) {
+  vector<Vertex *> searchStack;
+  unique_lock<mutex> resultLock(resultMutex, defer_lock);
+  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
+
+  switch (query->query.reachability.getMethod()) {
+    case DFS:
+      searchStack.clear();
+      areConnectedDFS(query->query.reachability, threadId, searchStack);
+      break;
+
+    case BBFS:
+      areConnectedBBFS(query->query.reachability, threadId);
+      break;
+
+    case NoLabels:
+      areConnectedNoLabels(query->query.reachability, threadId);
+      break;
+
+    case UndefinedSearchMethod:
+      query->query.reachability.setError(true);
+      break;
+  }
+
+  if (query->query.reachability.getInternal() != 0) {
+    internalResultLock.lock();
+    internalResultQueue.push_back(query);
+    internalResultSpinSemaphore.post();
+    internalResultLock.unlock();
+  } else {
+#ifdef ENABLE_STATISTICS
+    registerQueryStatistics(query->query.reachability);
+#endif // ENABLE_STATISTICS
+
+    resultLock.lock();
+    resultQueue.push_back(query);
+    resultSemaphore.post();
+    resultLock.unlock();
+  }
+}
+
+
+/* Use the previously done indexation to answer to the query */
+void
+Graph::areConnectedDFS(ReachabilityQuery &query, int threadId, vector<Vertex *> &searchStack) {
+  int event = PAPI_TOT_CYC;
+  long long counterValue;
+  uint64_t timestamp;
+  Vertex * curr;
+
+#ifdef ENABLE_BENCHMARKS
+  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
+  PAPI_start_counters(&event, 1);
+#else // ENABLE_BENCHMARKS
+  if (query.getInternal() == 1)
+    PAPI_start_counters(&event, 1);
+#endif // ENABLE_BENCHMARKS
+
+  // Are U and V the same vertex?
+  if (query.getSource() == query.getTarget()) {
+#ifdef ENABLE_STATISTICS
+    query.searchedNodes++;
+    query.path.push_back(query.getSource());
+#endif // ENABLE_STATISTICS
+    query.setAnswer(true);
+    goto end;
+  }
+
+  // Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+  if ((query.getSource()->orderLabel > query.getTarget()->orderLabel) ||
+      (query.getTarget()->reverseOrderLabel > query.getSource()->reverseOrderLabel))
+    goto end;
+
+#ifdef ENABLE_RETRO_LABELS
+  if ((query.getSource()->retroOrderLabel > query.getTarget()->retroOrderLabel) ||
+      (query.getTarget()->retroReverseOrderLabel > query.getSource()->retroReverseOrderLabel))
+    goto end;
+#endif // ENABLE_RETRO_LABELS
+
+  // Do a DFS on the subgraph specified by both orders to get the final answer
+  timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
+  searchStack.push_back(query.getSource());
+
+  while (!searchStack.empty()) {
+    if (query.getCancel())
+      goto cancel;
+
+    curr = searchStack.back();
+
+#ifdef ENABLE_STATISTICS
+    if (!query.path.empty() && (curr == query.path.back())) {
+      query.path.pop_back();
+      searchStack.pop_back();
+      continue;
+    }
+
+    query.searchedNodes++;
+    query.path.push_back(curr);
+#else // ENABLE_STATISTICS
+    searchStack.pop_back();
+#endif // ENABLE_STATISTICS
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if ((indexMethod & 0x04) && ((*it)->orderLabel > query.getTarget()->orderLabel))
+        break;
+
+      if (*it == query.getTarget()) {
+#ifdef ENABLE_STATISTICS
+        query.searchedNodes++;
+        query.path.push_back(query.getTarget());
+#endif // ENABLE_STATISTICS
+
+        query.setAnswer(true);
+        goto end;
+      }
+
+      if ((*it)->getDFSId(threadId) != timestamp) {
+        (*it)->setDFSId(threadId, timestamp);
+
+#ifdef ENABLE_RETRO_LABELS
+        if (((*it)->orderLabel < query.getTarget()->orderLabel) &&
+            ((*it)->reverseOrderLabel > query.getTarget()->reverseOrderLabel) &&
+            ((*it)->retroOrderLabel < query.getTarget()->retroOrderLabel) &&
+            ((*it)->retroReverseOrderLabel > query.getTarget()->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+        if (((*it)->orderLabel < query.getTarget()->orderLabel) &&
+            ((*it)->reverseOrderLabel > query.getTarget()->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+          searchStack.push_back(*it);
+      }
+    }
+  }
+
+end:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+  benchmarkLock.lock();
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+  benchmarkLock.unlock();
+
+  // Set the query time
+  if (query.getInternal() == 1)
+    query.setInternal(counterValue);
+#else // ENABLE_BENCHMARKS
+  // In the case of an internal query register the query time
+  if (query.getInternal() == 1) {
+    PAPI_stop_counters(&counterValue, 1);
+    query.setInternal(counterValue);
+  }
+#endif // ENABLE_BENCHMARKS
+
+  return;
+
+cancel:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+#endif // ENABLE_BENCHMARKS
+  
+  query.setError(true);
+  return;
+}
+
+
+void
+Graph::areConnectedBBFS(ReachabilityQuery &query, int threadId) {
+  int event = PAPI_TOT_CYC;
+  long long counterValue;
+  uint64_t forwardId, backwardId;
+  Vertex * curr;
+  queue<Vertex *> searchQueueForward;
+  queue<Vertex *> searchQueueBackward;
+
+#ifdef ENABLE_BENCHMARKS
+  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
+  PAPI_start_counters(&event, 1);
+#else // ENABLE_BENCHMARKS
+  if (query.getInternal() == 1)
+    PAPI_start_counters(&event, 1);
+#endif // ENABLE_BENCHMARKS
+
+  // Are U and V the same vertex?
+  if (query.getSource() == query.getTarget()) {
+#ifdef ENABLE_STATISTICS
+    query.searchedNodes++;
+#endif // ENABLE_STATISTICS
+    query.setAnswer(true);
+    goto end;
+  }
+
+  // Can V be a descendant of U in the standard graph or U a descendant of V in
+  // the reverse graph?
+  if ((query.getSource()->orderLabel > query.getTarget()->orderLabel) ||
+      (query.getTarget()->reverseOrderLabel > query.getSource()->reverseOrderLabel))
+    goto end;
+
+#ifdef ENABLE_RETRO_LABELS
+  if ((query.getSource()->retroOrderLabel > query.getTarget()->retroOrderLabel) ||
+      (query.getTarget()->retroReverseOrderLabel > query.getSource()->retroReverseOrderLabel)) {
+    goto end;
+#endif // ENABLE_RETRO_LABELS
+
+  // Do a BBFS on the subgraph specified by both orders to get the final answer
+  forwardId = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+  backwardId = forwardId + 1;
+
+  query.getSource()->setDFSId(threadId, forwardId);
+  query.getTarget()->setDFSId(threadId, backwardId);
+
+  searchQueueForward.push(query.getSource());
+  searchQueueBackward.push(query.getTarget());
+
+  while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
+    if (query.getCancel())
+      goto cancel;
+
+    if (!searchQueueForward.empty()) {
+      curr = searchQueueForward.front();
+      searchQueueForward.pop();
+
+#ifdef ENABLE_STATISTICS
+      query.searchedNodes++;
+#endif // ENABLE_STATISTICS
+
+      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel > query.getTarget()->orderLabel))
+          break;
+
+        if ((*it)->getDFSId(threadId) == backwardId) {
+          query.setAnswer(true);
+          goto end;
+        }
+
+        if ((*it)->getDFSId(threadId) != forwardId) {
+          (*it)->setDFSId(threadId, forwardId);
+
+#ifdef ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel < query.getTarget()->orderLabel) &&
+              ((*it)->reverseOrderLabel > query.getTarget()->reverseOrderLabel) &&
+              ((*it)->retroOrderLabel < query.getTarget()->retroOrderLabel) &&
+              ((*it)->retroReverseOrderLabel > query.getTarget()->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel < query.getTarget()->orderLabel) &&
+              ((*it)->reverseOrderLabel > query.getTarget()->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+            searchQueueForward.push(*it);
+        }
+      }
+    }
+
+    if (!searchQueueBackward.empty()) {
+      curr = searchQueueBackward.front();
+      searchQueueBackward.pop();
+
+#ifdef ENABLE_STATISTICS
+      query.searchedNodes++;
+#endif // ENABLE_STATISTICS
+
+      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
+        if ((indexMethod & 0x04) && ((*it)->orderLabel < query.getSource()->orderLabel))
+          break;
+
+        if ((*it)->getDFSId(threadId) == forwardId) {
+          query.setAnswer(true);
+          goto end;
+        }
+
+        if ((*it)->getDFSId(threadId) != backwardId) {
+          (*it)->setDFSId(threadId, backwardId);
+
+#ifdef ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel > query.getSource()->orderLabel) &&
+              ((*it)->reverseOrderLabel < query.getSource()->reverseOrderLabel) &&
+              ((*it)->retroOrderLabel > query.getSource()->retroOrderLabel) &&
+              ((*it)->retroReverseOrderLabel < query.getSource()->retroReverseOrderLabel))
+#else // ENABLE_RETRO_LABELS
+          if (((*it)->orderLabel > query.getSource()->orderLabel) &&
+              ((*it)->reverseOrderLabel < query.getSource()->reverseOrderLabel))
+#endif // ENABLE_RETRO_LABELS
+            searchQueueBackward.push(*it);
+        }
+      }
+    }
+  }
+
+end:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+  benchmarkLock.lock();
+  cyclesSpentQuerying += counterValue;
+  queryNumber++;
+  benchmarkLock.unlock();
+
+  // Set the query time
+  if (query.getInternal() == 1)
+    query.setInternal(counterValue);
+#else // ENABLE_BENCHMARKS
+  // In the case of an internal query register the query time
+  if (query.getInternal() == 1) {
+    PAPI_stop_counters(&counterValue, 1);
+    query.setInternal(counterValue);
+  }
+#endif // ENABLE_BENCHMARKS
+
+  return;
+
+cancel:
+#ifdef ENABLE_BENCHMARKS
+  PAPI_stop_counters(&counterValue, 1);
+#endif // ENABLE_BENCHMARKS
+  
+  query.setError(true);
+  return;
+}
+
+
+void
+Graph::areConnectedNoLabels(ReachabilityQuery &query, int threadId) {
+  uint64_t timestamp;
+  stack<Vertex *> toVisit;
+  Vertex * curr;
+
+  timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
+  toVisit.push(query.getSource());
+  query.getSource()->setDFSId(threadId, timestamp);
+
+  while (!toVisit.empty()) {
+    if (query.getCancel())
+      return;
+
+    curr = toVisit.top();
+    toVisit.pop();
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if (*it == query.getSource()) {
+        query.setAnswer(true);
+        return;
+      }
+
+      if ((*it)->getDFSId(threadId) != timestamp) {
+        (*it)->setDFSId(threadId, timestamp);
+        toVisit.push(*it);
+      }
+    }
+  }
+}
+
+
+SearchMethod
+Graph::getMethod() {
+  return searchMethod.load(memory_order_acquire);
+}
+
+
+void
+Graph::setMethod(SearchMethod method) {
+  searchMethod.store(method, memory_order_release);
+}
+
+
+// Internal partitioning query functions
+
+void
+Graph::processPartitionQuery(int threadId, Query * query) {
+  // TODO
+}
+
+
 #ifdef ENABLE_STATISTICS
 // Internal statistics maintenance
 
 void
-Graph::registerQueryStatistics(Query * query) {
+Graph::registerQueryStatistics(Query &query) {
   double coefficient = 1.0;
   double overhead = 1.0;
   unique_lock<mutex> statisticsLock(statisticsMutex);
 
   queryCount++;
 
-  if (query->getAnswer()) {
+  if (query.getAnswer()) {
     positiveQueryCount++;
 
     coefficient = 1.0 / ((double) positiveQueryCount);
-    if (query->getMethod() == DFS)
-      overhead = ((double) query->searchedNodes) / ((double) query->path.size());
+    if (query.getMethod() == DFS)
+      overhead = ((double) query.searchedNodes) / ((double) query.path.size());
 
     positiveQueryOverhead *= (1.0 - coefficient);
     positiveQueryOverhead += coefficient * overhead;
   } else {
     negativeQueryCount++;
 
-    if (query->searchedNodes > 0) {
+    if (query.searchedNodes > 0) {
       coefficient = 1.0 / ((double) negativeQueryCount);
-      overhead = ((double) query->searchedNodes) / ((double) vertices.size());
+      overhead = ((double) query.searchedNodes) / ((double) vertices.size());
 
       negativeQueryOverhead *= (1.0 - coefficient);
       negativeQueryOverhead += coefficient * overhead;
@@ -1614,11 +1636,8 @@ unsigned long int getThreadID(void) {
 
 void
 queryWorker(Graph * graph, int threadId) {
-  Graph::Query * query = NULL;
+  Query * query = NULL;
   unique_lock<mutex> jobLock(graph->jobMutex, defer_lock);
-  unique_lock<mutex> resultLock(graph->resultMutex, defer_lock);
-  unique_lock<mutex> internalResultLock(graph->internalResultMutex, defer_lock);
-  vector<Vertex *> searchStack;
 
   if (PAPI_thread_init(getThreadID) != PAPI_OK) {
     cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
@@ -1638,41 +1657,16 @@ queryWorker(Graph * graph, int threadId) {
 
     graph->startQuery();
 
-    switch (query->getMethod()) {
-      case Graph::DFS:
-        searchStack.clear();
-        graph->areConnectedDFS(query, threadId, searchStack);
+    switch (query->type) {
+      case Reachability:
+        graph->processReachabilityQuery(threadId, query);
         break;
 
-      case Graph::BBFS:
-        graph->areConnectedBBFS(query, threadId);
-        break;
-
-      case Graph::NoLabels:
-        graph->areConnectedNoLabels(query, threadId);
-        break;
-
-      case Graph::Undefined:
-        query->setError(true);
+      case Partition:
+        graph->processPartitionQuery(threadId, query);
         break;
     }
 
     graph->stopQuery();
-
-    if (query->getInternal() != 0) {
-      internalResultLock.lock();
-      graph->internalResultQueue.push_back(query);
-      graph->internalResultSpinSemaphore.post();
-      internalResultLock.unlock();
-    } else {
-#ifdef ENABLE_STATISTICS
-      graph->registerQueryStatistics(query);
-#endif // ENABLE_STATISTICS
-
-      resultLock.lock();
-      graph->resultQueue.push_back(query);
-      graph->resultSemaphore.post();
-      resultLock.unlock();
-    }
- }
+  }
 }

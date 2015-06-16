@@ -25,8 +25,8 @@ int verifyFlag = 0;
 int batchFlag = 0;
 bool poison = false;
 semaphore openQueries;
-tbb::concurrent_hash_map<Graph::Query *, bool> queryMap;
-vector<Graph::Query *> results;
+tbb::concurrent_hash_map<ReachabilityQuery *, bool> queryMap;
+vector<Query *> results;
 
 
 const struct option longopts[] = {
@@ -105,10 +105,10 @@ static inline void resultProgressBar(int progress) {
 
 
 void
-queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
+queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
   int i, a, b, res;
-  Graph::Query * newQuery = NULL;
-  tbb::concurrent_hash_map<Graph::Query *, bool>::accessor queryAccess;
+  ReachabilityQuery * newQuery = NULL;
+  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::accessor queryAccess;
 
   // Fill the queries to process...
   if (testFile.is_open()) {
@@ -119,10 +119,13 @@ queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
       if (testFile.eof())
         break;
 
-      newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
-      queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, (res == 0 ? false : true)));
+      newQuery =
+        new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
+
+      queryMap.insert(queryAccess,
+          pair<ReachabilityQuery *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();
-      graph->pushQuery(newQuery);
+      graph->pushQuery(new Query(Reachability, *newQuery));
       openQueries.post();
     }
 
@@ -139,13 +142,15 @@ queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
       } while (a == b);
 
       if (a < b)
-        newQuery = new Graph::Query(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
+        newQuery =
+          new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
       else
-        newQuery = new Graph::Query(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
+        newQuery =
+          new ReachabilityQuery(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
 
-      queryMap.insert(queryAccess, pair<Graph::Query *, bool>(newQuery, false));
+      queryMap.insert(queryAccess, pair<ReachabilityQuery *, bool>(newQuery, false));
       queryAccess.release();
-      graph->pushQuery(newQuery);
+      graph->pushQuery(new Query(Reachability, *newQuery));
       openQueries.post();
     }
   }
@@ -158,8 +163,8 @@ queryGenerator(Graph * graph, fstream &testFile, Graph::SearchMethod method) {
 void
 resultAnalysis(Graph * graph, fstream &queryFile) {
   int resultCounter = 0;
-  Graph::Query * nextQuery = NULL;
-  tbb::concurrent_hash_map<Graph::Query *, bool>::const_accessor queryAccess;
+  Query * nextQuery = NULL;
+  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::const_accessor queryAccess;
 
   while (true) {
     openQueries.wait();
@@ -168,18 +173,26 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
       break;
 
     nextQuery = graph->pullResult();
-    queryMap.find(queryAccess, nextQuery);
 
-    if (nextQuery->getError()) {
-      cerr << "ERROR: Could not process query " << nextQuery->getSource()->id << " -> ";
-      cerr << nextQuery->getTarget()->id << "\n";
+    if (nextQuery->type != Reachability) {
+      cerr << "ERROR: Encountered an unexpected partition query." << endl;
+      continue;
+    }
+
+    queryMap.find(queryAccess, &(nextQuery->query.reachability));
+
+    if (nextQuery->query.reachability.getError()) {
+      cerr << "ERROR: Could not process query " << nextQuery->query.reachability.getSource()->id;
+      cerr << " -> " << nextQuery->query.reachability.getTarget()->id << "\n";
     } else if (verifyFlag) {
-      if (nextQuery->getAnswer() != queryAccess->second) {
-        cerr << "ERROR: Wrong answer for query " << nextQuery->getSource()->id << " -> ";
-        cerr << nextQuery->getTarget()->id << "\n";
+      if (nextQuery->query.reachability.getAnswer() != queryAccess->second) {
+        cerr << "ERROR: Wrong answer for query " << nextQuery->query.reachability.getSource()->id;
+        cerr << " -> " << nextQuery->query.reachability.getTarget()->id << "\n";
       }
     } else if (queryFile.is_open()) {
-      queryFile << nextQuery->getSource()->id << " " << nextQuery->getTarget()->id << " ";
+      queryFile << nextQuery->query.reachability.getSource()->id << " ";
+      queryFile << nextQuery->query.reachability.getTarget()->id << " ";
+
       if (queryAccess->second)
         queryFile << "1\n";
       else
@@ -200,8 +213,8 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
 int
 main(int argc, char * argv[]) {
 	Graph * graph = NULL;
-  Graph::IndexMethod indexMethod = Graph::Standard;
-  Graph::SearchMethod searchMethod = Graph::Undefined;
+  IndexMethod indexMethod = Standard;
+  SearchMethod searchMethod = UndefinedSearchMethod;
   fstream outputFile, testFile, dumpFile, queryFile;
   ostream * output = &cout;
   int i, c;
@@ -234,13 +247,13 @@ main(int argc, char * argv[]) {
 
       case 'm':
         if (!strcmp(optarg, "ShortIndexing")) {
-          indexMethod = Graph::ShortIndexing;
+          indexMethod = ShortIndexing;
         } else if (!strcmp(optarg, "SuccessorOrder")) {
-          indexMethod = Graph::SuccessorOrder;
+          indexMethod = SuccessorOrder;
         } else if (!strcmp(optarg, "Standard")) {
-          indexMethod = Graph::Standard;
+          indexMethod = Standard;
         } else if (!strcmp(optarg, "LabelOrder")) {
-          indexMethod = Graph::LabelOrder;
+          indexMethod = LabelOrder;
         } else {
           cerr << "ERROR: Unknown label method specified.\n";
           printHelpMessage();
@@ -250,9 +263,9 @@ main(int argc, char * argv[]) {
 
       case 's':
         if (!strcmp(optarg, "DFS")) {
-          searchMethod = Graph::DFS;
+          searchMethod = DFS;
         } else if (!strcmp(optarg, "BBFS")) {
-          searchMethod = Graph::BBFS;
+          searchMethod = BBFS;
         } else {
           cerr << "ERROR: Unknown search method specified.\n";
           printHelpMessage();
