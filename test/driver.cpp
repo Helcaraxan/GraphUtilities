@@ -16,7 +16,7 @@
 
 using namespace std;
 
-#define QUERY_NB 100000
+#define QUERY_NB 10000000
 
 
 int dryFlag = 0;

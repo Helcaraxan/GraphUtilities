@@ -386,7 +386,7 @@ private:
   bool addEdgeUnsafe(Vertex * source, Vertex * target);
 
   // Internal query functions
-  void areConnectedDFS(Query * query, int threadId);
+  void areConnectedDFS(Query * query, int threadId, vector<Vertex *> &searchStack);
   void areConnectedBBFS(Query * query, int threadId);
   void areConnectedNoLabels(Query * query, int threadId);
   SearchMethod getMethod(void);

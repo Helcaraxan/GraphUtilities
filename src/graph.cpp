@@ -1162,12 +1162,11 @@ Graph::stopGlobalOperation() {
 
 /* Use the previously done indexation to answer to the query */
 void
-Graph::areConnectedDFS(Query * query, int threadId) {
+Graph::areConnectedDFS(Query * query, int threadId, vector<Vertex *> &searchStack) {
   int event = PAPI_TOT_CYC;
   long long counterValue;
   uint64_t timestamp;
   Vertex * curr;
-  stack<Vertex *> searchStack;
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
@@ -1202,25 +1201,25 @@ Graph::areConnectedDFS(Query * query, int threadId) {
   // Do a DFS on the subgraph specified by both orders to get the final answer
   timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
-  searchStack.push(query->getSource());
+  searchStack.push_back(query->getSource());
 
   while (!searchStack.empty()) {
     if (query->getCancel())
       goto cancel;
 
-    curr = searchStack.top();
+    curr = searchStack.back();
 
 #ifdef ENABLE_STATISTICS
     if (!query->path.empty() && (curr == query->path.back())) {
       query->path.pop_back();
-      searchStack.pop();
+      searchStack.pop_back();
       continue;
     }
 
     query->searchedNodes++;
     query->path.push_back(curr);
 #else // ENABLE_STATISTICS
-    searchStack.pop();
+    searchStack.pop_back();
 #endif // ENABLE_STATISTICS
 
     for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
@@ -1249,7 +1248,7 @@ Graph::areConnectedDFS(Query * query, int threadId) {
         if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
             ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel))
 #endif // ENABLE_RETRO_LABELS
-          searchStack.push(*it);
+          searchStack.push_back(*it);
       }
     }
   }
@@ -1619,6 +1618,7 @@ queryWorker(Graph * graph, int threadId) {
   unique_lock<mutex> jobLock(graph->jobMutex, defer_lock);
   unique_lock<mutex> resultLock(graph->resultMutex, defer_lock);
   unique_lock<mutex> internalResultLock(graph->internalResultMutex, defer_lock);
+  vector<Vertex *> searchStack;
 
   if (PAPI_thread_init(getThreadID) != PAPI_OK) {
     cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
@@ -1640,7 +1640,8 @@ queryWorker(Graph * graph, int threadId) {
 
     switch (query->getMethod()) {
       case Graph::DFS:
-        graph->areConnectedDFS(query, threadId);
+        searchStack.clear();
+        graph->areConnectedDFS(query, threadId, searchStack);
         break;
 
       case Graph::BBFS:
