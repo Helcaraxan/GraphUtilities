@@ -30,8 +30,8 @@ configure_file(
 	)
 
 configure_file(
-	"${PROJECT_SOURCE_DIR}/include/metis-extra.h"
-	"${PROJECT_BINARY_DIR}/include/metis-extra.h"
+	"${PROJECT_SOURCE_DIR}/include/metis-extra.hpp"
+	"${PROJECT_BINARY_DIR}/include/metis-extra.hpp"
 	)
 
 # Set the compile options depending on the build-type

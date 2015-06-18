@@ -62,19 +62,29 @@ spin_semaphore::initialize(int memberCount) {
 
 void
 spin_semaphore::reset() {
-  unique_lock<mutex> lck(mtx);
+  unique_lock<mutex> lck(mtx, defer_lock);
 
   if (cvs) {
     while (currIdx != maxIdx) {
+      lck.lock();
       cvs[currIdx].notify_all();
+      lck.unlock();
       currIdx = (currIdx + 1) % members;
     }
   }
 
+  lck.lock();
   maxIdx = 0;
   currIdx = 0;
   members = 0;
   overflow = 0;
+
+  if (cvs) {
+    delete[] cvs;
+    cvs = NULL;
+  }
+
+  lck.unlock();
 }
 
 
@@ -520,12 +530,11 @@ Graph::setIndexMethod(IndexMethod newMethod) {
 graph_t *
 Graph::getMetisGraph() {
   int adjIdx = 0;
-
   graph_t * metisGraph = new graph_t;
 
   metisGraph->nvtxs = getVertexCount();
-  metisGraph->xadj = new idx_t[metisGraph->nvtxs + 1];
-  metisGraph->adjncy = new idx_t[getEdgeCount()];
+  metisGraph->xadj = new mtmetis_adj_t[metisGraph->nvtxs];
+  metisGraph->adjncy = new mtmetis_vtx_t[getEdgeCount()];
 
   metisGraph->xadj[0] = adjIdx;
 
