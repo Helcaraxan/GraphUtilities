@@ -22,7 +22,7 @@ class Graph;
 #include <papi.h>
 
 #include "queries.hpp"
-#include "metis-extra.h"
+#include "metis-extra.hpp"
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS

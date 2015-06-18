@@ -1,3 +1,6 @@
+#ifndef QUERIES_HPP
+#define QUERIES_HPP
+
 #include <atomic>
 #include <vector>
 
@@ -148,3 +151,5 @@ public:
     query(q)
   {}
 };
+
+#endif // QUERIES_HPP
