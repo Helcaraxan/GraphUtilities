@@ -40,7 +40,8 @@ extern "C" {
 void print_tree(Tree* t);
 
 /* partitions hierachically a graph with mt-metis */ 
-Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t* ids, mtmetis_adj_t* xadj, mtmetis_vtx_t* adjncy, double* opts);
+Tree * hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t* ids, mtmetis_adj_t* xadj,
+      mtmetis_vtx_t* adjncy, double* opts);
 
 /* builds the partition tree with mt-metis and returns a table with path in the tree
    encoded on 64 bits */
