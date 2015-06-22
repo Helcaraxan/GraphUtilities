@@ -39,6 +39,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -pthread -g3")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -pthread -O3")
 
 # Include the code for building
+add_subdirectory(tools)
 add_subdirectory(src)
 
 enable_testing()
