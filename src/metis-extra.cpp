@@ -126,7 +126,7 @@ Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t * ids, mtmetis_adj_t * x
   return ret;
 }
 
-void set_t_path(Tree * tree, int depth, uint64_t path, uint64_t * t_path) {
+int set_t_path(Tree * tree, int depth, uint64_t path, uint64_t * t_path) {
   if (tree->id != -1) {
     t_path[tree->id] = path;
     return depth;
