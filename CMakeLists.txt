@@ -7,6 +7,7 @@ if (NOT CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
 endif(NOT CMAKE_BUILD_TYPE)
 
+
 # Define some compile options passed onto the code by #define's
 option(ENABLE_STATISTICS
 	"Gather statistics from each query about the algorithm's effectiveness" ON)
@@ -15,28 +16,28 @@ option(ENABLE_BENCHMARKS
 option(ENABLE_RETRO_LABELS
 	"During labeling perform a 3rd and 4th reversed pass for stricter labeling" OFF)
 
-# Generate the header file according to the previously defined options
 if (NOT MAX_THREADS)
 	set(MAX_THREADS "2")
 endif (NOT MAX_THREADS)
 
 if (NOT AUTO_THRESHOLD)
-  set(AUTO_THRESHOLD "10")
+	set(AUTO_THRESHOLD "10")
 endif (NOT AUTO_THRESHOLD)
 
 
+# Generate the header file according to the previously defined options
 configure_file(
-	"${PROJECT_SOURCE_DIR}/include/graph.hpp.in"
+	"${PROJECT_SOURCE_DIR}/src/include/graph.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/graph.hpp"
 	)
 
 configure_file(
-	"${PROJECT_SOURCE_DIR}/include/queries.hpp.in"
+	"${PROJECT_SOURCE_DIR}/src/include/queries.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/queries.hpp"
 	)
 
 configure_file(
-	"${PROJECT_SOURCE_DIR}/include/metis-extra.hpp"
+	"${PROJECT_SOURCE_DIR}/src/include/metis-extra.hpp"
 	"${PROJECT_BINARY_DIR}/include/metis-extra.hpp"
 	)
 
@@ -45,10 +46,19 @@ set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -pthread -g3")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -pthread -O3")
 
 
+# Create a target for removing the files installed by the 'install' target
+add_custom_target(uninstall
+	COMMAND ${CMAKE_COMMAND} -E remove_directory "./bin"
+	COMMAND ${CMAKE_COMMAND} -E remove_directory "./include"
+	COMMAND ${CMAKE_COMMAND} -E remove_directory "./lib"
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	)
 
-# Include the code for building
+
+# Include the code for building the library
 add_subdirectory(tools)
 add_subdirectory(src)
 
+# Include the code for building the driver and testing
 enable_testing()
 add_subdirectory(test)

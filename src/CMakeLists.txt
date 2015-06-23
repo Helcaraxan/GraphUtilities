@@ -1,24 +1,38 @@
-include_directories(
-	"${PROJECT_BINARY_DIR}/include"
-	"${PROJECT_SOURCE_DIR}/include"
-	)
+include_directories("${PROJECT_BINARY_DIR}/include")
 
-link_directories("${PROJECT_SOURCE_DIR}/lib")
+link_directories("${PROJECT_BINARY_DIR}/lib")
 
+
+# Try to locate the required PAPI library
+find_library(PAPI_LIB libpapi.so)
+
+if (PAPI_LIB STREQUAL "PAPI_LIB-NOTFOUND")
+	message(FATAL_ERROR "Could not find the PAPI library. Please install it before continuing.")
+endif()
+
+
+# Add the library
 add_library(
-		GraphUtilities SHARED
-		metis-extra.cpp
-		queries.cpp
-		graph.cpp
-		)
+	GraphUtilities SHARED
+	metis-extra.cpp
+	queries.cpp
+	graph.cpp
+	)
 
 target_link_libraries(
 	GraphUtilities
-	mtmetis
-	m
-	z
+	PRIVATE papi mtmetis m z
 	)
 
+
+# Add the install parameters
 install(TARGETS GraphUtilities
-		LIBRARY DESTINATION "lib"
-	    )
+	LIBRARY DESTINATION "${PROJECT_SOURCE_DIR}/lib"
+	)
+
+install(
+	FILES
+		"${PROJECT_BINARY_DIR}/include/graph.hpp"
+		"${PROJECT_BINARY_DIR}/include/queries.hpp"
+	DESTINATION "${PROJECT_SOURCE_DIR}/include"
+	)

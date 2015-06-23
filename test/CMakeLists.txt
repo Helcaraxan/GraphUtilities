@@ -1,22 +1,23 @@
-include_directories(
-	"${PROJECT_BINARY_DIR}/include"
-	"${PROJECT_SOURCE_DIR}/include"
-	)
+include_directories("${PROJECT_BINARY_DIR}/include")
 
-link_directories(
-	"${PROJECT_BINARY_DIR}/src"
-	"${PROJECT_SOURCE_DIR}/lib"
-	)
+link_directories("${PROJECT_BINARY_DIR}/src")
 
 
 # Set the libraries necessary to build the driver
-set(USED_LIBRARIES GraphUtilities /home/dvanamst/opt/lib/libpapi.so stdc++ tbb)
+set(USED_LIBRARIES GraphUtilities stdc++ tbb)
 
 
 # Define the driver executable
 add_executable(QueryDriver driver.cpp)
 
-target_link_libraries(QueryDriver ${USED_LIBRARIES})
+target_link_libraries(QueryDriver
+	PRIVATE ${USED_LIBRARIES})
+
+
+# Set the install parameters
+install(TARGETS QueryDriver
+	RUNTIME DESTINATION "${PROJECT_SOURCE_DIR}/bin"
+	)
 
 
 # Define the test directories
