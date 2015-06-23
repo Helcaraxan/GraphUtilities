@@ -673,7 +673,7 @@ Graph::pushQuery(Query * query) {
       query->query.reachability.setMethod(DFS);
 
 #ifdef ENABLE_STATISTICS
-      registerQueryStatistics(&DFSReachQuery);
+      registerQueryStatistics(DFSReachQuery);
 #endif // ENABLE_STATISTICS
     } else {
       if ((++BBFSwin >= AUTO_THRESHOLD) && (getMethod() == UndefinedSearchMethod))
@@ -683,7 +683,7 @@ Graph::pushQuery(Query * query) {
       query->query.reachability.setMethod(BBFS);
 
 #ifdef ENABLE_STATISTICS
-      registerQueryStatistics(&BBFSReachQuery);
+      registerQueryStatistics(BBFSReachQuery);
 #endif // ENABLE_STATISTICS
     }
     methodLock.unlock();
@@ -1589,7 +1589,7 @@ Graph::processPartitionQuery(int threadId, Query * query) {
 // Internal statistics maintenance
 
 void
-Graph::registerQueryStatistics(Query &query) {
+Graph::registerQueryStatistics(ReachabilityQuery &query) {
   double coefficient = 1.0;
   double overhead = 1.0;
   unique_lock<mutex> statisticsLock(statisticsMutex);

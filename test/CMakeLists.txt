@@ -1,5 +1,12 @@
-include_directories("${PROJECT_BINARY_DIR}/include")
-link_directories("${PROJECT_BINARY_DIR}/src")
+include_directories(
+	"${PROJECT_BINARY_DIR}/include"
+	"${PROJECT_SOURCE_DIR}/include"
+	)
+
+link_directories(
+	"${PROJECT_BINARY_DIR}/src"
+	"${PROJECT_SOURCE_DIR}/lib"
+	)
 
 
 # Set the libraries necessary to build the driver

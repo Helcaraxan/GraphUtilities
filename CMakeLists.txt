@@ -31,7 +31,7 @@ configure_file(
 	)
 
 configure_file(
-	"${PROJECT_SOURCE_DIR}/include/queries.hpp"
+	"${PROJECT_SOURCE_DIR}/include/queries.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/queries.hpp"
 	)
 
