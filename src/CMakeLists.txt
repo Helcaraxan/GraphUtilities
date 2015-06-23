@@ -1,5 +1,7 @@
 include_directories("${PROJECT_BINARY_DIR}/include")
 
+link_directories("${PROJECT_SOURCE_DIR}/lib")
+
 add_library(
 		GraphUtilities SHARED
 		metis-extra.cpp
