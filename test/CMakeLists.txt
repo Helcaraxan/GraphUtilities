@@ -10,7 +10,7 @@ link_directories(
 
 
 # Set the libraries necessary to build the driver
-set(USED_LIBRARIES GraphUtilities /home/dvanamst/opt/lib/libpapi.so stdc++ tbb)
+set(USED_LIBRARIES GraphUtilities papi stdc++ tbb)
 
 
 # Define the driver executable
