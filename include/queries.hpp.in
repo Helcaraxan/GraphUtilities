@@ -4,6 +4,11 @@
 #include <atomic>
 #include <vector>
 
+// Let cmake choose which options are enabled
+#cmakedefine ENABLE_RETRO_LABELS
+#cmakedefine ENABLE_STATISTICS
+#cmakedefine ENABLE_BENCHMARKS
+
 using namespace std;
 
 
