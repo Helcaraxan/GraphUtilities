@@ -16,25 +16,25 @@
 
 using namespace std;
 
-#define QUERY_NB 10000000
+
+static int dryFlag = 0;
+static int uniqueFlag = 0;
+static int verifyFlag = 0;
+static int batchFlag = 0;
+static int queryNumber = 100000;
+static bool poison = false;
+static semaphore openQueries;
+static tbb::concurrent_hash_map<ReachabilityQuery *, bool> queryMap;
+static vector<Query *> results;
 
 
-int dryFlag = 0;
-int uniqueFlag = 0;
-int verifyFlag = 0;
-int batchFlag = 0;
-bool poison = false;
-semaphore openQueries;
-tbb::concurrent_hash_map<ReachabilityQuery *, bool> queryMap;
-vector<Query *> results;
-
-
-const struct option longopts[] = {
+static const struct option longopts[] = {
   {"input",     required_argument, 0, 'i'},
   {"output",    required_argument, 0, 'o'},
   {"test",      required_argument, 0, 't'},
   {"method",    required_argument, 0, 'm'},
   {"search",    required_argument, 0, 's'},
+  {"count",     required_argument, 0, 'c'},
   {"graph",     optional_argument, 0, 'g'},
   {"queries",   optional_argument, 0, 'q'},
   {"help",      no_argument,       0, 'h'},
@@ -57,6 +57,7 @@ printHelpMessage() {
   cout << "\nQuery options:\n";
   cout << "\t-m | --method=<index-method>\tMethod from <ShortIndexing|SuccessorOrder|Standard|LabelOrder> (default: Standard)\n";
   cout << "\t-s | --search=<search-method>\tMethod from <DFS|BBFS> (default: automatically select the fastest for the graph)\n";
+  cout << "\t-c | --count=<number>\t\tNumber of queries to generate (only used when --test is not used)\n";
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
@@ -82,9 +83,9 @@ static inline void resultProgressBar(int progress) {
     terminalWidth = w.ws_col;
   }
 
-  refreshModulo = QUERY_NB / (terminalWidth - 7);
+  refreshModulo = queryNumber / (terminalWidth - 7);
 
-  if (progress == QUERY_NB) {
+  if (progress == queryNumber) {
     cout << "100% [" << string(terminalWidth - 7, '=');
     cout << "]\r" << flush;
     return;
@@ -94,7 +95,7 @@ static inline void resultProgressBar(int progress) {
     return;
 
   intRatio = progress / refreshModulo;
-  floatRatio = ((double) progress) / ((double) QUERY_NB);
+  floatRatio = ((double) progress) / ((double) queryNumber);
 
   cout.width(3);
   cout << right << (int) (floatRatio * 100) << "% [";
@@ -107,17 +108,31 @@ static inline void resultProgressBar(int progress) {
 void
 queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
   int i, a, b, res;
+  int lineCount = 0;
+  string garbage;
   ReachabilityQuery * newQuery = NULL;
   tbb::concurrent_hash_map<ReachabilityQuery *, bool>::accessor queryAccess;
 
   // Fill the queries to process...
   if (testFile.is_open()) {
     // ... from the specified file
+
+    // Count the number of queries
+    while (getline(testFile, garbage))
+      lineCount++;
+
+    testFile.clear();
+    testFile.seekg(0, testFile.beg);
+    queryNumber = lineCount;
+
+    // Parse the actual queries
     while (testFile.good()) {
       testFile >> a >> b >> res;
 
       if (testFile.eof())
         break;
+
+      lineCount++;
 
       newQuery =
         new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
@@ -135,7 +150,7 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
     default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
     uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
 
-    for (i = 0; i < QUERY_NB; i++) {
+    for (i = 0; i < queryNumber; i++) {
       a = queryDistribution(generator);
       do {
         b = queryDistribution(generator);
@@ -221,7 +236,7 @@ main(int argc, char * argv[]) {
   char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:m:s:g::q::hvudb", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:m:s:c:g::q::hvudb", longopts, NULL)) != -1) {
     switch (c) {
       case 'i':
         strncpy(fileName, optarg, 511);
@@ -270,6 +285,16 @@ main(int argc, char * argv[]) {
           cerr << "ERROR: Unknown search method specified.\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'c':
+        if (!isdigit(optarg[0])) {
+          cerr << "ERROR: The -c | --count argument is not a number\n";
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        } else {
+          queryNumber = atoi(optarg);
         }
         break;
 

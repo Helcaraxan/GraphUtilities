@@ -398,9 +398,6 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   // Parse the adjacency list
   for (int i = 0; i < lineNumber; i++) {
-    if (((i % 100000) == 0) && (i != 0))
-      cerr << "Done " << i << " nodes.\n";
-
     // Get the source at the start of the line
     input.get(dump, 127, ' ');
     source = atoi(dump);

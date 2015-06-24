@@ -3,15 +3,18 @@ include_directories("${PROJECT_BINARY_DIR}/include")
 link_directories("${PROJECT_BINARY_DIR}/src")
 
 
-# Set the libraries necessary to build the driver
-set(USED_LIBRARIES GraphUtilities stdc++ tbb)
-
-
 # Define the driver executable
 add_executable(QueryDriver driver.cpp)
 
 target_link_libraries(QueryDriver
-	PRIVATE ${USED_LIBRARIES})
+	GraphUtilities
+	stdc++
+	tbb
+	)
+
+set_target_properties(QueryDriver PROPERTIES
+	INSTALL_RPATH "${PROJECT_BINARY_DIR}/src"
+	)
 
 
 # Set the install parameters

@@ -19,9 +19,11 @@ add_library(
 	graph.cpp
 	)
 
-target_link_libraries(
-	GraphUtilities
-	PRIVATE papi mtmetis m z
+target_link_libraries(GraphUtilities
+	papi
+	mtmetis
+	m
+	z
 	)
 
 
