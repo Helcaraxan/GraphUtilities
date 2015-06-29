@@ -8,8 +8,6 @@
 #include <iostream>
 
 #include <getopt.h>
-#include <unistd.h>
-#include <sys/ioctl.h>
 #include <tbb/concurrent_hash_map.h>
 
 #include "graph.hpp"
@@ -20,12 +18,10 @@ using namespace std;
 static int dryFlag = 0;
 static int uniqueFlag = 0;
 static int verifyFlag = 0;
-static int batchFlag = 0;
 static int queryNumber = 100000;
 static bool poison = false;
 static semaphore openQueries;
-static tbb::concurrent_hash_map<ReachabilityQuery *, bool> queryMap;
-static vector<Query *> results;
+static tbb::concurrent_hash_map<Query *, bool> queryMap;
 
 
 static const struct option longopts[] = {
@@ -67,63 +63,26 @@ printHelpMessage() {
 }
 
 
-static inline void resultProgressBar(int progress) {
-  int intRatio;
-  int refreshModulo;
-  double floatRatio;
-  static int terminalWidth = 0;
-
-  if (batchFlag == 1)
-    return;
-
-  if (terminalWidth == 0) {
-    struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-
-    terminalWidth = w.ws_col;
-  }
-
-  refreshModulo = queryNumber / (terminalWidth - 7);
-
-  if (progress == queryNumber) {
-    cout << "100% [" << string(terminalWidth - 7, '=');
-    cout << "]\r" << flush;
-    return;
-  }
-
-  if (progress % refreshModulo != 0)
-    return;
-
-  intRatio = progress / refreshModulo;
-  floatRatio = ((double) progress) / ((double) queryNumber);
-
-  cout.width(3);
-  cout << right << (int) (floatRatio * 100) << "% [";
-
-  string completeString(intRatio, '=');
-  cout << string(intRatio, '=') << string(terminalWidth - 7 - intRatio, ' ') << "]\r" << flush;
-}
-
-
 void
 queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
   int i, a, b, res;
-  int lineCount = 0;
   string garbage;
-  ReachabilityQuery * newQuery = NULL;
-  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::accessor queryAccess;
+  Query * newQuery = NULL;
+  ReachabilityQuery * subQuery = NULL;
+  tbb::concurrent_hash_map<Query *, bool>::accessor queryAccess;
 
   // Fill the queries to process...
   if (testFile.is_open()) {
     // ... from the specified file
 
     // Count the number of queries
+    queryNumber = 0;
     while (getline(testFile, garbage))
-      lineCount++;
+      queryNumber++;
 
     testFile.clear();
     testFile.seekg(0, testFile.beg);
-    queryNumber = lineCount;
+    configureProgressBar(NULL, queryNumber);
 
     // Parse the actual queries
     while (testFile.good()) {
@@ -132,15 +91,13 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
       if (testFile.eof())
         break;
 
-      lineCount++;
-
-      newQuery =
+      subQuery =
         new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
+      newQuery = new Query(Reachability, subQuery);
 
-      queryMap.insert(queryAccess,
-          pair<ReachabilityQuery *, bool>(newQuery, (res == 0 ? false : true)));
+      queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();
-      graph->pushQuery(new Query(Reachability, *newQuery));
+      graph->pushQuery(newQuery);
       openQueries.post();
     }
 
@@ -150,6 +107,7 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
     default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
     uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
 
+    progressBarFinish = queryNumber;
     for (i = 0; i < queryNumber; i++) {
       a = queryDistribution(generator);
       do {
@@ -157,15 +115,17 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
       } while (a == b);
 
       if (a < b)
-        newQuery =
+        subQuery =
           new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
       else
-        newQuery =
+        subQuery =
           new ReachabilityQuery(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
 
-      queryMap.insert(queryAccess, pair<ReachabilityQuery *, bool>(newQuery, false));
+      newQuery = new Query(Reachability, subQuery);
+
+      queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, false));
       queryAccess.release();
-      graph->pushQuery(new Query(Reachability, *newQuery));
+      graph->pushQuery(newQuery);
       openQueries.post();
     }
   }
@@ -178,13 +138,16 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
 void
 resultAnalysis(Graph * graph, fstream &queryFile) {
   int resultCounter = 0;
+  string barTitle = "Parsing results ";
   Query * nextQuery = NULL;
-  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::const_accessor queryAccess;
+  tbb::concurrent_hash_map<Query *, bool>::const_accessor queryAccess;
+
+  configureProgressBar(&barTitle, 0);
 
   while (true) {
     openQueries.wait();
 
-    if (poison && (queryMap.size() == results.size()))
+    if (poison && (resultCounter == queryNumber))
       break;
 
     nextQuery = graph->pullResult();
@@ -194,19 +157,19 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
       continue;
     }
 
-    queryMap.find(queryAccess, &(nextQuery->query.reachability));
+    queryMap.find(queryAccess, nextQuery);
 
-    if (nextQuery->query.reachability.getError()) {
-      cerr << "ERROR: Could not process query " << nextQuery->query.reachability.getSource()->id;
-      cerr << " -> " << nextQuery->query.reachability.getTarget()->id << "\n";
+    if (nextQuery->query.reachability->getError()) {
+      cerr << "ERROR: Could not process query " << nextQuery->query.reachability->getSource()->id;
+      cerr << " -> " << nextQuery->query.reachability->getTarget()->id << "\n";
     } else if (verifyFlag) {
-      if (nextQuery->query.reachability.getAnswer() != queryAccess->second) {
-        cerr << "ERROR: Wrong answer for query " << nextQuery->query.reachability.getSource()->id;
-        cerr << " -> " << nextQuery->query.reachability.getTarget()->id << "\n";
+      if (nextQuery->query.reachability->getAnswer() != queryAccess->second) {
+        cerr << "ERROR: Wrong answer for query " << nextQuery->query.reachability->getSource()->id;
+        cerr << " -> " << nextQuery->query.reachability->getTarget()->id << "\n";
       }
     } else if (queryFile.is_open()) {
-      queryFile << nextQuery->query.reachability.getSource()->id << " ";
-      queryFile << nextQuery->query.reachability.getTarget()->id << " ";
+      queryFile << nextQuery->query.reachability->getSource()->id << " ";
+      queryFile << nextQuery->query.reachability->getTarget()->id << " ";
 
       if (queryAccess->second)
         queryFile << "1\n";
@@ -214,7 +177,6 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
         queryFile << "0\n";
     }
     queryAccess.release();
-    results.push_back(nextQuery);
     resultProgressBar(++resultCounter);
   }
 
@@ -389,12 +351,14 @@ main(int argc, char * argv[]) {
   if (graph->benchmarksAreEnabled())
     graph->printBenchmarks(*output);
 
-  // Clear up the query map
+  // Clear up the queries
   for (auto it = queryMap.begin(), end = queryMap.end(); it != end; ++it)
     delete it->first;
 
   queryMap.clear();
+
   delete graph;
 
-	exit(EXIT_SUCCESS);
+	//exit(EXIT_SUCCESS);
+  return 0;
 }

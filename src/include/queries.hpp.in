@@ -83,6 +83,12 @@ public:
     method.store(searchMethod, memory_order_release);
   }
 
+  ~ReachabilityQuery(void) {
+#ifdef ENABLE_STATISTICS
+    path.clear();
+#endif // ENABLE_STATISTICS
+  }
+
   Vertex * getSource(void);
   Vertex * getTarget(void);
   bool getAnswer(void);
@@ -125,14 +131,14 @@ class Query {
 // Local types
 public:
   union QueryUnion {
-    ReachabilityQuery &reachability;
-    PartitionQuery &partition;
+    ReachabilityQuery * reachability;
+    PartitionQuery * partition;
 
-    QueryUnion(ReachabilityQuery &q) :
+    QueryUnion(ReachabilityQuery * q) :
       reachability(q)
     {}
 
-    QueryUnion(PartitionQuery &q) :
+    QueryUnion(PartitionQuery * q) :
       partition(q)
     {}
   };
@@ -146,15 +152,30 @@ public:
 
 // Function members
 public:
-  Query(QueryType t, ReachabilityQuery &q) :
+  Query(QueryType t, ReachabilityQuery * q) :
     type(t),
     query(q)
   {}
 
-  Query(QueryType t, PartitionQuery &q) :
+  Query(QueryType t, PartitionQuery * q) :
     type(t),
     query(q)
   {}
+
+  ~Query(void) {
+    switch (type) {
+      case Reachability:
+        delete query.reachability;
+        break;
+
+      case Partition:
+        delete query.partition;
+        break;
+
+      default:
+        break;
+    }
+  }
 };
 
 #endif // QUERIES_HPP

@@ -22,6 +22,7 @@ class Graph;
 #include <papi.h>
 
 #include "queries.hpp"
+#include "support.hpp"
 #include "metis-extra.hpp"
 
 // Let cmake choose which options are enabled
@@ -282,11 +283,13 @@ public:
 
     for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it) {
       if ((*it)->type == Reachability)
-        (*it)->query.reachability.setError(true);
+        (*it)->query.reachability->setError(true);
     }
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;
+    
+    PAPI_shutdown();
   }
 
   // Parser functions
@@ -359,9 +362,9 @@ private:
 
   // Internal reachability query functions
   void processReachabilityQuery(int threadId, Query * query);
-  void areConnectedDFS(ReachabilityQuery &query, int threadId, vector<Vertex *> &searchStack);
-  void areConnectedBBFS(ReachabilityQuery &query, int threadId);
-  void areConnectedNoLabels(ReachabilityQuery &query, int threadId);
+  void areConnectedDFS(ReachabilityQuery * query, int threadId, vector<Vertex *> &searchStack);
+  void areConnectedBBFS(ReachabilityQuery * query, int threadId);
+  void areConnectedNoLabels(ReachabilityQuery * query, int threadId);
   SearchMethod getMethod(void);
   void setMethod(SearchMethod method);
 
@@ -370,7 +373,7 @@ private:
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
-  void registerQueryStatistics(ReachabilityQuery &query);
+  void registerQueryStatistics(ReachabilityQuery * query);
 #endif // ENABLE_STATISTICS
 };
 

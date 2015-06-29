@@ -37,13 +37,18 @@ configure_file(
 	)
 
 configure_file(
-	"${PROJECT_SOURCE_DIR}/src/include/metis-extra.hpp"
+	"${PROJECT_SOURCE_DIR}/src/include/metis-extra.hpp.in"
 	"${PROJECT_BINARY_DIR}/include/metis-extra.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/src/include/support.hpp.in"
+	"${PROJECT_BINARY_DIR}/include/support.hpp"
 	)
 
 # Set the compile options depending on the build-type
 set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -pthread -g3")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -pthread -O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -pthread -g -O3")
 
 
 # Create a target for removing the files installed by the 'install' target
