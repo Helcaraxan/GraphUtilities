@@ -17,7 +17,7 @@ void print_tree_p(Tree * t, string p0, string p1) {
   } else {
     if (t->succ[0]) {
       string p00 = p0 + "---";
-      string p01 = p0 + (t->succ[1] ? "|  " : "   "); 
+      string p01 = p1 + (t->succ[1] ? "|  " : "   "); 
       print_tree_p(t->succ[0], p00, p01);
     }
 
@@ -94,7 +94,7 @@ Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t * ids, mtmetis_adj_t * x
     xadj_s[0][0] = 0;
     xadj_s[1][0] = 0;
     for (mtmetis_vtx_t i = 0; i < nvtxs; i++) {
-      ids_s[part[i]][i_p[part[i]]] = i;
+      ids_s[part[i]][i_p[part[i]]] = ids[i];
       for (mtmetis_adj_t j = xadj[i]; j < xadj[i+1]; j++)
         if (part[i] == part[adjncy[j]]) 
           adjncy_s[part[i]][iadj_p[part[i]]++] = ids_b[adjncy[j]];
@@ -126,32 +126,37 @@ Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t * ids, mtmetis_adj_t * x
   return ret;
 }
 
-void set_t_path(Tree * tree, int depth, uint64_t path, uint64_t * t_path) {
+int set_t_path(Tree * tree, int depth, uint64_t path, uint64_t * t_path) {
   if (tree->id != -1) {
     t_path[tree->id] = path;
-  }else {
-    if (tree->succ[0])
-      set_t_path(tree->succ[0], depth + 1, path, t_path);
-
-    if (tree->succ[1])
-      set_t_path(tree->succ[1], depth + 1, path + (UINT64_C(1) << (63 - depth)), t_path);
+    return depth;
   }
+
+  int d = depth;
+  if(tree->succ[0])
+     d = set_t_path(tree->succ[0], depth + 1, path, t_path);
+  if(tree->succ[1])
+     d = max(d, set_t_path(tree->succ[1], depth + 1, path + (UINT64_C(1) << (63 - depth)), t_path));
+  return d;
 }
 
-uint64_t * paths_in_tree(graph_t &graph) {
-  uint64_t * t_path = new uint64_t[graph.nvtxs];
-  mtmetis_vtx_t * ids = new mtmetis_vtx_t[graph.nvtxs]; 
+CompactTree build_compact_tree(graph_t* graph) {
+  uint64_t * t_path = new uint64_t[graph->nvtxs];
+  mtmetis_vtx_t * ids = new mtmetis_vtx_t[graph->nvtxs]; 
 
   double * opts = mtmetis_init_options();
   opts[MTMETIS_OPTION_NPARTS] = 2;
   opts[MTMETIS_OPTION_VERBOSITY] = 0;
   opts[MTMETIS_OPTION_NTHREADS] = 1;
-  Tree * tree = hier_partition(graph.nvtxs, ids, graph.xadj, graph.adjncy, opts);
+  for(unsigned i = 0; i < graph->nvtxs; i++)
+     ids[i] = i;
+  Tree * tree = hier_partition(graph->nvtxs, ids, graph->xadj, graph->adjncy, opts);
+  print_tree(tree);
 
-  set_t_path(tree, 0, 0, t_path);
+  int depth = set_t_path(tree, 0, 0, t_path);
 
   delete tree;
   delete[] ids;
 
-  return t_path;
+  return CompactTree {depth, t_path};
 }
