@@ -1,6 +1,16 @@
 cmake_minimum_required(VERSION 2.6)
 project(GraphUtilities)
 
+# Set specific ENV variables for idchire
+site_name(HOSTNAME)
+if (HOSTNAME STREQUAL "uv2000")
+	message(STATUS "Compiling @ ${HOSTNAME} - Setting ENV variables")
+	set(ENV{PATH} "/opt/gcc/gcc-4.9.2/bin:$PATH")
+	set(ENV{CPP_INCLUDE_DIR "/opt/papi/papi-5.2.0/include")
+	set(CMAKE_C_COMPILER "gcc-4.9.2")
+	set(CMAKE_CXX_COMPILER "g++-4.9.2")
+endif()
+
 # Set the default build type when necessary
 if (NOT CMAKE_BUILD_TYPE)
 	message(STATUS "Setting build-type to 'Release' as none was specified")
@@ -18,11 +28,11 @@ option(ENABLE_RETRO_LABELS
 
 if (NOT MAX_THREADS)
 	set(MAX_THREADS "2")
-endif (NOT MAX_THREADS)
+endif(NOT MAX_THREADS)
 
 if (NOT AUTO_THRESHOLD)
 	set(AUTO_THRESHOLD "10")
-endif (NOT AUTO_THRESHOLD)
+endif(NOT AUTO_THRESHOLD)
 
 
 # Generate the header file according to the previously defined options

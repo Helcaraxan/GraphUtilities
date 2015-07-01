@@ -1,6 +1,9 @@
 include_directories("${PROJECT_BINARY_DIR}/include")
 
-link_directories("${PROJECT_BINARY_DIR}/src")
+link_directories(
+	"${PROJECT_BINARY_DIR}/src"
+	"${PROJECT_BINARY_DIR}/lib"
+	)
 
 
 # Define the driver executable

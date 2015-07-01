@@ -6,6 +6,11 @@ link_directories("${PROJECT_BINARY_DIR}/lib")
 # Try to locate the required PAPI library
 find_library(PAPI_LIB libpapi.so)
 
+# Adapt to the specific case of idchire
+if (HOSTNAME STREQUAL "uv2000")
+	set(PAPI_LIB "/opt/papi/5.2.0/lib/libpapi.so")
+endif()
+
 if (PAPI_LIB STREQUAL "PAPI_LIB-NOTFOUND")
 	message(FATAL_ERROR "Could not find the PAPI library. Please install it before continuing.")
 endif()
@@ -20,7 +25,7 @@ add_library(
 	)
 
 target_link_libraries(GraphUtilities
-	papi
+	${PAPI_LIB}
 	mtmetis
 	m
 	z
