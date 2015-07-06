@@ -16,7 +16,7 @@ target_link_libraries(QueryDriver
 	)
 
 set_target_properties(QueryDriver PROPERTIES
-	INSTALL_RPATH "${PROJECT_BINARY_DIR}/src"
+	INSTALL_RPATH "${PROJECT_BINARY_DIR}/src:${PROJECT_BINARY_DIR}/lib"
 	)
 
 
