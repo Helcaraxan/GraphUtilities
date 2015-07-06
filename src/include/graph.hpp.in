@@ -204,11 +204,9 @@ private:
   atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
 
   // Results
-  mutex resultMutex;
   mutex internalResultMutex;
   spin_semaphore internalResultSpinSemaphore;
-  semaphore resultSemaphore;
-  list<Query *> resultQueue;
+  tbb::concurrent_queue<Query *> resultQueue;
   list<Query *> internalResultQueue;
 
   // Reordering vectors
@@ -279,12 +277,6 @@ public:
       queryThreads[i].join();
 
     internalResultSpinSemaphore.reset();
-
-    /*
-    for (auto it = jobQueue.unsafe_begin(), end = jobQueue.unsafe_end(); it != end; ++it) {
-      if ((*it)->type == Reachability)
-        (*it)->query.reachability->setError(true);
-    }*/
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;

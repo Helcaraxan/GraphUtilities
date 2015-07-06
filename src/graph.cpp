@@ -590,7 +590,6 @@ Graph::pushQuery(Query * query) {
   static int BBFSwin = 0;
 
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
-  unique_lock<mutex> resultLock(resultMutex, defer_lock);
   unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
 
   // Verify that the graph has been indexed
@@ -690,10 +689,7 @@ Graph::pushQuery(Query * query) {
     delete DFSQuery;
     delete BBFSQuery;
 
-    resultLock.lock();
-    resultQueue.push_back(query);
-    resultSemaphore.post();
-    resultLock.unlock();
+    resultQueue.push(query);
   } else {
     query->query.reachability->setMethod(getMethod());
 
@@ -707,13 +703,9 @@ Graph::pushQuery(Query * query) {
 Query *
 Graph::pullResult() {
   Query * result = NULL;
-  unique_lock<mutex> resultLock(resultMutex, defer_lock);
 
-  resultSemaphore.wait();
-  resultLock.lock();
-  result = resultQueue.front();
-  resultQueue.pop_front();
-  resultLock.unlock();
+  while (!resultQueue.try_pop(result)) {}
+    // Do nothing
 
   return result;
 }
@@ -1215,7 +1207,6 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
 void
 Graph::processReachabilityQuery(int threadId, Query * query) {
   vector<Vertex *> searchStack;
-  unique_lock<mutex> resultLock(resultMutex, defer_lock);
   unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
 
   switch (query->query.reachability->getMethod()) {
@@ -1247,10 +1238,7 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
     registerQueryStatistics(query->query.reachability);
 #endif // ENABLE_STATISTICS
 
-    resultLock.lock();
-    resultQueue.push_back(query);
-    resultSemaphore.post();
-    resultLock.unlock();
+    resultQueue.push(query);
   }
 }
 
