@@ -20,6 +20,7 @@ class Graph;
 #include <condition_variable>
 
 #include <papi.h>
+#include <tbb/concurrent_queue.h>
 
 #include "queries.hpp"
 #include "support.hpp"
@@ -198,10 +199,8 @@ private:
   mutex indexMutex;
 
   // Queries
-  mutex jobMutex;
   mutex methodMutex;
-  semaphore jobSemaphore;
-  list<Query *> jobQueue;
+  tbb::concurrent_queue<Query *> jobQueue;
   atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
 
   // Results
@@ -274,17 +273,18 @@ public:
     threadShutdown = true;
 
     for (int i = 0; i < MAX_THREADS; i++)
-      jobSemaphore.post();
+      jobQueue.push(NULL);
 
     for (int i = 0; i < MAX_THREADS; i++)
       queryThreads[i].join();
 
     internalResultSpinSemaphore.reset();
 
-    for (auto it = jobQueue.begin(), end = jobQueue.end(); it != end; ++it) {
+    /*
+    for (auto it = jobQueue.unsafe_begin(), end = jobQueue.unsafe_end(); it != end; ++it) {
       if ((*it)->type == Reachability)
         (*it)->query.reachability->setError(true);
-    }
+    }*/
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;

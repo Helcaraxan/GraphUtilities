@@ -589,7 +589,6 @@ Graph::pushQuery(Query * query) {
   static int DFSwin = 0;
   static int BBFSwin = 0;
 
-  unique_lock<mutex> jobLock(jobMutex, defer_lock);
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
   unique_lock<mutex> resultLock(resultMutex, defer_lock);
   unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
@@ -607,10 +606,7 @@ Graph::pushQuery(Query * query) {
   // If a method is specified use it
   if ((query->type != Reachability) ||
       (query->query.reachability->getMethod() != UndefinedSearchMethod)) {
-    jobLock.lock();
-    jobQueue.push_back(query);
-    jobSemaphore.post();
-    jobLock.unlock();
+    jobQueue.push(query);
     return;
   }
 
@@ -630,12 +626,8 @@ Graph::pushQuery(Query * query) {
     Query * DFSQuery = new Query(Reachability, DFSReachQuery);
     Query * BBFSQuery = new Query(Reachability, BBFSReachQuery);
 
-    jobLock.lock();
-    jobQueue.push_back(DFSQuery);
-    jobQueue.push_back(BBFSQuery);
-    jobSemaphore.post();
-    jobSemaphore.post();
-    jobLock.unlock();
+    jobQueue.push(DFSQuery);
+    jobQueue.push(BBFSQuery);
 
     // Wait for the results
     while (results < 2) {
@@ -705,10 +697,7 @@ Graph::pushQuery(Query * query) {
   } else {
     query->query.reachability->setMethod(getMethod());
 
-    jobLock.lock();
-    jobQueue.push_back(query);
-    jobSemaphore.post();
-    jobLock.unlock();
+    jobQueue.push(query);
   }
 
   return;
@@ -735,7 +724,7 @@ Graph::endOfQueries() {
   threadShutdown = true;
 
   for (int i = 0; i < MAX_THREADS; i++)
-    jobSemaphore.post();
+    jobQueue.push(NULL);
 }
 
 
@@ -1644,7 +1633,6 @@ unsigned long int getThreadID(void) {
 void
 queryWorker(Graph * graph, int threadId) {
   Query * query = NULL;
-  unique_lock<mutex> jobLock(graph->jobMutex, defer_lock);
 
   if (PAPI_thread_init(getThreadID) != PAPI_OK) {
     cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
@@ -1652,15 +1640,11 @@ queryWorker(Graph * graph, int threadId) {
   }
 
   while (true) {
-    graph->jobSemaphore.wait();
+    while (!graph->jobQueue.try_pop(query)) {}
+      // Do nothing
 
     if (graph->threadShutdown)
       return;
-
-    jobLock.lock();
-    query = graph->jobQueue.front();
-    graph->jobQueue.pop_front();
-    jobLock.unlock();
 
     graph->startQuery();
 

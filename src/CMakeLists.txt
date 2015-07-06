@@ -27,6 +27,7 @@ add_library(
 target_link_libraries(GraphUtilities
 	${PAPI_LIB}
 	mtmetis
+	tbb
 	m
 	z
 	)
