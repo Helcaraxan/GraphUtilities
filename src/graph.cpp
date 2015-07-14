@@ -220,16 +220,30 @@ Vertex::successors_end() {
 
 // Indexing
 
+#ifdef ENABLE_TLS
 void
-Vertex::setDFSId(int idx, uint64_t id) {
-  DFSId[idx].store(id, memory_order_release);
+Vertex::setDFSId(uint64_t newId) {
+  DFSId[id] = newId;
 }
+#else // ENABLE_TLS
+void
+Vertex::setDFSId(int idx, uint64_t newId) {
+  DFSId[idx].store(newId, memory_order_release);
+}
+#endif // ENABLE_TLS
 
 
+#ifdef ENABLE_TLS
+uint64_t
+Vertex::getDFSId() {
+  return DFSId[id];
+}
+#else // ENABLE_TLS
 uint64_t
 Vertex::getDFSId(int idx) {
   return DFSId[idx].load(memory_order_acquire);
 }
+#endif // ENABLE_TLS
 
 
 /* Performs a "visit" of the Vertex when coming from the pred Vertex.
@@ -1047,16 +1061,25 @@ Graph::condenseGraph() {
   if (condensed)
     return;
 
+#ifdef ENABLE_TLS
+  DFSId.resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
   // Prepare for the upcoming DFSs
   globalTimestamp =
     chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
   // Iterate over the vertices and condense
   for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+#ifdef ENABLE_TLS
+    if ((*it)->getDFSId() != globalTimestamp)
+#else // ENABLE_TLS
     if ((*it)->getDFSId(0) != globalTimestamp)
+#endif // ENABLE_TLS
       condenseFromSource(*it);
   }
 
+  startWorkers();
   condensed = true;
 }
 
@@ -1117,6 +1140,17 @@ Graph::stopGlobalOperation() {
 }
 
 
+void
+Graph::startWorkers() {
+  if (threadsActive)
+    return;
+
+  for (int i = 0; i < MAX_THREADS; i++)
+    queryThreads[i] = thread(queryWorker, this, i);
+
+  threadsActive = true;
+}
+
 // Maintenance
 
 void
@@ -1128,7 +1162,11 @@ Graph::condenseFromSource(Vertex * source) {
   Vertex * curr = NULL;
 
   toVisit.push(source);
+#ifdef ENABLE_TLS
+  source->setDFSId(globalTimestamp);
+#else // ENABLE_TLS
   source->setDFSId(0, globalTimestamp);
+#endif // ENABLE_TLS
 
   while (!toVisit.empty()) {
     curr = toVisit.top();
@@ -1156,8 +1194,13 @@ Graph::condenseFromSource(Vertex * source) {
         }
       } else {
         // See if we need to visit this successor
+#ifdef ENABLE_TLS
+        if ((*it)->getDFSId() != globalTimestamp) {
+          (*it)->setDFSId(globalTimestamp);
+#else // ENABLE_TLS
         if ((*it)->getDFSId(0) != globalTimestamp) {
           (*it)->setDFSId(0, globalTimestamp);
+#endif // ENABLE_TLS
           toVisit.push(*it);
         }
       }
@@ -1319,8 +1362,13 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId, vector<Vertex *>
         goto end;
       }
 
+#ifdef ENABLE_TLS
+      if ((*it)->getDFSId() != timestamp) {
+        (*it)->setDFSId(timestamp);
+#else // ENABLE_TLS
       if ((*it)->getDFSId(threadId) != timestamp) {
         (*it)->setDFSId(threadId, timestamp);
+#endif // ENABLE_TLS
 
 #ifdef ENABLE_RETRO_LABELS
         if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
@@ -1409,8 +1457,13 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   forwardId = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
   backwardId = forwardId + 1;
 
+#ifdef ENABLE_TLS
+  query->getSource()->setDFSId(forwardId);
+  query->getTarget()->setDFSId(backwardId);
+#else // ENABLE_TLS
   query->getSource()->setDFSId(threadId, forwardId);
   query->getTarget()->setDFSId(threadId, backwardId);
+#endif // ENABLE_TLS
 
   searchQueueForward.push(query->getSource());
   searchQueueBackward.push(query->getTarget());
@@ -1431,13 +1484,22 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
         if ((indexMethod & 0x04) && ((*it)->orderLabel > query->getTarget()->orderLabel))
           break;
 
+#ifdef ENABLE_TLS
+        if ((*it)->getDFSId() == backwardId) {
+#else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) == backwardId) {
+#endif // ENABLE_TLS
           query->setAnswer(true);
           goto end;
         }
 
+#ifdef ENABLE_TLS
+        if ((*it)->getDFSId() != forwardId) {
+          (*it)->setDFSId(forwardId);
+#else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) != forwardId) {
           (*it)->setDFSId(threadId, forwardId);
+#endif
 
 #ifdef ENABLE_RETRO_LABELS
           if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
@@ -1465,13 +1527,22 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
         if ((indexMethod & 0x04) && ((*it)->orderLabel < query->getSource()->orderLabel))
           break;
 
+#ifdef ENABLE_TLS
+        if ((*it)->getDFSId() == forwardId) {
+#else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) == forwardId) {
+#endif // ENABLE_TLS
           query->setAnswer(true);
           goto end;
         }
 
+#ifdef ENABLE_TLS
+        if ((*it)->getDFSId() != backwardId) {
+          (*it)->setDFSId(backwardId);
+#else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) != backwardId) {
           (*it)->setDFSId(threadId, backwardId);
+#endif // ENABLE_TLS
 
 #ifdef ENABLE_RETRO_LABELS
           if (((*it)->orderLabel > query->getSource()->orderLabel) &&
@@ -1528,7 +1599,11 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
   timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
   toVisit.push(query->getSource());
+#ifdef ENABLE_TLS
+  query->getSource()->setDFSId(timestamp);
+#else // ENABLE_TLS
   query->getSource()->setDFSId(threadId, timestamp);
+#endif // ENABLE_TLS
 
   while (!toVisit.empty()) {
     if (query->getCancel())
@@ -1543,8 +1618,13 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
         return;
       }
 
+#ifdef ENABLE_TLS
+      if ((*it)->getDFSId() != timestamp) {
+        (*it)->setDFSId(timestamp);
+#else // ENABLE_TLS
       if ((*it)->getDFSId(threadId) != timestamp) {
         (*it)->setDFSId(threadId, timestamp);
+#endif // ENABLE_TLS
         toVisit.push(*it);
       }
     }
@@ -1626,6 +1706,10 @@ queryWorker(Graph * graph, int threadId) {
     cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
     exit(EXIT_FAILURE);
   }
+
+#ifdef ENABLE_TLS
+  DFSId.resize(graph->getVertexCount(), 0);
+#endif // ENABLE_TLS
 
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}

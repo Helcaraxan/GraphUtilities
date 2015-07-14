@@ -25,6 +25,8 @@ option(ENABLE_BENCHMARKS
 	"Perform benchmark measures on indexing and queries" OFF)
 option(ENABLE_RETRO_LABELS
 	"During labeling perform a 3rd and 4th reversed pass for stricter labeling" OFF)
+option(ENABLE_TLS
+	"Use thread local storage for DFS identification" OFF)
 
 if (NOT MAX_THREADS)
 	set(MAX_THREADS "2")

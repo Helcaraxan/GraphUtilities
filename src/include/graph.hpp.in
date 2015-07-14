@@ -30,6 +30,7 @@ class Graph;
 #cmakedefine ENABLE_RETRO_LABELS
 #cmakedefine ENABLE_STATISTICS
 #cmakedefine ENABLE_BENCHMARKS
+#cmakedefine ENABLE_TLS
 
 // Let cmake choose the maximum number of parallel queries
 #define MAX_THREADS ${MAX_THREADS}
@@ -38,6 +39,9 @@ class Graph;
 
 using namespace std;
 
+#ifdef ENABLE_TLS
+thread_local vector<uint64_t> DFSId;
+#endif
 
 // Semaphore class (passive wait variant)
 
@@ -112,7 +116,9 @@ private:
 
   int inVisits = 0;
   int outVisits = 0;
+#ifndef ENABLE_TLS
   atomic<uint64_t> DFSId[MAX_THREADS] = {{0}};
+#endif // ENABLE_TLS
 
   Vertex * firstVisit = NULL;
 
@@ -161,8 +167,13 @@ public:
 
 private:
   // Indexing
-  void setDFSId(int idx, uint64_t id);
+#ifdef ENABLE_TLS
+  void setDFSId(uint64_t newId);
+  uint64_t getDFSId(void);
+#else // ENABLE_TLS
+  void setDFSId(int idx, uint64_t newId);
   uint64_t getDFSId(int idx);
+#endif // ENABLE_TLS
   void visit(Vertex * pred, int method);
   Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
 };
@@ -223,6 +234,7 @@ private:
   int activeThreads = 0;
   bool noQueries = false;
   bool threadShutdown = false;
+  bool threadsActive = false;
   mutex queryWaitMutex;
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;
@@ -262,9 +274,6 @@ public:
   Graph(void) {
     PAPI_library_init(PAPI_VER_CURRENT);
     internalResultSpinSemaphore.initialize(MAX_THREADS);
-
-    for (int i = 0; i < MAX_THREADS; i++)
-      queryThreads[i] = thread(queryWorker, this, i);
   }
 
   ~Graph(void) {
@@ -344,6 +353,7 @@ protected:
   void stopQuery(void);
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
+  void startWorkers(void);
 
 
 private:
