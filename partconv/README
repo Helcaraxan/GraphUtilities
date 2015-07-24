@@ -1,0 +1,28 @@
+GRAPH AND PARTITIONING TOOLS
+
+DynamicDependenceGraph
+
+Mercurial repo : ssh://hg@compilation.ens-lyon.fr/repositories/DynamicDependenceGraph
+follow the instructions in the README to install.
+
+
+GraphUtilitites (no interface with partconv yet)
+
+git repo : gitolite@corse-development.inriaples.fr:GraphUtilities.git
+
+
+partconv
+
+git repo : 
+
+the source includes the PaToH library, a simple make should produce two executables :
+part and evalord.
+
+part takes as input a graph file in the gra format (the format produced by
+dynamic-graph) and outputs two files : 
+- order.txt describing the ordering defined by the hierarchical partitioning
+- cuts.txt describing the graph total_cuts = f(max_cuts_per_part), which gives
+  a good idea of the cache efficiency.
+
+evalord takes two arguments : the graph and the ordering produced by part, and
+outputs the reuse distance graph for this ordering.
