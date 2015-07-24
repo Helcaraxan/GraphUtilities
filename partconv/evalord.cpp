@@ -4,7 +4,7 @@
 #include <vector>
 #include <string>
 #include <queue>
-#include <map>
+#include <set>
 #include <climits>
 
 #include "graph.hpp"
@@ -44,18 +44,30 @@ int main(int argc, char* argv[])
       fclose(forder);
    }
 
-   vector<int> use(graph.getNbNodes(), -1);
-   vector<int> reuse;
-   int maxReuse = 0;
+   vector<int> trace;
    for(int i : order) {
-      for(int j : graph.getPredecessors(i)) {
-         if(use[j] == -1)
-            reuse.push_back(-1);
-         else
-            reuse.push_back(reuse.size() - use[j]);
-         use[j] = reuse.size();
-         maxReuse = max(maxReuse, reuse.back());
-      }
+      for(int j : graph.getPredecessors(i))
+         trace.push_back(j);
+      trace.push_back(i);
+   }
+   vector<int> reuse(trace.size(), 0);
+   vector<bool> seen(graph.getNbNodes(), false);
+   vector<int> stack;
+   int maxReuse = 0;
+   for(int i = 0, s = trace.size(); i < s; i++) {
+      if(!seen[trace[i]])
+         reuse[i] = -1;
+      else if(!stack.empty())
+         for(auto it = stack.end()-1, e = stack.begin() ; it != e; it--) {
+            if(*it == trace[i]) {
+               stack.erase(it);
+               break;
+            }
+            reuse[i]++;
+         }
+      stack.push_back(trace[i]);
+      seen[trace[i]] = true;
+      maxReuse = max(maxReuse, reuse[i]);
    }
    vector<int> nbReuse(maxReuse+1, 0);
    for(int r : reuse)
