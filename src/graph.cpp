@@ -121,7 +121,7 @@ spin_semaphore::wait() {
 // Modificators
 
 bool
-Vertex::addPredecessor(Vertex * pred) {
+Vertex::addPredecessor(Vertex * pred, int weight) {
   if (pred == this)
     return false;
 
@@ -131,13 +131,14 @@ Vertex::addPredecessor(Vertex * pred) {
   }
   
   predecessors.push_back(pred);
+  predecessorWeights.push_back(weight);
   predecessorCount++;
   return true;
 }
 
 
 bool
-Vertex::addSuccessor(Vertex * succ) {
+Vertex::addSuccessor(Vertex * succ, int weight) {
   if (succ == this)
     return false;
 
@@ -147,6 +148,7 @@ Vertex::addSuccessor(Vertex * succ) {
   }
 
   successors.push_back(succ);
+  successorWeights.push_back(weight);
   successorCount++;
   return true;
 }
@@ -154,12 +156,16 @@ Vertex::addSuccessor(Vertex * succ) {
 
 bool
 Vertex::removePredecessor(Vertex * pred) {
-  for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it) {
-    if (*it == pred) {
-      predecessors.erase(it);
+  auto weightIt = predecessorWeights.begin();
+  for (auto predIt = predecessors.begin(), end = predecessors.end(); predIt != end; ++predIt) {
+    if (*predIt == pred) {
+      predecessors.erase(predIt);
+      predecessorWeights.erase(weightIt);
       predecessorCount--;
       return true;
     }
+
+    ++weightIt;
   }
 
   return false;
@@ -168,27 +174,93 @@ Vertex::removePredecessor(Vertex * pred) {
 
 bool
 Vertex::removeSuccessor(Vertex * succ) {
-  for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
-    if (*it == succ) {
-      successors.erase(it);
+  auto weightIt = successorWeights.begin();
+  for (auto succIt = successors.begin(), end = successors.end(); succIt != end; ++succIt) {
+    if (*succIt == succ) {
+      successors.erase(succIt);
+      successorWeights.erase(weightIt);
       successorCount--;
       return true;
     }
+
+    ++weightIt;
   }
 
   return false;
 }
 
 
+void
+Vertex::clearPredecessors() {
+  predecessors.clear();
+  predecessorWeights.clear();
+}
+
+
+void
+Vertex::clearSuccessors() {
+  successors.clear();
+  successorWeights.clear();
+}
+
+
+// Access
+
 int
-Vertex::getNumberOfPredecessors() {
+Vertex::getPredecessorCount() const {
   return predecessorCount;
 }
 
 
 int
-Vertex::getNumberOfSuccessors() {
+Vertex::getSuccessorCount() const {
   return successorCount;
+}
+
+
+int
+Vertex::getPredecessorWeight(Vertex * pred) const {
+  auto weightIt = predecessorWeights.begin();
+  for (auto predIt = predecessors.begin(), end = predecessors.end(); predIt != end; ++predIt) {
+    if (*predIt == pred)
+      return *weightIt;
+    
+    ++weightIt;
+  }
+
+  return -1;
+}
+
+
+int
+Vertex::getSuccessorWeight(Vertex * succ) const {
+  auto weightIt = successorWeights.begin();
+  for (auto succIt = successors.begin(), end = successors.end(); succIt != end; ++succIt) {
+    if (*succIt == succ)
+      return *weightIt;
+    
+    ++weightIt;
+  }
+
+  return -1;
+}
+
+
+int
+Vertex::getPredecessorWeight(int idx) const {
+  if (getPredecessorCount() <= idx)
+    return -1;
+
+  return predecessorWeights[idx];
+}
+
+
+int
+Vertex::getSuccessorWeight(int idx) const {
+  if (getSuccessorCount() <= idx)
+    return -1;
+
+  return successorWeights[idx];
 }
 
 
@@ -270,12 +342,23 @@ Vertex::visit(Vertex * pred, int method) {
     return;
     
   // Clear the vector that should be reordered when requested
-  if (((inVisits + outVisits) == 0) && (method & 0x02))
-    (method & 0x01) ? successors.clear() : predecessors.clear();
+  if (((inVisits + outVisits) == 0) && (method & 0x02)) {
+    if (method & 0x01)
+      clearSuccessors();
+    else
+      clearPredecessors();
+  }
 
   // When necessary push the visiting parent on the reordered vector
-  if (method & 0x02)
-    (method & 0x01) ? successors.push_back(pred) : predecessors.push_back(pred);
+  if (method & 0x02) {
+    if (method & 0x01) {
+      successors.push_back(pred);
+      successorWeights.push_back(pred->getPredecessorWeight(this));
+    } else {
+      predecessors.push_back(pred);
+      predecessorWeights.push_back(pred->getSuccessorWeight(this));
+    }
+  }
 
   inVisits++;
 }
@@ -310,6 +393,22 @@ Vertex::createPostOrder(vector<Vertex *> * postOrder, int method) {
 
   // Return the predecessor from which the first visit to this vertex was made
   return firstVisit;
+}
+
+
+// Modificators
+
+void
+Vertex::addPredecessorUnsafe(Vertex * pred, int weight) {
+  predecessors.push_back(pred);
+  predecessorWeights.push_back(weight);
+}
+
+
+void
+Vertex::addSuccessorUnsafe(Vertex * succ, int weight) {
+  successors.push_back(succ);
+  successorWeights.push_back(weight);
 }
 
 
@@ -460,6 +559,43 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 }
 
 
+// Serialization
+
+void
+Graph::printToFile(const char * fileName, bool withWeights) {
+  fstream outStream(fileName, ios_base::out);
+
+  if (!outStream.good()) {
+    cerr << "ERROR: Could not open output file for graph dumping." << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  outStream << "graph_for_greach\n" << vertices.size();
+  for (auto nodeIt = vertices.begin(), end = vertices.end(); nodeIt != end; ++nodeIt) {
+    outStream << "\n" << (*nodeIt)->id << ":";
+
+    for (auto succIt = (*nodeIt)->successors_begin(), succEnd = (*nodeIt)->successors_end();
+        succIt != succEnd; ++succIt)
+      outStream << " " << (*succIt)->id;
+
+    outStream << " #";
+
+    if (!withWeights)
+      continue;
+
+    outStream << "\n" << (*nodeIt)->weight << ":";
+    
+    for (auto weightIt = (*nodeIt)->successorWeights.begin(),
+        weightEnd = (*nodeIt)->successorWeights.end(); weightIt != weightEnd; ++weightIt)
+      outStream << " " << (*weightIt);
+
+    outStream << " #";
+  }
+
+  outStream.close();
+}
+
+
 // Modificators
 
 Vertex *
@@ -491,27 +627,34 @@ void
 Graph::mergeVertices(Vertex * s, Vertex * t) {
   startGlobalOperation();
 
-  for (auto it = s->predecessors.begin(), end = s->predecessors.end(); it != end; ++it)
-    t->addPredecessor(*it);
+  auto weightIt = s->predecessorWeights.begin();
+  for (auto predIt = s->predecessors_begin(), end = s->predecessors_end(); predIt != end; ++predIt) {
+    t->addPredecessor(*predIt, *weightIt);
+    ++weightIt;
+  }
 
-  for (auto it = s->successors.begin(), end = s->successors.end(); it != end; ++it)
-    t->addSuccessor(*it);
+  weightIt = s->successorWeights.begin();
+  for (auto succIt = s->successors_begin(), end = s->successors_end(); succIt != end; ++succIt) {
+    t->addSuccessor(*succIt, *weightIt);
+    ++weightIt;
+  }
 
+  t->weight += s->weight;
   removeVertex(s);
-  indexed = false;
 
+  indexed = false;
   stopGlobalOperation();
 }
 
 
 bool
-Graph::addEdge(Vertex * source, Vertex * target) {
+Graph::addEdge(Vertex * source, Vertex * target, int weight) {
   startGlobalOperation();
 
-  if (!source->addSuccessor(target))
+  if (!source->addSuccessor(target, weight))
     return false;
 
-  target->addPredecessor(source);
+  target->addPredecessor(source, weight);
   edgeCount++;
   indexed = false;
   condensed = false;
@@ -731,6 +874,45 @@ Graph::endOfQueries() {
 
   for (int i = 0; i < MAX_THREADS; i++)
     jobQueue.push(NULL);
+}
+
+
+// Partitioning queries
+int
+Graph::getPartitionCount() {
+  return 1;
+}
+
+
+Graph::PartitionSet *
+getPartitionSet(int count) {
+  return NULL;
+}
+
+
+// Graph coarsening
+
+Graph *
+Graph::coarsen(CoarsenMethod method, int factor) {
+  Graph * coarsenedGraph = NULL;
+
+  indexGraph();
+
+  switch (method) {
+    case Greedy:
+      coarsenedGraph = coarsenGreedy(factor);
+      break;
+
+    case EdgeRedux:
+      coarsenedGraph = coarsenEdgeRedux(factor);
+      break;
+
+    case UndefinedCoarsenMethod:
+      cerr << "ERROR: Called coarsening method with undefined method" << endl;
+      exit(EXIT_FAILURE);
+  }
+
+  return coarsenedGraph;
 }
 
 
@@ -999,20 +1181,20 @@ Graph::indexGraph() {
       curr = successorQueue.back();
       successorQueue.pop_back();
 
-      for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it)
-        (*it)->successors.push_back(curr);
+      for (auto it = curr->predecessors_begin(), end = curr->predecessors_end(); it != end; ++it)
+        (*it)->addSuccessorUnsafe(curr, curr->getPredecessorWeight(*it));
 
-      curr->successors.clear();
+      curr->clearSuccessors();
     }
 
     while (!predecessorQueue.empty()) {
       curr = predecessorQueue.back();
       predecessorQueue.pop_back();
 
-      for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it)
-        (*it)->predecessors.push_back(curr);
+      for (auto it = curr->successors_begin(), end = curr->successors_end(); it != end; ++it)
+        (*it)->addPredecessorUnsafe(curr, curr->getSuccessorWeight(*it));
 
-      curr->predecessors.clear();
+      curr->clearPredecessors();
     }
   } else {
     successorQueue.clear();
@@ -1233,11 +1415,13 @@ Graph::addVertexUnsafe() {
 
 
 bool
-Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
+Graph::addEdgeUnsafe(Vertex * source, Vertex * target, int weight) {
   startGlobalOperation();
   source->successors.push_back(target);
+  source->successorWeights.push_back(weight);
   source->successorCount++;
   target->predecessors.push_back(source);
+  target->predecessorWeights.push_back(weight);
   target->predecessorCount++;
   edgeCount++;
   stopGlobalOperation();
@@ -1248,14 +1432,29 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target) {
 // Internal reachability query functions
 
 void
-Graph::processReachabilityQuery(int threadId, Query * query) {
-  vector<Vertex *> searchStack;
+#ifdef ENABLE_TLS
+Graph::processReachabilityQuery(Query * query) {
   unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
 
   switch (query->query.reachability->getMethod()) {
     case DFS:
-      searchStack.clear();
-      areConnectedDFS(query->query.reachability, threadId, searchStack);
+      areConnectedDFS(query->query.reachability);
+      break;
+
+    case BBFS:
+      areConnectedBBFS(query->query.reachability);
+      break;
+
+    case NoLabels:
+      areConnectedNoLabels(query->query.reachability);
+      break;
+#else // ENABLE_TLS
+Graph::processReachabilityQuery(int threadId, Query * query) {
+  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
+
+  switch (query->query.reachability->getMethod()) {
+    case DFS:
+      areConnectedDFS(query->query.reachability, threadId);
       break;
 
     case BBFS:
@@ -1265,6 +1464,7 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
     case NoLabels:
       areConnectedNoLabels(query->query.reachability, threadId);
       break;
+#endif // ENABLE_TLS
 
     case UndefinedSearchMethod:
       query->query.reachability->setError(true);
@@ -1288,11 +1488,16 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
 
 /* Use the previously done indexation to answer to the query */
 void
-Graph::areConnectedDFS(ReachabilityQuery * query, int threadId, vector<Vertex *> &searchStack) {
+#ifdef ENABLE_TLS
+Graph::areConnectedDFS(ReachabilityQuery * query) {
+#else // ENABLE_TLS
+Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
+#endif // ENABLE_TLS
   int event = PAPI_TOT_CYC;
   long long counterValue;
   uint64_t timestamp;
   Vertex * curr;
+  vector<Vertex *> searchStack;
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
@@ -1416,7 +1621,11 @@ cancel:
 
 
 void
+#ifdef ENABLE_TLS
+Graph::areConnectedBBFS(ReachabilityQuery * query) {
+#else // ENABLE_TLS
 Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
+#endif
   int event = PAPI_TOT_CYC;
   long long counterValue;
   uint64_t forwardId, backwardId;
@@ -1591,7 +1800,11 @@ cancel:
 
 
 void
+#ifdef ENABLE_TLS
+Graph::areConnectedNoLabels(ReachabilityQuery * query) {
+#else // ENABLE_TLS
 Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
+#endif // ENABLE_TLS
   uint64_t timestamp;
   stack<Vertex *> toVisit;
   Vertex * curr;
@@ -1647,8 +1860,308 @@ Graph::setMethod(SearchMethod method) {
 // Internal partitioning query functions
 
 void
+#ifdef ENABLE_TLS
+Graph::processPartitionQuery(Query * query) {
+#else // ENABLE_TLS
 Graph::processPartitionQuery(int threadId, Query * query) {
+#endif // ENABLE_TLS
   // TODO
+}
+
+
+// Internal coarsening functions
+
+bool
+Graph::addToReadySet(Vertex * curr, set<Vertex *> &readySet) {
+  for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
+    if (readySet.find(*it) == readySet.end())
+      return false;
+  }
+
+  readySet.insert(curr);
+  return true;
+}
+
+
+Graph *
+Graph::coarsenGreedy(int factor) {
+  Vertex * curr = NULL;
+  Vertex * newVertex = NULL;
+  Graph * coarseGraph = new Graph(false);
+  map<int, int> mapping;
+  map<Vertex *, int> localMapping;
+  set<Vertex *> readySet;
+  set<Vertex *> vertexGroup;
+  queue<Vertex *> workQueue;
+  queue<Vertex *> localWorkQueue;
+  fstream mappingStream;
+
+  for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
+    readySet.insert(*it);
+    workQueue.push(*it);
+  }
+
+  while (!workQueue.empty()) {
+    curr = workQueue.front();
+    workQueue.pop();
+
+    vertexGroup.clear();
+    localWorkQueue.push(curr);
+
+    while (!localWorkQueue.empty()) {
+      curr = localWorkQueue.front();
+      localWorkQueue.pop();
+
+      vertexGroup.insert(curr);
+
+      for (auto it = curr->successors_begin(), end = curr->successors_end(); it != end; ++it) {
+        if (addToReadySet(*it, readySet))
+          localWorkQueue.push(*it);
+      }
+
+      if (vertexGroup.size() >= (unsigned int) factor)
+        break;
+    }
+
+    while (!localWorkQueue.empty()) {
+      curr = localWorkQueue.front();
+      localWorkQueue.pop();
+      workQueue.push(curr);
+    }
+
+    newVertex = coarseGraph->addVertex();
+    for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
+      mapping[(*it)->id] = newVertex->id;
+      newVertex->weight += (*it)->weight;
+
+      for (auto predIt = (*it)->predecessors_begin(), predEnd = (*it)->predecessors_end();
+          predIt != predEnd; ++predIt) {
+        if (vertexGroup.find(*predIt) == vertexGroup.end()) {
+          Vertex * localPred = coarseGraph->vertices[mapping[(*predIt)->id]];
+
+          auto localIt = localMapping.find(localPred);
+          if (localIt == localMapping.end())
+            localMapping[localPred] = (*it)->getPredecessorWeight(*predIt);
+          else
+            localIt->second += (*it)->getPredecessorWeight(*predIt);
+        }
+      }
+
+      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
+          mapIt != mapEnd; ++mapIt) {
+        mapIt->first->addSuccessor(newVertex, mapIt->second);
+        newVertex->addPredecessor(mapIt->first, mapIt->second);
+      }
+
+      localMapping.clear();
+    }
+  }
+
+  coarseGraph->printToFile("coarsened_greedy.gra", true);
+
+  mappingStream.open("mapping_greedy.txt", ios_base::out);
+
+  mappingStream << "General to coarsened graph index mapping";
+  for (auto it = mapping.begin(), end = mapping.end(); it != end; ++it)
+    mappingStream << "\n" << it->first << " : " << it->second;
+  
+  mappingStream.close();
+
+  return coarseGraph;
+}
+
+
+static bool
+reduxOrder(const Vertex * lhs, const Vertex * rhs, int f) {
+  static int factor = 1;
+
+  if (f != 0) {
+    factor = f;
+    return true;
+  }
+
+  if (lhs->getSuccessorCount() >= rhs->getSuccessorCount()) {
+    if (rhs->getSuccessorCount() > factor)
+      return false;
+    else if (lhs->getSuccessorCount() > factor)
+      return true;
+    else
+      return false;
+  } else {
+    return !reduxOrder(rhs, lhs, 0);
+  }
+}
+
+
+class edgeReduxOrder {
+public:
+  bool operator() (const Vertex * lhs, const Vertex * rhs) const {
+    return reduxOrder(lhs, rhs, 0);
+  }
+};
+
+
+class edgeReduxOrderReverse {
+public:
+  bool operator() (const Vertex * lhs, const Vertex * rhs) const {
+    return !reduxOrder(lhs, rhs, 0);
+  }
+};
+
+
+Graph *
+Graph::coarsenEdgeRedux(int factor) {
+  Vertex * curr = NULL, * search = NULL, * source = NULL;
+  Vertex * newVertex = NULL;
+  Graph * coarseGraph = new Graph(false);
+  map<int, int> mapping;
+  map<Vertex *, int> localMapping;
+  set<Vertex *> vertexGroup;
+  set<Vertex *> processedSet;
+  priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrder> workQueue;
+  priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrderReverse> localWorkQueue;
+  queue<Vertex *> searchQueue;
+  fstream mappingStream;
+
+  reduxOrder(NULL, NULL, factor);
+
+
+  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+    workQueue.push(*it);
+
+  while (workQueue.empty()) {
+    do {
+      curr = workQueue.top();
+      workQueue.pop();
+    } while (processedSet.find(curr) != processedSet.end());
+
+    vertexGroup.clear();
+    while (!localWorkQueue.empty())
+      localWorkQueue.pop();
+
+    localWorkQueue.push(curr);
+    source = NULL;
+
+    while (!localWorkQueue.empty()) {
+      curr = localWorkQueue.top();
+      localWorkQueue.pop();
+
+      if (source == NULL)
+        source = curr;
+
+      vertexGroup.insert(curr);
+      processedSet.insert(curr);
+
+      if (curr != source) {
+        bool backTrace = false;
+        set<Vertex *> shadowVertexGroup = vertexGroup;
+        set<Vertex *> newlyProcessedSet;
+
+        for (auto predIt = curr->predecessors_begin(), predEnd = curr->predecessors_end();
+            predIt != predEnd; ++predIt) {
+          if (vertexGroup.find(*predIt) == vertexGroup.end())
+            searchQueue.push(*predIt);
+        }
+
+        while (!searchQueue.empty()) {
+          search = searchQueue.front();
+          searchQueue.pop();
+
+          ReachabilityQuery * query = new ReachabilityQuery(source, search, DFS);
+
+#ifdef ENABLE_TLS
+          areConnectedDFS(query);
+#else // ENABLE_TLS
+          areConnectedDFS(query, 0);
+#endif // ENABLE_TLS
+
+          if (query->getAnswer()) {
+#ifdef ENABLE_STATISTICS
+            for (auto pathIt = query->path.begin(), pathEnd = query->path.end();
+                pathIt != pathEnd; ++pathIt) {
+              if ((processedSet.find(*pathIt) != processedSet.end()) &&
+                    (vertexGroup.find(*pathIt) == vertexGroup.end())) {
+                backTrace = true;
+                break;
+              }
+
+              vertexGroup.insert(*pathIt);
+              newlyProcessedSet.insert(*pathIt);
+              for (auto predIt = (*pathIt)->predecessors_begin(), predEnd = (*pathIt)->predecessors_end();
+                  predIt != predEnd; ++predIt) {
+                if (vertexGroup.find(*predIt) == vertexGroup.end())
+                  searchQueue.push(*predIt);
+              }
+            }
+#else // ENABLE_STATISTICS
+            backTrace = true;
+#endif // ENABLE_STATISTICS
+          }
+
+          delete query;
+
+          if (backTrace) {
+            vertexGroup = shadowVertexGroup;
+            for (auto it = newlyProcessedSet.begin(), end = newlyProcessedSet.end(); it != end; ++it)
+              processedSet.erase(*it);
+
+            vertexGroup.erase(curr);
+            processedSet.erase(curr);
+            break;
+          }
+        }
+        
+        if (backTrace)
+          continue;
+      }
+
+      if (vertexGroup.size() >= (unsigned int) factor)
+        break;
+
+      for (auto succIt = curr->successors_begin(), succEnd = curr->successors_end();
+          succIt != succEnd; ++succIt)
+        localWorkQueue.push(*succIt);
+    }
+
+    newVertex = coarseGraph->addVertex();
+    for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
+      mapping[(*it)->id] = newVertex->id;
+      newVertex->weight += (*it)->weight;
+
+      for (auto predIt = (*it)->predecessors_begin(), predEnd = (*it)->predecessors_end();
+          predIt != predEnd; ++predIt) {
+        if (vertexGroup.find(*predIt) == vertexGroup.end()) {
+          Vertex * localPred = coarseGraph->vertices[mapping[(*predIt)->id]];
+
+          auto localIt = localMapping.find(localPred);
+          if (localIt == localMapping.end())
+            localMapping[localPred] = (*it)->getPredecessorWeight(*predIt);
+          else
+            localIt->second += (*it)->getPredecessorWeight(*predIt);
+        }
+      }
+
+      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
+          mapIt != mapEnd; ++mapIt) {
+        mapIt->first->addSuccessor(newVertex, mapIt->second);
+        newVertex->addPredecessor(mapIt->first, mapIt->second);
+      }
+
+      localMapping.clear();
+    }
+  }
+
+  coarseGraph->printToFile("coarsened_edge_redux.gra", true);
+
+  mappingStream.open("mapping_edge_redux.txt", ios_base::out);
+
+  mappingStream << "General to coarsened graph index mapping";
+  for (auto it = mapping.begin(), end = mapping.end(); it != end; ++it)
+    mappingStream << "\n" << it->first << " : " << it->second;
+  
+  mappingStream.close();
+
+  return coarseGraph;
 }
 
 
@@ -1721,6 +2234,15 @@ queryWorker(Graph * graph, int threadId) {
     graph->startQuery();
 
     switch (query->type) {
+#ifdef ENABLE_TLS
+      case Reachability:
+        graph->processReachabilityQuery(query);
+        break;
+
+      case Partition:
+        graph->processPartitionQuery(query);
+        break;
+#else // ENABLE_TLS
       case Reachability:
         graph->processReachabilityQuery(threadId, query);
         break;
@@ -1728,6 +2250,7 @@ queryWorker(Graph * graph, int threadId) {
       case Partition:
         graph->processPartitionQuery(threadId, query);
         break;
+#endif // ENABLE_TLS
     }
 
     graph->stopQuery();

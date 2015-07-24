@@ -103,6 +103,7 @@ public:
 // Data members
 public:
   int id;
+  int weight;
 
 
 private:
@@ -129,14 +130,17 @@ private:
   int predecessorCount = 0;
   int successorCount = 0;
   vector<Vertex *> predecessors;
+  vector<int> predecessorWeights;
   vector<Vertex *> successors;
+  vector<int> successorWeights;
 
 
 // Function members
 public:
   // Constructors & Destructor
-  Vertex(int i) :
-    id(i)
+  Vertex(int i, int w = 1) :
+    id(i),
+    weight(w)
   {}
 
   ~Vertex(void) {
@@ -148,14 +152,20 @@ public:
   }
 
   // Modificators
-  bool addPredecessor(Vertex * pred);
-  bool addSuccessor(Vertex * succ);
+  bool addPredecessor(Vertex * pred, int weight = 1);
+  bool addSuccessor(Vertex * succ, int weight = 1);
   bool removePredecessor(Vertex * pred);
   bool removeSuccessor(Vertex * succ);
+  void clearPredecessors(void);
+  void clearSuccessors(void);
 
   // Access
-  int getNumberOfPredecessors(void);
-  int getNumberOfSuccessors(void);
+  int getPredecessorCount(void) const;
+  int getSuccessorCount(void) const;
+  int getPredecessorWeight(Vertex * pred) const;
+  int getSuccessorWeight(Vertex * succ) const;
+  int getPredecessorWeight(int idx) const;
+  int getSuccessorWeight(int idx) const;
 
   // Iterators
   iterator predecessors_begin(void);
@@ -176,6 +186,10 @@ private:
 #endif // ENABLE_TLS
   void visit(Vertex * pred, int method);
   Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
+
+  // Modificators
+  void addPredecessorUnsafe(Vertex * pred, int weight = 1);
+  void addSuccessorUnsafe(Vertex * succ, int weight = 1);
 };
 
 
@@ -227,6 +241,7 @@ private:
   /* Partitioning data */
   // General
   int partitionCount = 0;
+  bool rootGraph;
   atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
 
   /* General data */
@@ -271,37 +286,46 @@ private:
 // Function members
 public:
   // Constructors & Destructor
-  Graph(void) {
-    PAPI_library_init(PAPI_VER_CURRENT);
-    internalResultSpinSemaphore.initialize(MAX_THREADS);
+  Graph(bool isRootGraph = true) {
+    rootGraph = isRootGraph;
+
+    if (rootGraph) {
+      PAPI_library_init(PAPI_VER_CURRENT);
+      internalResultSpinSemaphore.initialize(MAX_THREADS);
+    }
   }
 
-  ~Graph(void) {
-    threadShutdown = true;
+  ~Graph() {
+    if (rootGraph) {
+      threadShutdown = true;
 
-    for (int i = 0; i < MAX_THREADS; i++)
-      jobQueue.push(NULL);
+      for (int i = 0; i < MAX_THREADS; i++)
+        jobQueue.push(NULL);
 
-    for (int i = 0; i < MAX_THREADS; i++)
-      queryThreads[i].join();
+      for (int i = 0; i < MAX_THREADS; i++)
+        queryThreads[i].join();
 
-    internalResultSpinSemaphore.reset();
+      internalResultSpinSemaphore.reset();
+
+      PAPI_shutdown();
+    }
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
       delete *it;
-    
-    PAPI_shutdown();
   }
 
   // Parser functions
   static Graph * createFromDotFile(const char * fileName, bool noDoubleEdges = false);
   static Graph * createFromGraFile(const char * fileName, bool noDoubleEdges = false);
 
+  // Serialization
+  void printToFile(const char * fileName, bool withWeights = false);
+
   // Modificators
   Vertex * addVertex(void);
   void removeVertex(Vertex * v);
   void mergeVertices(Vertex * s, Vertex * t);
-  bool addEdge(Vertex * s, Vertex * t);
+  bool addEdge(Vertex * s, Vertex * t, int weight = 1);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
 
@@ -320,6 +344,9 @@ public:
   // Partitioning queries
   int getPartitionCount(void);
   PartitionSet * getPartitionSet(int count);
+
+  // Graph coarsening
+  Graph * coarsen(CoarsenMethod method, int factor);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -360,18 +387,34 @@ private:
   // Maintenance
   void condenseFromSource(Vertex * source);
   Vertex * addVertexUnsafe(void);
-  bool addEdgeUnsafe(Vertex * source, Vertex * target);
+  bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
 
   // Internal reachability query functions
+#ifdef ENABLE_TLS
+  void processReachabilityQuery(Query * query);
+  void areConnectedDFS(ReachabilityQuery * query);
+  void areConnectedBBFS(ReachabilityQuery * query);
+  void areConnectedNoLabels(ReachabilityQuery * query);
+#else //  ENABLE_TLS
   void processReachabilityQuery(int threadId, Query * query);
-  void areConnectedDFS(ReachabilityQuery * query, int threadId, vector<Vertex *> &searchStack);
+  void areConnectedDFS(ReachabilityQuery * query, int threadId);
   void areConnectedBBFS(ReachabilityQuery * query, int threadId);
   void areConnectedNoLabels(ReachabilityQuery * query, int threadId);
+#endif //  ENABLE_TLS
   SearchMethod getMethod(void);
   void setMethod(SearchMethod method);
 
   // Internal partitioning query functions
+#ifdef ENABLE_TLS
+  void processPartitionQuery(Query * query);
+#else // ENABLE_TLS
   void processPartitionQuery(int threadId, Query * query);
+#endif // ENABLE_TLS
+
+  // Internal coarsening functions
+  bool addToReadySet(Vertex * curr, set<Vertex *> &readySet);
+  Graph * coarsenGreedy(int factor);
+  Graph * coarsenEdgeRedux(int factor);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance

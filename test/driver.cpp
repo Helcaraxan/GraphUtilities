@@ -31,6 +31,7 @@ static const struct option longopts[] = {
   {"method",    required_argument, 0, 'm'},
   {"search",    required_argument, 0, 's'},
   {"count",     required_argument, 0, 'c'},
+  {"coarsen",   required_argument, 0, 'C'},
   {"graph",     optional_argument, 0, 'g'},
   {"queries",   optional_argument, 0, 'q'},
   {"help",      no_argument,       0, 'h'},
@@ -60,6 +61,8 @@ printHelpMessage() {
   cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large graphs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
   cout << "\t-b | --batch\t\tDo not print progress-bar\n";
+  cout << "\nOther options:\n";
+  cout << "\t-C | --coarsen=<number>\tCreate a coarsened version of the graph with a coarsening factor of <number> and dump it\n";
 }
 
 
@@ -195,10 +198,11 @@ main(int argc, char * argv[]) {
   fstream outputFile, testFile, dumpFile, queryFile;
   ostream * output = &cout;
   int i, c;
+  int coarsenFactor = 0;
   char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:m:s:c:g::q::hvudb", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:m:s:c:C:g::q::hvudb", longopts, NULL)) != -1) {
     switch (c) {
       case 'i':
         strncpy(fileName, optarg, 511);
@@ -260,6 +264,16 @@ main(int argc, char * argv[]) {
         }
         break;
 
+      case 'C':
+        if (!isdigit(optarg[0])) {
+          cerr << "ERROR: The -C | --coarsen argument is not a number\n";
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        } else {
+          coarsenFactor = atoi(optarg);
+        }
+        break;
+
       case 'g':
         dumpFile.open(optarg, fstream::out);
         if (!dumpFile.good()) {
@@ -313,6 +327,17 @@ main(int argc, char * argv[]) {
   
   // Set the indexing method as specified / default
   graph->setIndexMethod(indexMethod);
+
+  // When necessary create coarsened graph versions and dump them
+  if (coarsenFactor > 0) {
+    Graph * newGraph;
+
+    newGraph = graph->coarsen(Greedy, coarsenFactor);
+    delete newGraph;
+
+    newGraph = graph->coarsen(EdgeRedux, coarsenFactor);
+    delete newGraph;
+  }
 
   // Dump the parsed graph for verification purposes
   if (dumpFile.is_open()) {
