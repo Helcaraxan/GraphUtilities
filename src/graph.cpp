@@ -1871,10 +1871,27 @@ Graph::processPartitionQuery(int threadId, Query * query) {
 
 // Internal coarsening functions
 
+static void
+processVertex(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet) {
+  set<Vertex *>::iterator it = readySet.find(curr);
+
+  if (it == readySet.end()) {
+    cerr << "ERROR: Tried to process a vertex that is not in the readySet." << endl;
+    exit(EXIT_FAILURE);
+  }
+
+  readySet.erase(it);
+  processedSet.insert(curr);
+}
+
+
 bool
-Graph::addToReadySet(Vertex * curr, set<Vertex *> &readySet) {
+Graph::addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet) {
+  if (readySet.find(curr) != readySet.end())
+    return true;
+
   for (auto it = curr->predecessors.begin(), end = curr->predecessors.end(); it != end; ++it) {
-    if (readySet.find(*it) == readySet.end())
+    if (processedSet.find(*it) == processedSet.end())
       return false;
   }
 
@@ -1892,18 +1909,22 @@ Graph::coarsenGreedy(int factor) {
   map<Vertex *, int> localMapping;
   set<Vertex *> readySet;
   set<Vertex *> vertexGroup;
+  set<Vertex *> processedSet;
   queue<Vertex *> workQueue;
   queue<Vertex *> localWorkQueue;
   fstream mappingStream;
 
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
-    readySet.insert(*it);
+    addToReadySet(*it, readySet, processedSet);
     workQueue.push(*it);
   }
 
   while (!workQueue.empty()) {
     curr = workQueue.front();
     workQueue.pop();
+
+    if (processedSet.find(curr) != processedSet.end())
+      continue;
 
     vertexGroup.clear();
     localWorkQueue.push(curr);
@@ -1912,10 +1933,11 @@ Graph::coarsenGreedy(int factor) {
       curr = localWorkQueue.front();
       localWorkQueue.pop();
 
+      processVertex(curr, readySet, processedSet);
       vertexGroup.insert(curr);
 
       for (auto it = curr->successors_begin(), end = curr->successors_end(); it != end; ++it) {
-        if (addToReadySet(*it, readySet))
+        if (addToReadySet(*it, readySet, processedSet))
           localWorkQueue.push(*it);
       }
 
@@ -1931,6 +1953,7 @@ Graph::coarsenGreedy(int factor) {
 
     newVertex = coarseGraph->addVertex();
     for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
+      processedSet.insert(*it);
       mapping[(*it)->id] = newVertex->id;
       newVertex->weight += (*it)->weight;
 

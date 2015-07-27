@@ -412,7 +412,7 @@ private:
 #endif // ENABLE_TLS
 
   // Internal coarsening functions
-  bool addToReadySet(Vertex * curr, set<Vertex *> &readySet);
+  bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
   Graph * coarsenGreedy(int factor);
   Graph * coarsenEdgeRedux(int factor);
 
