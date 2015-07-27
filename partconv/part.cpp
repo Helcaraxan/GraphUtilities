@@ -77,7 +77,7 @@ vector<int> convBisect(Graph g) {
 
    pair<vector<int>, int> p = patoh_bisect(g);
    vector<int>& part = p.first;
-   return part;
+   //return part;
    int nbCuts[2] = {0, 0};
    for(int i = 0; i < g.getNbNodes(); i++) {
       int b = 0;

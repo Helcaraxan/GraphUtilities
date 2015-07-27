@@ -68,13 +68,14 @@ int main(int argc, char* argv[])
       stack.push_back(trace[i]);
       seen[trace[i]] = true;
       maxReuse = max(maxReuse, reuse[i]);
+      //printf("%d %d\n", trace[i], reuse[i]);
    }
-   vector<int> nbReuse(maxReuse+1, 0);
+   vector<int> nbReuse(maxReuse+2, 0);
    for(int r : reuse)
       if(r != -1)
          nbReuse[r]++;
    for(int r = maxReuse; r>=0; r--)
       nbReuse[r] += nbReuse[r+1];
-   for(int i = 0; i < maxReuse; i += 50)
+   for(int i = 0; i <= maxReuse+1; i += 1)
       printf("%d %d\n", i, nbReuse[i]);
 }
