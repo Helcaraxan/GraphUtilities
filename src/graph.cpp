@@ -502,11 +502,14 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
     exit(EXIT_FAILURE);
   }
 
-  // Get the first line out of the way
-  input.getline(dump, 127);
+  // Throw first lines away while they are text
+  do {
+    input.getline(dump, 127);
+  } while (!isdigit(dump[0]));
+
 
   // Get the number of vertices / lines to read
-  input >> lineNumber;
+  lineNumber = atoi(dump);
   configureProgressBar(&barTitle, lineNumber);
 
   // Create all vertices
