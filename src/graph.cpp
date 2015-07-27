@@ -1967,8 +1967,15 @@ Graph::coarsenGreedy(int factor) {
 
       for (auto predIt = (*it)->predecessors_begin(), predEnd = (*it)->predecessors_end();
           predIt != predEnd; ++predIt) {
+        set<Vertex *> predecessorSet;
+
         if (vertexGroup.find(*predIt) == vertexGroup.end()) {
           Vertex * localPred = coarseGraph->vertices[mapping[(*predIt)->id]];
+
+          if (predecessorSet.find(localPred) != predecessorSet.end())
+            continue;
+          else
+            predecessorSet.insert(localPred);
 
           auto localIt = localMapping.find(localPred);
           if (localIt == localMapping.end())
@@ -2050,6 +2057,7 @@ Graph::coarsenEdgeRedux(int factor) {
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
   map<int, int> mapping;
+  map<int, set<int> > retroMapping;
   map<Vertex *, int> localMapping;
   set<Vertex *> vertexGroup;
   set<Vertex *> processedSet;
@@ -2175,28 +2183,46 @@ Graph::coarsenEdgeRedux(int factor) {
     newVertex = coarseGraph->addVertex();
     for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
       mapping[(*it)->id] = newVertex->id;
+      retroMapping[newVertex->id].insert((*it)->id);
       newVertex->weight += (*it)->weight;
+    }
+  }
 
-      for (auto predIt = (*it)->predecessors_begin(), predEnd = (*it)->predecessors_end();
+  for (auto it = coarseGraph->vertices.begin(), end = coarseGraph->vertices.end();
+      it != end; ++it) {
+    auto originSet = retroMapping.find((*it)->id);
+
+    localMapping.clear();
+
+    for (auto originIt = originSet->second.begin(), originEnd = originSet->second.end();
+        originIt != originEnd; ++originIt) {
+      Vertex * origin = getVertexFromId(*originIt);
+
+      for (auto predIt = origin->predecessors_begin(), predEnd = origin->predecessors_end();
           predIt != predEnd; ++predIt) {
-        if (vertexGroup.find(*predIt) == vertexGroup.end()) {
+        set<Vertex *> predecessorSet;
+
+        if (originSet->second.find((*predIt)->id) == originSet->second.end()) {
           Vertex * localPred = coarseGraph->vertices[mapping[(*predIt)->id]];
 
-          auto localIt = localMapping.find(localPred);
-          if (localIt == localMapping.end())
-            localMapping[localPred] = (*it)->getPredecessorWeight(*predIt);
+          if (predecessorSet.find(localPred) != predecessorSet.end())
+            continue;
           else
-            localIt->second += (*it)->getPredecessorWeight(*predIt);
+            predecessorSet.insert(localPred);
+
+          auto localIt = localMapping.find(localPred);
+
+          if (localIt == localMapping.end())
+            localMapping[localPred] = origin->getPredecessorWeight(*predIt);
+          else
+            localIt->second += origin->getPredecessorWeight(*predIt);
         }
       }
+    }
 
-      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt) {
-        mapIt->first->addSuccessor(newVertex, mapIt->second);
-        newVertex->addPredecessor(mapIt->first, mapIt->second);
-      }
-
-      localMapping.clear();
+    for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end(); mapIt != mapEnd; ++mapIt) {
+      mapIt->first->addSuccessor(*it, mapIt->second);
+      (*it)->addPredecessor(mapIt->first, mapIt->second);
     }
   }
 
