@@ -1902,6 +1902,8 @@ Graph::addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &proc
 
 Graph *
 Graph::coarsenGreedy(int factor) {
+  int progressCount = 0;
+  string barTitle = "Greedy coarsening ";
   Vertex * curr = NULL;
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
@@ -1914,16 +1916,19 @@ Graph::coarsenGreedy(int factor) {
   queue<Vertex *> localWorkQueue;
   fstream mappingStream;
 
+  configureProgressBar(&barTitle, getVertexCount());
+
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
     addToReadySet(*it, readySet, processedSet);
     workQueue.push(*it);
   }
 
   while (!workQueue.empty()) {
-    do {
-      curr = workQueue.front();
-      workQueue.pop();
-    } while (processedSet.find(curr) != processedSet.end());
+    curr = workQueue.front();
+    workQueue.pop();
+
+    if (processedSet.find(curr) != processedSet.end())
+      continue;
 
     vertexGroup.clear();
     localWorkQueue.push(curr);
@@ -1934,6 +1939,8 @@ Graph::coarsenGreedy(int factor) {
 
       processVertex(curr, readySet, processedSet);
       vertexGroup.insert(curr);
+
+      resultProgressBar(++progressCount);
 
       for (auto it = curr->successors_begin(), end = curr->successors_end(); it != end; ++it) {
         if (addToReadySet(*it, readySet, processedSet))
@@ -1952,7 +1959,6 @@ Graph::coarsenGreedy(int factor) {
 
     newVertex = coarseGraph->addVertex();
     for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
-      processedSet.insert(*it);
       mapping[(*it)->id] = newVertex->id;
       newVertex->weight += (*it)->weight;
 
@@ -1978,6 +1984,8 @@ Graph::coarsenGreedy(int factor) {
       localMapping.clear();
     }
   }
+
+  cout << endl;
 
   coarseGraph->printToFile("coarsened_greedy.gra", true);
 
@@ -2033,6 +2041,8 @@ public:
 
 Graph *
 Graph::coarsenEdgeRedux(int factor) {
+  int progressCount = 0;
+  string barTitle = "Edge Redux coarsening ";
   Vertex * curr = NULL, * search = NULL, * source = NULL;
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
@@ -2045,6 +2055,7 @@ Graph::coarsenEdgeRedux(int factor) {
 
   reduxOrder(NULL, NULL, factor);
 
+  configureProgressBar(&barTitle, getVertexCount());
 
   for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
     workQueue.push(*it);
@@ -2055,6 +2066,8 @@ Graph::coarsenEdgeRedux(int factor) {
     curr = workQueue.top();
     workQueue.pop();
 
+    resultProgressBar(++progressCount);
+
     if (processedSet.find(curr) != processedSet.end())
       continue;
 
@@ -2064,10 +2077,11 @@ Graph::coarsenEdgeRedux(int factor) {
     source = curr;
 
     while (!localWorkQueue.empty()) {
-      do {
-        curr = localWorkQueue.top();
-        localWorkQueue.pop();
-      } while (vertexGroup.find(curr) != vertexGroup.end());
+      curr = localWorkQueue.top();
+      localWorkQueue.pop();
+
+      if (vertexGroup.find(curr) != vertexGroup.end())
+        continue;
 
       if (curr != source) {
         bool backTrace = false;
@@ -2084,10 +2098,11 @@ Graph::coarsenEdgeRedux(int factor) {
         }
 
         while (!searchQueue.empty()) {
-          do {
-            search = searchQueue.front();
-            searchQueue.pop();
-          } while (vertexGroup.find(search) != vertexGroup.end());
+          search = searchQueue.front();
+          searchQueue.pop();
+
+          if (vertexGroup.find(search) != vertexGroup.end())
+            continue;
 
           ReachabilityQuery * query = new ReachabilityQuery(source, search, DFS);
 
@@ -2176,6 +2191,8 @@ Graph::coarsenEdgeRedux(int factor) {
       localMapping.clear();
     }
   }
+
+  cout << endl;
 
   coarseGraph->printToFile("coarsened_edge_redux.gra", true);
 
