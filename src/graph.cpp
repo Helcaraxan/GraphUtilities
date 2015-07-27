@@ -2009,7 +2009,7 @@ reduxOrder(const Vertex * lhs, const Vertex * rhs, int f) {
   static int factor = 1;
 
   if (f != 0) {
-    factor = f;
+    factor = f - 1;
     return true;
   }
 
@@ -2132,6 +2132,11 @@ Graph::coarsenEdgeRedux(int factor) {
                   predIt != predEnd; ++predIt) {
                 if (vertexGroup.find(*predIt) == vertexGroup.end())
                   searchQueue.push(*predIt);
+              }
+
+              if (vertexGroup.size() > 2 * (unsigned int) factor) {
+                backTrace = true;
+                break;
               }
             }
 #else // ENABLE_STATISTICS
