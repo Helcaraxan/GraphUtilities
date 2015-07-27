@@ -1920,11 +1920,10 @@ Graph::coarsenGreedy(int factor) {
   }
 
   while (!workQueue.empty()) {
-    curr = workQueue.front();
-    workQueue.pop();
-
-    if (processedSet.find(curr) != processedSet.end())
-      continue;
+    do {
+      curr = workQueue.front();
+      workQueue.pop();
+    } while (processedSet.find(curr) != processedSet.end());
 
     vertexGroup.clear();
     localWorkQueue.push(curr);
@@ -2042,8 +2041,6 @@ Graph::coarsenEdgeRedux(int factor) {
   set<Vertex *> vertexGroup;
   set<Vertex *> processedSet;
   priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrder> workQueue;
-  priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrderReverse> localWorkQueue;
-  queue<Vertex *> searchQueue;
   fstream mappingStream;
 
   reduxOrder(NULL, NULL, factor);
@@ -2052,33 +2049,33 @@ Graph::coarsenEdgeRedux(int factor) {
   for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
     workQueue.push(*it);
 
-  while (workQueue.empty()) {
-    do {
-      curr = workQueue.top();
-      workQueue.pop();
-    } while (processedSet.find(curr) != processedSet.end());
+  while (!workQueue.empty()) {
+    priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrderReverse> localWorkQueue;
+
+    curr = workQueue.top();
+    workQueue.pop();
+
+    if (processedSet.find(curr) != processedSet.end())
+      continue;
 
     vertexGroup.clear();
-    while (!localWorkQueue.empty())
-      localWorkQueue.pop();
 
     localWorkQueue.push(curr);
-    source = NULL;
+    source = curr;
 
     while (!localWorkQueue.empty()) {
-      curr = localWorkQueue.top();
-      localWorkQueue.pop();
-
-      if (source == NULL)
-        source = curr;
-
-      vertexGroup.insert(curr);
-      processedSet.insert(curr);
+      do {
+        curr = localWorkQueue.top();
+        localWorkQueue.pop();
+      } while (vertexGroup.find(curr) != vertexGroup.end());
 
       if (curr != source) {
         bool backTrace = false;
-        set<Vertex *> shadowVertexGroup = vertexGroup;
+        set<Vertex *> shadowVertexGroup;
         set<Vertex *> newlyProcessedSet;
+        queue<Vertex *> searchQueue;
+
+        shadowVertexGroup = vertexGroup;
 
         for (auto predIt = curr->predecessors_begin(), predEnd = curr->predecessors_end();
             predIt != predEnd; ++predIt) {
@@ -2087,8 +2084,10 @@ Graph::coarsenEdgeRedux(int factor) {
         }
 
         while (!searchQueue.empty()) {
-          search = searchQueue.front();
-          searchQueue.pop();
+          do {
+            search = searchQueue.front();
+            searchQueue.pop();
+          } while (vertexGroup.find(search) != vertexGroup.end());
 
           ReachabilityQuery * query = new ReachabilityQuery(source, search, DFS);
 
@@ -2109,6 +2108,7 @@ Graph::coarsenEdgeRedux(int factor) {
               }
 
               vertexGroup.insert(*pathIt);
+              processedSet.insert(*pathIt);
               newlyProcessedSet.insert(*pathIt);
               for (auto predIt = (*pathIt)->predecessors_begin(), predEnd = (*pathIt)->predecessors_end();
                   predIt != predEnd; ++predIt) {
@@ -2125,25 +2125,28 @@ Graph::coarsenEdgeRedux(int factor) {
 
           if (backTrace) {
             vertexGroup = shadowVertexGroup;
+
             for (auto it = newlyProcessedSet.begin(), end = newlyProcessedSet.end(); it != end; ++it)
               processedSet.erase(*it);
 
-            vertexGroup.erase(curr);
-            processedSet.erase(curr);
             break;
           }
         }
-        
+
         if (backTrace)
           continue;
       }
+
+      vertexGroup.insert(curr);
+      processedSet.insert(curr);
 
       if (vertexGroup.size() >= (unsigned int) factor)
         break;
 
       for (auto succIt = curr->successors_begin(), succEnd = curr->successors_end();
           succIt != succEnd; ++succIt)
-        localWorkQueue.push(*succIt);
+        if (processedSet.find(*succIt) == processedSet.end())
+          localWorkQueue.push(*succIt);
     }
 
     newVertex = coarseGraph->addVertex();
