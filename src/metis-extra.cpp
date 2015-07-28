@@ -36,7 +36,7 @@ void print_tree(Tree * t) {
 
 
 Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t * ids, mtmetis_adj_t * xadj,
-		mtmetis_vtx_t * adjncy, double * opts) {
+    mtmetis_vtx_t * adjncy, double * opts) {
   Tree * ret = new Tree();
 
   /*
@@ -64,7 +64,7 @@ Tree* hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t * ids, mtmetis_adj_t * x
     int err = mtmetis_partition_explicit(nvtxs, xadj, adjncy, NULL, NULL, opts, part, NULL);
     if(err != MTMETIS_SUCCESS) {
       printf("mt-metis error during partitioning: %s\n",
-			  err == MTMETIS_ERROR_INVALIDINPUT ? "Invalid input" : "Not enough memory");
+          err == MTMETIS_ERROR_INVALIDINPUT ? "Invalid input" : "Not enough memory");
       exit(EXIT_FAILURE);
     }
 
@@ -134,9 +134,9 @@ int set_t_path(Tree * tree, int depth, uint64_t path, uint64_t * t_path) {
 
   int d = depth;
   if(tree->succ[0])
-     d = set_t_path(tree->succ[0], depth + 1, path, t_path);
+    d = set_t_path(tree->succ[0], depth + 1, path, t_path);
   if(tree->succ[1])
-     d = max(d, set_t_path(tree->succ[1], depth + 1, path + (UINT64_C(1) << (63 - depth)), t_path));
+    d = max(d, set_t_path(tree->succ[1], depth + 1, path + (UINT64_C(1) << (63 - depth)), t_path));
   return d;
 }
 
@@ -149,7 +149,7 @@ CompactTree build_compact_tree(graph_t* graph) {
   opts[MTMETIS_OPTION_VERBOSITY] = 0;
   opts[MTMETIS_OPTION_NTHREADS] = 1;
   for(unsigned i = 0; i < graph->nvtxs; i++)
-     ids[i] = i;
+    ids[i] = i;
   Tree * tree = hier_partition(graph->nvtxs, ids, graph->xadj, graph->adjncy, opts);
   print_tree(tree);
 
