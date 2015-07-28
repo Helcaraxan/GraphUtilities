@@ -394,11 +394,13 @@ private:
   void processReachabilityQuery(Query * query);
   void areConnectedDFS(ReachabilityQuery * query);
   void areConnectedBBFS(ReachabilityQuery * query);
+  void areConnectedApprox(ReachabilityQuery * query);
   void areConnectedNoLabels(ReachabilityQuery * query);
 #else //  ENABLE_TLS
   void processReachabilityQuery(int threadId, Query * query);
   void areConnectedDFS(ReachabilityQuery * query, int threadId);
   void areConnectedBBFS(ReachabilityQuery * query, int threadId);
+  void areConnectedApprox(ReachabilityQuery * query, int threadId);
   void areConnectedNoLabels(ReachabilityQuery * query, int threadId);
 #endif //  ENABLE_TLS
   SearchMethod getMethod(void);
@@ -415,6 +417,7 @@ private:
   bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
   Graph * coarsenGreedy(int factor);
   Graph * coarsenEdgeRedux(int factor);
+  Graph * coarsenApproxIteration(int factor);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance

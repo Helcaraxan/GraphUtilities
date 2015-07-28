@@ -37,6 +37,7 @@ typedef enum {
 typedef enum {
   DFS,
   BBFS,
+  Approx,
   NoLabels,
   UndefinedSearchMethod
 } SearchMethod;
@@ -56,6 +57,7 @@ typedef enum {
 typedef enum {
   Greedy,
   EdgeRedux,
+  ApproxIteration,
   UndefinedCoarsenMethod
 } CoarsenMethod;
 
