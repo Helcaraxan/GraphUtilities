@@ -1960,6 +1960,13 @@ Graph::coarsenGreedy(int factor) {
   queue<Vertex *> localWorkQueue;
   fstream mappingStream;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+  double totalWorkListSize = 0;
+  double workListCount = 0;
+  double totalSuccessorCount = 0;
+  double illegalSuccessorCount = 0;
+#endif // ENABLE_COARSE_STATISTICS
+
   configureProgressBar(&barTitle, getVertexCount());
 
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
@@ -1974,12 +1981,21 @@ Graph::coarsenGreedy(int factor) {
     if (processedSet.count(curr))
       continue;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+    workListCount += 1;
+#endif // ENABLE_COARSEN_STATISTICS
+
     vertexGroup.clear();
     localWorkQueue.push(curr);
 
     while (!localWorkQueue.empty()) {
       curr = localWorkQueue.front();
       localWorkQueue.pop();
+
+#ifdef ENABLE_COARSEN_STATISTICS
+      totalWorkListSize += 1;
+      totalSuccessorCount += curr->getSuccessorCount();
+#endif // ENABLE_COARSEN_STATISTICS
 
       processVertex(curr, readySet, processedSet);
       vertexGroup.insert(curr);
@@ -1989,6 +2005,10 @@ Graph::coarsenGreedy(int factor) {
       for (auto it = curr->successors_begin(), end = curr->successors_end(); it != end; ++it) {
         if (addToReadySet(*it, readySet, processedSet))
           localWorkQueue.push(*it);
+#ifdef ENABLE_COARSEN_STATISTICS
+        else
+          illegalSuccessorCount += 1;
+#endif // ENABLE_COARSEN_STATISTICS
       }
 
       if (vertexGroup.size() >= (unsigned int) factor)
@@ -2038,6 +2058,15 @@ Graph::coarsenGreedy(int factor) {
 
   cout << endl;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+  cout << "Average coarsen ratio: ";
+  cout << ((double) vertices.size()) / ((double) coarseGraph->vertices.size()) << endl;
+  cout << "Worklist count: " << workListCount << endl;
+  cout << "Average worklist size: " << totalWorkListSize / workListCount << endl;
+  cout << "Average successor count: " << totalSuccessorCount / totalWorkListSize << endl;
+  cout << "Average illegal successor count: " << illegalSuccessorCount / totalWorkListSize << endl;
+#endif // ENABLE_COARSEN_STATISTICS
+
   coarseGraph->printToFile("coarsened_greedy.gra", true);
 
   mappingStream.open("mapping_greedy.txt", ios_base::out);
@@ -2055,16 +2084,24 @@ Graph::coarsenGreedy(int factor) {
 static bool
 reduxOrder(const Vertex * lhs, const Vertex * rhs, int f) {
   static int factor = 1;
+  int lhsWeight = 0;
+  int rhsWeight = 0;
 
   if (f != 0) {
     factor = f - 1;
     return true;
   }
 
-  if (lhs->getSuccessorCount() >= rhs->getSuccessorCount()) {
-    if (rhs->getSuccessorCount() > factor)
+  for (int i = 0, e = lhs->getSuccessorCount(); i < e; i++)
+    lhsWeight += lhs->getSuccessorWeight(i);
+
+  for (int i = 0, e = rhs->getSuccessorCount(); i < e; i++)
+    rhsWeight += rhs->getSuccessorWeight(i);
+
+  if (lhsWeight >= rhsWeight) {
+    if (rhsWeight > factor)
       return false;
-    else if (lhs->getSuccessorCount() > factor)
+    else if (lhsWeight > factor)
       return true;
     else
       return false;
@@ -2097,6 +2134,7 @@ Graph::coarsenEdgeRedux(int factor) {
   Vertex * curr = NULL, * search = NULL, * source = NULL;
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
+  ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, DFS);
   map<int, int> mapping;
   map<int, set<int> > retroMapping;
   set<Vertex *> vertexGroup;
@@ -2104,11 +2142,24 @@ Graph::coarsenEdgeRedux(int factor) {
   priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrder> workQueue;
   fstream mappingStream;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+  double totalWorkListSize = 0;
+  double workListCount = 0;
+  double totalSuccessorCount = 0;
+  double illegalSuccessorCount = 0;
+  double convexSearchCount = 0;
+  double convexSearchAbortsIllegal = 0;
+  double convexSearchAbortsMaxSize = 0;
+#endif // ENABLE_COARSEN_STATISTICS
+
   reduxOrder(NULL, NULL, factor);
 
   configureProgressBar(&barTitle, getVertexCount());
 
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+  // Push nodes in reverse ID order. This allows for nodes of same order to be
+  // listed in topological order instead of a detrimental reverse topological
+  // order.
+  for (auto it = vertices.rbegin(), end = vertices.rend(); it != end; ++it)
     workQueue.push(*it);
 
   while (!workQueue.empty()) {
@@ -2127,10 +2178,19 @@ Graph::coarsenEdgeRedux(int factor) {
     localWorkQueue.push(curr);
     source = curr;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+    workListCount += 1;
+#endif // ENABLE_COARSE_STATISTICS
+
     while (!localWorkQueue.empty()) {
       curr = localWorkQueue.top();
       localWorkQueue.pop();
 
+#ifdef ENABLE_COARSEN_STATISTICS
+      totalWorkListSize += 1;
+      totalSuccessorCount += curr->getSuccessorCount();
+#endif // ENABLE_COARSE_STATISTICS
+ 
       if (vertexGroup.count(curr))
         continue;
 
@@ -2155,7 +2215,17 @@ Graph::coarsenEdgeRedux(int factor) {
           if (vertexGroup.count(search))
             continue;
 
-          ReachabilityQuery * query = new ReachabilityQuery(source, search, DFS);
+#ifdef ENABLE_COARSEN_STATISTICS
+          convexSearchCount += 1;
+#endif // ENABLE_COARSE_STATISTICS
+
+          query->source = source;
+          query->target = search;
+          query->answer = false;
+#ifdef ENABLE_STATISTICS
+          query->path.clear();
+          query->searchedNodes = 0;
+#endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_TLS
           areConnectedDFS(query);
@@ -2168,6 +2238,9 @@ Graph::coarsenEdgeRedux(int factor) {
             for (auto pathIt = query->path.begin(), pathEnd = query->path.end();
                 pathIt != pathEnd; ++pathIt) {
               if (processedSet.count(*pathIt) && !vertexGroup.count(*pathIt)) {
+#ifdef ENABLE_COARSEN_STATISTICS
+                convexSearchAbortsIllegal += 1;
+#endif // ENABLE_COARSE_STATISTICS
                 backTrace = true;
                 break;
               }
@@ -2182,6 +2255,9 @@ Graph::coarsenEdgeRedux(int factor) {
               }
 
               if (vertexGroup.size() > 2 * (unsigned int) factor) {
+#ifdef ENABLE_COARSEN_STATISTICS
+                convexSearchAbortsMaxSize += 1;
+#endif // ENABLE_COARSE_STATISTICS
                 backTrace = true;
                 break;
               }
@@ -2190,8 +2266,6 @@ Graph::coarsenEdgeRedux(int factor) {
             backTrace = true;
 #endif // ENABLE_STATISTICS
           }
-
-          delete query;
 
           if (backTrace) {
             vertexGroup = shadowVertexGroup;
@@ -2214,9 +2288,14 @@ Graph::coarsenEdgeRedux(int factor) {
         break;
 
       for (auto succIt = curr->successors_begin(), succEnd = curr->successors_end();
-          succIt != succEnd; ++succIt)
+          succIt != succEnd; ++succIt) {
         if (!processedSet.count(*succIt))
           localWorkQueue.push(*succIt);
+#ifdef ENABLE_COARSEN_STATISTICS
+        else
+          illegalSuccessorCount += 1;
+#endif // ENABLE_COARSE_STATISTICS
+      }
     }
 
     newVertex = coarseGraph->addVertex();
@@ -2263,6 +2342,23 @@ Graph::coarsenEdgeRedux(int factor) {
 
   cout << endl;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+  double includedNodes = 0L;
+  for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt)
+    includedNodes += (double) mapIt->second.size();
+
+  includedNodes /= (double) retroMapping.size();
+
+  cout << "Average coarsen ratio: " << includedNodes << endl;
+  cout << "Worklist count: " << workListCount << endl;
+  cout << "Average worklist size: " << totalWorkListSize / workListCount << endl;
+  cout << "Average successor count: " << totalSuccessorCount / totalWorkListSize << endl;
+  cout << "Average illegal successor count: " << illegalSuccessorCount / totalWorkListSize << endl;
+  cout << "Convex search count: " << convexSearchCount << endl;
+  cout << "Illegal path aborts: " << convexSearchAbortsIllegal << endl;
+  cout << "MaxSize path aborts: " << convexSearchAbortsMaxSize << endl;
+#endif // ENABLE_COARSE_STATISTICS
+
   coarseGraph->printToFile("coarsened_edge_redux.gra", true);
 
   mappingStream.open("mapping_edge_redux.txt", ios_base::out);
@@ -2272,6 +2368,8 @@ Graph::coarsenEdgeRedux(int factor) {
     mappingStream << "\n" << it->first << " : " << it->second;
   
   mappingStream.close();
+
+  delete query;
 
   return coarseGraph;
 }
@@ -2284,6 +2382,7 @@ Graph::coarsenApproxIteration(int factor) {
   map<int, set<int> > retroMapping;
   Graph * sourceGraph = NULL;
   Graph * coarseGraph = this;
+  ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, Approx);
   fstream mappingStream;
 
   // Pre-fill the vertex mappings
@@ -2323,7 +2422,12 @@ Graph::coarsenApproxIteration(int factor) {
           if (*predIt == *it)
             continue;
 
-          ReachabilityQuery * query = new ReachabilityQuery(*it, *predIt, Approx);
+          query->source = *it;
+          query->target = *predIt;
+          query->answer = false;
+#ifdef ENABLE_STATISTICS
+          query->searchedNodes = 0;
+#endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_TLS
           areConnectedApprox(query);
@@ -2331,11 +2435,7 @@ Graph::coarsenApproxIteration(int factor) {
           areConnectedApprox(query, 0);
 #endif // ENABLE_TLS
 
-          backTrace = query->getAnswer();
-
-          delete query;
-
-          if (backTrace)
+          if ((backTrace = query->getAnswer()))
             break;
         }
 

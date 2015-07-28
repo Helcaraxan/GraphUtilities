@@ -31,6 +31,7 @@ class Graph;
 #cmakedefine ENABLE_STATISTICS
 #cmakedefine ENABLE_BENCHMARKS
 #cmakedefine ENABLE_TLS
+#cmakedefine ENABLE_COARSEN_STATISTICS
 
 // Let cmake choose the maximum number of parallel queries
 #define MAX_THREADS ${MAX_THREADS}
