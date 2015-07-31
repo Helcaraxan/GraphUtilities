@@ -28,17 +28,19 @@ static const struct option longopts[] = {
   {"input",     required_argument, 0, 'i'},
   {"output",    required_argument, 0, 'o'},
   {"test",      required_argument, 0, 't'},
-  {"method",    required_argument, 0, 'm'},
-  {"search",    required_argument, 0, 's'},
+  {"graph",     required_argument, 0, 'g'},
+  {"queries",   required_argument, 0, 'q'},
+  {"index-method",   required_argument, 0, 'I'},
+  {"search-method",  required_argument, 0, 'S'},
   {"count",     required_argument, 0, 'c'},
-  {"coarsen",   required_argument, 0, 'C'},
-  {"graph",     optional_argument, 0, 'g'},
-  {"queries",   optional_argument, 0, 'q'},
+  {"coarsen-factor", required_argument, 0, 'f'},
+  {"coarsen-method", required_argument, 0, 'C'},
+  {"coarsen-file",   required_argument, 0, 'F'},
   {"help",      no_argument,       0, 'h'},
-  {"verify",  no_argument, &verifyFlag, 1},
+  {"verify",  no_argument,      &verifyFlag, 1},
   {"unique-edges", no_argument, &uniqueFlag, 1},
-  {"dry",       no_argument,  &dryFlag, 1},
-  {"batch",     no_argument,  &batchFlag, 1},
+  {"dry",       no_argument,    &dryFlag,    1},
+  {"batch",     no_argument,    &batchFlag,  1},
   {0,0,0,0}
 };
 
@@ -47,22 +49,28 @@ void
 printHelpMessage() {
   cout << "Usage: -i|--input=<input-file> [options]\n";
   cout << "File options:\n";
-  cout << "\t-o | --output=<output-file>\t\tFile to which query statistics and benchmarks are dumped (default: stdout)\n";
+  cout << "\t-o | --output=<output-file>\t\tFile to which query statistics and benchmarks are dumped\n";
+  cerr << "\t\t\t\t\t\t(default: stdout)\n";
   cout << "\t-t | --test=<test-file>\t\t\tFile from which queries are read (default: random queries)\n";
-  cout << "\t-g | --graph=<graph-dump-file>\t\tFile to which to dump the condensed graph with unique edges (default: no dump)\n";
-  cout << "\t-q | --queries=<query-dump-file>\tFile to which randomly generated queries should be dumpes (default: no dump)\n";
+  cout << "\t-g | --graph=<graph-dump-file>\t\tFile to which to dump the condensed graph with unique edges\n";
+  cout << "\t\t\t\t\t\t(default: no dump)\n";
+  cout << "\t-q | --queries=<query-dump-file>\tFile to which randomly generated queries should be dumped\n";
+  cout << "\t\t\t\t\t\t(default: no dump)\n";
   cout << "\nQuery options:\n";
-  cout << "\t-m | --method=<index-method>\tMethod from <ShortIndexing|SuccessorOrder|Standard|LabelOrder> (default: Standard)\n";
-  cout << "\t-s | --search=<search-method>\tMethod from <DFS|BBFS> (default: automatically select the fastest for the graph)\n";
-  cout << "\t-c | --count=<number>\t\tNumber of queries to generate (only used when --test is not used)\n";
+  cout << "\t-I | --index-method=<index-method>\tMethod from <ShortIndexing|SuccessorOrder|Standard|LabelOrder>\n";
+  cout << "\t\t\t\t\t\t(default: Standard)\n";
+  cout << "\t-S | --search-method=<search-method>\tMethod from <DFS|BBFS> (default: select fastest for the graph)\n";
+  cout << "\t-c | --count=<number>\t\t\tNumber of queries to generate (only used when --test is not used)\n";
+  cout << "\nCoarsening options:\n";
+  cout << "\t-f | --coarsen-factor=<number>\t\tSpecify the coarsening factor that is to be applied.\n";
+  cout << "\t-C | --coarsen-method=<coarsen-method>\tMethod from <Greedy|EdgeRedux|ApproxIteration> (default: Greedy)\n";
+  cout << "\t-F | --coarsen-file=<coarsen-dump-file>\tFile-prefix for dumping the coarsened graph and mapping\n";
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
-  cout << "\t-u | --unique-edges\tDon't check for double-edges on the input graph (speeds-up parsing of large graphs)\n";
+  cout << "\t-u | --unique-edges\tNo check for double-edges on input graph (speeds-up parsing of large graphs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
   cout << "\t-b | --batch\t\tDo not print progress-bar\n";
-  cout << "\nOther options:\n";
-  cout << "\t-C | --coarsen=<number>\tCreate a coarsened version of the graph with a coarsening factor of <number> and dump it\n";
 }
 
 
@@ -192,17 +200,19 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
 
 int
 main(int argc, char * argv[]) {
+  string filename = "";
 	Graph * graph = NULL;
+  CoarsenMethod coarsenMethod = Greedy;
   IndexMethod indexMethod = Standard;
   SearchMethod searchMethod = UndefinedSearchMethod;
-  fstream outputFile, testFile, dumpFile, queryFile;
+  fstream outputFile, testFile, dumpFile, queryFile, coarseGraphFile, coarseMapFile;
   ostream * output = &cout;
   int i, c;
   int coarsenFactor = 0;
   char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:m:s:c:C:g::q::hvudb", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts, NULL)) != -1) {
     switch (c) {
       case 'i':
         strncpy(fileName, optarg, 511);
@@ -226,7 +236,23 @@ main(int argc, char * argv[]) {
         }
         break;
 
-      case 'm':
+      case 'g':
+        dumpFile.open(optarg, fstream::out);
+        if (!dumpFile.good()) {
+          cerr << "ERROR: Could not open the graph dump file.\n";
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'q':
+        queryFile.open(optarg, fstream::out);
+        if (!queryFile.good()) {
+          cerr << "ERROR: Could not open the query dump file.\n";
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'I':
         if (!strcmp(optarg, "ShortIndexing")) {
           indexMethod = ShortIndexing;
         } else if (!strcmp(optarg, "SuccessorOrder")) {
@@ -236,19 +262,19 @@ main(int argc, char * argv[]) {
         } else if (!strcmp(optarg, "LabelOrder")) {
           indexMethod = LabelOrder;
         } else {
-          cerr << "ERROR: Unknown label method specified.\n";
+          cerr << "ERROR: Unknown argument to --index-method.\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
         }
         break;
 
-      case 's':
+      case 'S':
         if (!strcmp(optarg, "DFS")) {
           searchMethod = DFS;
         } else if (!strcmp(optarg, "BBFS")) {
           searchMethod = BBFS;
         } else {
-          cerr << "ERROR: Unknown search method specified.\n";
+          cerr << "ERROR: Unknown argument to --search-method.\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
         }
@@ -264,9 +290,9 @@ main(int argc, char * argv[]) {
         }
         break;
 
-      case 'C':
+      case 'f':
         if (!isdigit(optarg[0])) {
-          cerr << "ERROR: The -C | --coarsen argument is not a number\n";
+          cerr << "ERROR: The -C | --coarsen-factor argument is not a number\n";
           printHelpMessage();
           exit(EXIT_FAILURE);
         } else {
@@ -274,18 +300,32 @@ main(int argc, char * argv[]) {
         }
         break;
 
-      case 'g':
-        dumpFile.open(optarg, fstream::out);
-        if (!dumpFile.good()) {
-          cerr << "ERROR: Could not open the graph dump file.\n";
+      case 'C':
+        if (!strcmp(optarg, "Greedy")) {
+          coarsenMethod = Greedy;
+        } else if (!strcmp(optarg, "EdgeRedux")) {
+          coarsenMethod = EdgeRedux;
+        } else if (!strcmp(optarg, "ApproxIteration")) {
+          coarsenMethod = ApproxIteration;
+        } else {
+          cerr << "ERROR: Unknown argument to --coarsen-method.\n";
+          printHelpMessage();
           exit(EXIT_FAILURE);
         }
         break;
 
-      case 'q':
-        queryFile.open(optarg, fstream::out);
-        if (!queryFile.good()) {
-          cerr << "ERROR: Could not open the query dump file.\n";
+      case 'F':
+        filename = string(optarg) + "_graph.gra";
+        coarseGraphFile.open(filename.c_str(), ios_base::out);
+        if (!coarseGraphFile.good()) {
+          cerr << "ERROR: Could not open the coarse graph file.\n";
+          exit(EXIT_FAILURE);
+        }
+
+        filename = string(optarg) + "_map.txt";
+        coarseMapFile.open(filename.c_str(), ios_base::out);
+        if (!coarseMapFile.good()) {
+          cerr << "ERROR: Could not open the coarse graph file.\n";
           exit(EXIT_FAILURE);
         }
         break;
@@ -328,18 +368,27 @@ main(int argc, char * argv[]) {
   // Set the indexing method as specified / default
   graph->setIndexMethod(indexMethod);
 
-  // When necessary create coarsened graph versions and dump them
-  if (coarsenFactor > 0) {
-    Graph * newGraph;
+  // When necessary create a coarsened graph and dump it
+  if (coarsenFactor > 1) {
+    map<int, int> vertexMap;
+    Graph * coarseGraph = graph->coarsen(coarsenMethod, coarsenFactor, vertexMap);
 
-    newGraph = graph->coarsen(Greedy, coarsenFactor);
-    delete newGraph;
+    if (coarseGraphFile.is_open()) {
+      coarseGraph->printToFile(coarseGraphFile, true);
 
-    newGraph = graph->coarsen(EdgeRedux, coarsenFactor);
-    delete newGraph;
+      coarseGraphFile.close();
 
-    newGraph = graph->coarsen(ApproxIteration, coarsenFactor);
-    delete newGraph;
+      coarseMapFile << "General to coarsened graph index mapping";
+      for (auto it = vertexMap.begin(), end = vertexMap.end(); it != end; ++it)
+        coarseMapFile << "\n" << it->first << " : " << it->second;
+      
+      coarseMapFile.close();
+    }
+
+    delete coarseGraph;
+    delete graph;
+
+    exit(EXIT_SUCCESS);
   }
 
   // Dump the parsed graph for verification purposes

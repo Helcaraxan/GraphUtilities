@@ -313,7 +313,7 @@ Vertex::setDFSId(uint64_t newId) {
 #else // ENABLE_TLS
 void
 Vertex::setDFSId(int idx, uint64_t newId) {
-  DFSId[idx].store(newId, memory_order_release);
+  DFSId[idx] = newId;
 }
 #endif // ENABLE_TLS
 
@@ -326,7 +326,7 @@ Vertex::getDFSId() {
 #else // ENABLE_TLS
 uint64_t
 Vertex::getDFSId(int idx) {
-  return DFSId[idx].load(memory_order_acquire);
+  return DFSId[idx];
 }
 #endif // ENABLE_TLS
 
@@ -425,38 +425,6 @@ Vertex::addSuccessorUnsafe(Vertex * succ, int weight) {
 }
 
 
-// Constructors & Destructor
-
-void
-Graph::enableGraph(bool isRootGraph) {
-  if (isRootGraph) {
-    rootGraph = true;
-    PAPI_library_init(PAPI_VER_CURRENT);
-    internalResultSpinSemaphore.initialize(MAX_THREADS);
-  } else {
-    rootGraph = false;
-  }
-}
-
-
-void
-Graph::disableGraph() {
-  if (rootGraph) {
-    threadShutdown = true;
-
-    for (int i = 0; i < MAX_THREADS; i++)
-      jobQueue.push(NULL);
-
-    for (int i = 0; i < MAX_THREADS; i++)
-      queryThreads[i].join();
-
-    internalResultSpinSemaphore.reset();
-
-    PAPI_shutdown();
-  }
-}
-
-
 // Parser
 
 /* This function parses a subset of Dot files. Only edges and vertices can be
@@ -498,7 +466,7 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
       sscanf(dump, "%d -> %d", &source, &target);
       maxId = source < target ? target : source;
       while (graph->vertices.size() <= (unsigned) maxId)
-        graph->addVertexUnsafe();
+        graph->addVertexUnsafe(graph->threadCount);
 
       if (noDoubleEdges)
         graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
@@ -559,7 +527,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   // Create all vertices
   for (int i = 0; i < lineNumber; i++)
-    graph->addVertexUnsafe();
+    graph->addVertexUnsafe(graph->threadCount);
 
   // Parse the adjacency list
   for (int i = 0; i < lineNumber; i++) {
@@ -610,37 +578,28 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 // Serialization
 
 void
-Graph::printToFile(const char * fileName, bool withWeights) {
-  fstream outStream(fileName, ios_base::out);
-
-  if (!outStream.good()) {
-    cerr << "ERROR: Could not open output file for graph dumping." << endl;
-    exit(EXIT_FAILURE);
-  }
-
-  outStream << "graph_for_greach\n" << vertices.size();
+Graph::printToFile(fstream &printStream, bool withWeights) {
+  printStream << "graph_for_greach\n" << vertices.size();
   for (auto nodeIt = vertices.begin(), end = vertices.end(); nodeIt != end; ++nodeIt) {
-    outStream << "\n" << (*nodeIt)->id << ":";
+    printStream << "\n" << (*nodeIt)->id << ":";
 
     for (auto succIt = (*nodeIt)->successors_begin(), succEnd = (*nodeIt)->successors_end();
         succIt != succEnd; ++succIt)
-      outStream << " " << (*succIt)->id;
+      printStream << " " << (*succIt)->id;
 
-    outStream << " #";
+    printStream << " #";
 
     if (!withWeights)
       continue;
 
-    outStream << "\n" << (*nodeIt)->weight << ":";
+    printStream << "\n" << (*nodeIt)->weight << ":";
     
     for (auto weightIt = (*nodeIt)->successorWeights.begin(),
         weightEnd = (*nodeIt)->successorWeights.end(); weightIt != weightEnd; ++weightIt)
-      outStream << " " << (*weightIt);
+      printStream << " " << (*weightIt);
 
-    outStream << " #";
+    printStream << " #";
   }
-
-  outStream.close();
 }
 
 
@@ -648,13 +607,11 @@ Graph::printToFile(const char * fileName, bool withWeights) {
 
 Vertex *
 Graph::addVertex(void) {
+  Vertex * newVertex = NULL;
+
   startGlobalOperation();
 
-  int id = vertices.size();;
-  Vertex * newVertex = new Vertex(id);
-
-  vertices.push_back(newVertex);
-  indexed = false;
+  newVertex = addVertexUnsafe(threadCount);
 
   stopGlobalOperation();
 
@@ -920,7 +877,7 @@ void
 Graph::endOfQueries() {
   threadShutdown = true;
 
-  for (int i = 0; i < MAX_THREADS; i++)
+  for (int i = 0; i < threadCount; i++)
     jobQueue.push(NULL);
 }
 
@@ -941,22 +898,22 @@ getPartitionSet(int count) {
 // Graph coarsening
 
 Graph *
-Graph::coarsen(CoarsenMethod method, int factor) {
+Graph::coarsen(CoarsenMethod method, int factor, map<int, int> &vertexMap) {
   Graph * coarsenedGraph = NULL;
 
   indexGraph();
 
   switch (method) {
     case Greedy:
-      coarsenedGraph = coarsenGreedy(factor);
+      coarsenedGraph = coarsenGreedy(factor, vertexMap);
       break;
 
     case EdgeRedux:
-      coarsenedGraph = coarsenEdgeRedux(factor);
+      coarsenedGraph = coarsenEdgeRedux(factor, vertexMap);
       break;
 
     case ApproxIteration:
-      coarsenedGraph = coarsenApproxIteration(factor);
+      coarsenedGraph = coarsenApproxIteration(factor, vertexMap);
       break;
 
     case UndefinedCoarsenMethod:
@@ -1379,11 +1336,39 @@ Graph::startWorkers() {
   if (threadsActive)
     return;
 
-  for (int i = 0; i < MAX_THREADS; i++)
-    queryThreads[i] = thread(queryWorker, this, i);
+  for (int i = 0; i < threadCount; i++)
+    queryThreads.push_back(new thread(queryWorker, this, i));
 
   threadsActive = true;
 }
+
+
+void
+Graph::enableGraph(int numberOfThreads) {
+  threadCount = numberOfThreads;
+  PAPI_library_init(PAPI_VER_CURRENT);
+  internalResultSpinSemaphore.initialize(numberOfThreads);
+}
+
+
+void
+Graph::disableGraph() {
+  if (threadCount > 0) {
+    endOfQueries();
+
+    while (!queryThreads.empty()) {
+      queryThreads.back()->join();
+
+      delete queryThreads.back();
+      queryThreads.pop_back();
+    }
+
+    internalResultSpinSemaphore.reset();
+
+    PAPI_shutdown();
+  }
+}
+
 
 // Maintenance
 
@@ -1455,9 +1440,13 @@ Graph::condenseFromSource(Vertex * source) {
 
 
 Vertex *
-Graph::addVertexUnsafe() {
+Graph::addVertexUnsafe(int threadCount) {
   int id = vertices.size();;
+#ifdef ENABLE_TLS
   Vertex * newVertex = new Vertex(id);
+#else // ENABLE_TLS
+  Vertex * newVertex = new Vertex(threadCount, id);
+#endif // ENABLE_TLS
 
   vertices.push_back(newVertex);
   indexed = false;
@@ -1989,13 +1978,12 @@ Graph::addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &proc
 
 
 Graph *
-Graph::coarsenGreedy(int factor) {
+Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
   int progressCount = 0;
   string barTitle = "Greedy coarsening ";
   Vertex * curr = NULL;
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
-  map<int, int> mapping;
   map<Vertex *, int> localMapping;
   set<Vertex *> readySet;
   set<Vertex *> vertexGroup;
@@ -2067,7 +2055,7 @@ Graph::coarsenGreedy(int factor) {
 
     newVertex = coarseGraph->addVertex();
     for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
-      mapping[(*it)->id] = newVertex->id;
+      vertexMap[(*it)->id] = newVertex->id;
       newVertex->weight += (*it)->weight;
 
       for (auto predIt = (*it)->predecessors_begin(), predEnd = (*it)->predecessors_end();
@@ -2075,7 +2063,7 @@ Graph::coarsenGreedy(int factor) {
         set<Vertex *> predecessorSet;
 
         if (!vertexGroup.count(*predIt)) {
-          Vertex * localPred = coarseGraph->vertices[mapping[(*predIt)->id]];
+          Vertex * localPred = coarseGraph->vertices[vertexMap[(*predIt)->id]];
 
           if (predecessorSet.find(localPred) != predecessorSet.end())
             continue;
@@ -2110,16 +2098,6 @@ Graph::coarsenGreedy(int factor) {
   cout << "Average successor count: " << totalSuccessorCount / totalWorkListSize << endl;
   cout << "Average illegal successor count: " << illegalSuccessorCount / totalWorkListSize << endl;
 #endif // ENABLE_COARSEN_STATISTICS
-
-  coarseGraph->printToFile("coarsened_greedy.gra", true);
-
-  mappingStream.open("mapping_greedy.txt", ios_base::out);
-
-  mappingStream << "General to coarsened graph index mapping";
-  for (auto it = mapping.begin(), end = mapping.end(); it != end; ++it)
-    mappingStream << "\n" << it->first << " : " << it->second;
-  
-  mappingStream.close();
 
   return coarseGraph;
 }
@@ -2172,14 +2150,13 @@ public:
 
 
 Graph *
-Graph::coarsenEdgeRedux(int factor) {
+Graph::coarsenEdgeRedux(int factor, map<int, int> &vertexMap) {
   int progressCount = 0;
   string barTitle = "Edge Redux coarsening ";
   Vertex * curr = NULL, * search = NULL, * source = NULL;
   Vertex * newVertex = NULL;
   Graph * coarseGraph = new Graph(false);
   ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, DFS);
-  map<int, int> mapping;
   map<int, set<int> > retroMapping;
   set<Vertex *> vertexGroup;
   set<Vertex *> processedSet;
@@ -2344,7 +2321,7 @@ Graph::coarsenEdgeRedux(int factor) {
 
     newVertex = coarseGraph->addVertex();
     for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
-      mapping[(*it)->id] = newVertex->id;
+      vertexMap[(*it)->id] = newVertex->id;
       retroMapping[newVertex->id].insert((*it)->id);
       newVertex->weight += (*it)->weight;
     }
@@ -2362,7 +2339,7 @@ Graph::coarsenEdgeRedux(int factor) {
       for (auto predIt = origin->predecessors_begin(), predEnd = origin->predecessors_end();
           predIt != predEnd; ++predIt) {
         if (!it->second.count((*predIt)->id)) {
-          Vertex * localPred = coarseGraph->getVertexFromId(mapping[(*predIt)->id]);
+          Vertex * localPred = coarseGraph->getVertexFromId(vertexMap[(*predIt)->id]);
 
           if (predecessorSet.count(localPred))
             continue;
@@ -2403,16 +2380,6 @@ Graph::coarsenEdgeRedux(int factor) {
   cout << "MaxSize path aborts: " << convexSearchAbortsMaxSize << endl;
 #endif // ENABLE_COARSE_STATISTICS
 
-  coarseGraph->printToFile("coarsened_edge_redux.gra", true);
-
-  mappingStream.open("mapping_edge_redux.txt", ios_base::out);
-
-  mappingStream << "General to coarsened graph index mapping";
-  for (auto it = mapping.begin(), end = mapping.end(); it != end; ++it)
-    mappingStream << "\n" << it->first << " : " << it->second;
-  
-  mappingStream.close();
-
   delete query;
 
   return coarseGraph;
@@ -2420,7 +2387,7 @@ Graph::coarsenEdgeRedux(int factor) {
 
 
 static void
-gatherEdgeInformation(vector<Vertex *> &neighbours, Graph * coarseGraph,
+gatherEdgeInformation(Vertex * origin, vector<Vertex *> &neighbours, Graph * coarseGraph,
     map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward) {
   set<Vertex *> neighbourSet;
 
@@ -2435,7 +2402,7 @@ gatherEdgeInformation(vector<Vertex *> &neighbours, Graph * coarseGraph,
         neighbourSet.insert(target);
 
       auto weightIt = weightMap.find(target);
-      int weight = backward ? (*it)->getPredecessorWeight(*it) : (*it)->getSuccessorWeight(*it);
+      int weight = backward ? origin->getPredecessorWeight(*it) : origin->getSuccessorWeight(*it);
 
       if (weightIt == weightMap.end())
         weightMap[target] = weight;
@@ -2446,10 +2413,9 @@ gatherEdgeInformation(vector<Vertex *> &neighbours, Graph * coarseGraph,
 }
 
 Graph *
-Graph::coarsenApproxIteration(int factor) {
+Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
   int iterations = 0;
   string barTitle = "Iterative coarsening - level ";
-  map<int, int> mapping;
   map<int, set<int> > retroMapping;
   Graph * sourceGraph = NULL;
   Graph * coarseGraph = this;
@@ -2471,7 +2437,7 @@ Graph::coarsenApproxIteration(int factor) {
 
   // Pre-fill the vertex mappings
   for (unsigned int i = 0, e = getVertexCount(); i < e; i++) {
-    mapping[i] = i;
+    vertexMap[i] = i;
     retroMapping[i].insert(i);
   }
 
@@ -2484,7 +2450,10 @@ Graph::coarsenApproxIteration(int factor) {
     // Forward graphs one level
     sourceGraph = coarseGraph;
     coarseGraph = new Graph(false);
-    mapping.clear();
+    vertexMap.clear();
+
+    // Index the source graph
+    sourceGraph->indexGraph();
 
     // Prepare the progress bar
     string localTitle = barTitle + to_string(i) + "/" + to_string(iterations) + " ";
@@ -2502,7 +2471,7 @@ Graph::coarsenApproxIteration(int factor) {
 
       resultProgressBar(++progressCount);
 
-      if (processedSet.count(*it))
+      if (vertexMap.count((*it)->id))
         continue;
 
 #ifdef ENABLE_COARSEN_STATISTICS
@@ -2511,7 +2480,7 @@ Graph::coarsenApproxIteration(int factor) {
 
       for (auto succIt = (*it)->successors_begin(), succEnd = (*it)->successors_end();
           succIt != succEnd; ++succIt) {
-        if (processedSet.count(*succIt))
+        if (vertexMap.count((*succIt)->id))
           continue;
 
 #ifdef ENABLE_COARSEN_STATISTICS
@@ -2555,21 +2524,23 @@ Graph::coarsenApproxIteration(int factor) {
       }
 
       newVertex = coarseGraph->addVertex();
-      mapping[(*it)->id] = newVertex->id;
+      vertexMap[(*it)->id] = newVertex->id;
       newRetroMapping[newVertex->id] = retroMapping[(*it)->id];
 
       if (fuseVertex) {
         set<int> &fuseSet = retroMapping[fuseVertex->id];
-        mapping[fuseVertex->id] = newVertex->id;
+        vertexMap[fuseVertex->id] = newVertex->id;
         newRetroMapping[newVertex->id].insert(fuseSet.begin(), fuseSet.end());
       }
 
       // Create predecessors edges where necessary
       localMapping.clear();
-      gatherEdgeInformation((*it)->predecessors, coarseGraph, mapping, localMapping, true);
+      gatherEdgeInformation(*it, (*it)->predecessors, coarseGraph,
+          vertexMap, localMapping, true);
 
       if (fuseVertex)
-        gatherEdgeInformation(fuseVertex->predecessors, coarseGraph, mapping, localMapping, true);
+        gatherEdgeInformation(fuseVertex, fuseVertex->predecessors, coarseGraph,
+            vertexMap, localMapping, true);
 
       for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
           mapIt != mapEnd; ++mapIt) {
@@ -2579,10 +2550,12 @@ Graph::coarsenApproxIteration(int factor) {
 
       // Create successors edges where necessary
       localMapping.clear();
-      gatherEdgeInformation((*it)->successors, coarseGraph, mapping, localMapping, false);
+      gatherEdgeInformation(*it, (*it)->successors, coarseGraph,
+          vertexMap, localMapping, false);
 
       if (fuseVertex)
-        gatherEdgeInformation(fuseVertex->successors, coarseGraph, mapping, localMapping, false);
+        gatherEdgeInformation(fuseVertex, fuseVertex->successors, coarseGraph,
+            vertexMap, localMapping, false);
 
       for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
           mapIt != mapEnd; ++mapIt) {
@@ -2592,10 +2565,7 @@ Graph::coarsenApproxIteration(int factor) {
     }
 
     retroMapping = newRetroMapping;
-
-    // Re-index the intermediary graph
     coarseGraph->indexMethod = sourceGraph->indexMethod;
-    coarseGraph->indexGraph();
 
     // When necessary clean-up the intermediary graph
     if (sourceGraph != this)
@@ -2605,7 +2575,7 @@ Graph::coarsenApproxIteration(int factor) {
   // Construct the forward mapping of vertex IDs
   for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt) {
     for (auto setIt = mapIt->second.begin(), setEnd = mapIt->second.end(); setIt != setEnd; ++setIt)
-      mapping[*setIt] = mapIt->first;
+      vertexMap[*setIt] = mapIt->first;
   }
 
   cout << endl;
@@ -2623,16 +2593,6 @@ Graph::coarsenApproxIteration(int factor) {
   cout << "Convex search count: " << convexSearchCount << endl;
   cout << "Convex search aborts: " << convexSearchAborts << endl;
 #endif // ENABLE_COARSE_STATISTICS
-  coarseGraph->printToFile("coarsened_approx_iteration.gra", true);
-
-  mappingStream.open("mapping_approx_iteration.txt", ios_base::out);
-
-  mappingStream << "General to coarsened graph index mapping";
-
-  for (auto it = mapping.begin(), end = mapping.end(); it != end; ++it)
-    mappingStream << "\n" << it->first << " : " << it->second;
-
-  mappingStream.close();
 
   return coarseGraph;
 }

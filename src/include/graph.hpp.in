@@ -34,7 +34,6 @@ class Graph;
 #cmakedefine ENABLE_COARSEN_STATISTICS
 
 // Let cmake choose the maximum number of parallel queries
-#define MAX_THREADS ${MAX_THREADS}
 #define AUTO_THRESHOLD ${AUTO_THRESHOLD}
 
 
@@ -119,7 +118,7 @@ private:
   int inVisits = 0;
   int outVisits = 0;
 #ifndef ENABLE_TLS
-  atomic<uint64_t> DFSId[MAX_THREADS] = {{0}};
+  uint64_t * DFSId = NULL;
 #endif // ENABLE_TLS
 
   Vertex * firstVisit = NULL;
@@ -139,17 +138,28 @@ private:
 // Function members
 public:
   // Constructors & Destructor
-  Vertex(int i, int w = 1) :
-    id(i),
-    weight(w)
-  {}
+#ifdef ENABLE_TLS
+  Vertex(int i, int w = 1) : id(i), weight(w) {}
+#else // ENABLE_TLS
+  Vertex(int tc, int i, int w = 1) : id(i), weight(w) {
+    DFSId = new uint64_t[tc];
+  }
+#endif // ENABLE_TLS
 
   ~Vertex(void) {
-    for (auto it = predecessors.begin(), end = predecessors.end(); it != end; ++it)
-      (*it)->removeSuccessor(this);
+    while (!predecessors.empty()) {
+      predecessors.back()->removeSuccessor(this);
+      predecessors.pop_back();
+    }
 
-    for (auto it = successors.begin(), end = successors.end(); it != end; ++it)
-      (*it)->removePredecessor(this);
+    while (!successors.empty()) {
+      successors.back()->removePredecessor(this);
+      successors.pop_back();
+    }
+
+#ifndef ENABLE_TLS
+    delete[] DFSId;
+#endif // ENABLE_TLS
   }
 
   // Modificators
@@ -244,11 +254,11 @@ private:
   /* Partitioning data */
   // General
   int partitionCount = 0;
-  bool rootGraph;
   atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
 
   /* General data */
   // Multi-threading
+  int threadCount = 0;
   int activeThreads = 0;
   bool noQueries = false;
   bool threadShutdown = false;
@@ -257,7 +267,7 @@ private:
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;
   condition_variable globalWaitCondition;
-  thread queryThreads[MAX_THREADS];
+  vector<thread *> queryThreads;
 
 #ifdef ENABLE_STATISTICS
   /* Statistics data */
@@ -289,8 +299,11 @@ private:
 // Function members
 public:
   // Constructors & Destructor
-  Graph(bool isRootGraph = true) {
-    enableGraph(isRootGraph);
+  Graph(int numberOfThreads = 2) {
+    if (numberOfThreads < 2)
+      numberOfThreads = 2;
+
+    enableGraph(numberOfThreads);
   }
 
   ~Graph() {
@@ -300,18 +313,15 @@ public:
       delete *it;
   }
 
-  void enableGraph(bool isRootGraph);
-  void disableGraph(void);
-
   // Parser functions
   static Graph * createFromDotFile(const char * fileName, bool noDoubleEdges = false);
   static Graph * createFromGraFile(const char * fileName, bool noDoubleEdges = false);
 
   // Serialization
-  void printToFile(const char * fileName, bool withWeights = false);
+  void printToFile(fstream &printStream, bool withWeights = false);
 
   // Modificators
-  Vertex * addVertex(void);
+  Vertex * addVertex();
   void removeVertex(Vertex * v);
   void mergeVertices(Vertex * s, Vertex * t);
   bool addEdge(Vertex * s, Vertex * t, int weight = 1);
@@ -335,7 +345,7 @@ public:
   PartitionSet * getPartitionSet(int count);
 
   // Graph coarsening
-  Graph * coarsen(CoarsenMethod method, int factor);
+  Graph * coarsen(CoarsenMethod method, int factor, map<int, int> &vertexMap);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -370,12 +380,14 @@ protected:
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
   void startWorkers(void);
+  void enableGraph(int numberOfThreads);
+  void disableGraph(void);
 
 
 private:
   // Maintenance
   void condenseFromSource(Vertex * source);
-  Vertex * addVertexUnsafe(void);
+  Vertex * addVertexUnsafe(int threadCount);
   bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
 
   // Internal reachability query functions
@@ -404,9 +416,9 @@ private:
 
   // Internal coarsening functions
   bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
-  Graph * coarsenGreedy(int factor);
-  Graph * coarsenEdgeRedux(int factor);
-  Graph * coarsenApproxIteration(int factor);
+  Graph * coarsenGreedy(int factor, map<int, int> &vertexMap);
+  Graph * coarsenEdgeRedux(int factor, map<int, int> &vertexMap);
+  Graph * coarsenApproxIteration(int factor, map<int, int> &vertexMap);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance
