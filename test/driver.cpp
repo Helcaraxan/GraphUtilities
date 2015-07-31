@@ -337,6 +337,9 @@ main(int argc, char * argv[]) {
 
     newGraph = graph->coarsen(EdgeRedux, coarsenFactor);
     delete newGraph;
+
+    newGraph = graph->coarsen(ApproxIteration, coarsenFactor);
+    delete newGraph;
   }
 
   // Dump the parsed graph for verification purposes

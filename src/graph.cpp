@@ -207,6 +207,18 @@ Vertex::clearSuccessors() {
 
 // Access
 
+Vertex *
+Vertex::getPredecessor(int idx) const {
+  return predecessors[idx];
+}
+
+
+Vertex *
+Vertex::getSuccessor(int idx) const {
+  return successors[idx];
+}
+
+
 int
 Vertex::getPredecessorCount() const {
   return predecessorCount;
@@ -410,6 +422,38 @@ void
 Vertex::addSuccessorUnsafe(Vertex * succ, int weight) {
   successors.push_back(succ);
   successorWeights.push_back(weight);
+}
+
+
+// Constructors & Destructor
+
+void
+Graph::enableGraph(bool isRootGraph) {
+  if (isRootGraph) {
+    rootGraph = true;
+    PAPI_library_init(PAPI_VER_CURRENT);
+    internalResultSpinSemaphore.initialize(MAX_THREADS);
+  } else {
+    rootGraph = false;
+  }
+}
+
+
+void
+Graph::disableGraph() {
+  if (rootGraph) {
+    threadShutdown = true;
+
+    for (int i = 0; i < MAX_THREADS; i++)
+      jobQueue.push(NULL);
+
+    for (int i = 0; i < MAX_THREADS; i++)
+      queryThreads[i].join();
+
+    internalResultSpinSemaphore.reset();
+
+    PAPI_shutdown();
+  }
 }
 
 
@@ -2375,9 +2419,36 @@ Graph::coarsenEdgeRedux(int factor) {
 }
 
 
+static void
+gatherEdgeInformation(vector<Vertex *> &neighbours, Graph * coarseGraph,
+    map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward) {
+  set<Vertex *> neighbourSet;
+
+  for (auto it = neighbours.begin(), end = neighbours.end(); it != end; ++it) {
+    auto localIt = IDMap.find((*it)->id);
+    if (localIt != IDMap.end()) {
+      Vertex * target = coarseGraph->getVertexFromId(localIt->second);
+
+      if (neighbourSet.count(target))
+        continue;
+      else
+        neighbourSet.insert(target);
+
+      auto weightIt = weightMap.find(target);
+      int weight = backward ? (*it)->getPredecessorWeight(*it) : (*it)->getSuccessorWeight(*it);
+
+      if (weightIt == weightMap.end())
+        weightMap[target] = weight;
+      else
+        weightIt->second += weight;
+    }
+  }
+}
+
 Graph *
 Graph::coarsenApproxIteration(int factor) {
-  int currentFactor = factor;
+  int iterations = 0;
+  string barTitle = "Iterative coarsening - level ";
   map<int, int> mapping;
   map<int, set<int> > retroMapping;
   Graph * sourceGraph = NULL;
@@ -2385,13 +2456,27 @@ Graph::coarsenApproxIteration(int factor) {
   ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, Approx);
   fstream mappingStream;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+  double totalWorkListSize = 0;
+  double workListCount = 0;
+  double convexSearchCount = 0;
+  double convexSearchAborts= 0;
+#endif // ENABLE_COARSEN_STATISTICS
+
+  // Compute the number of necessary iterations
+  while (factor != 1) {
+    iterations++;
+    factor >>= 1;
+  }
+
   // Pre-fill the vertex mappings
   for (unsigned int i = 0, e = getVertexCount(); i < e; i++) {
     mapping[i] = i;
     retroMapping[i].insert(i);
   }
 
-  while (currentFactor > 1) {
+  for (int i = 1; i <= iterations; i++) {
+    int progressCount = 0;
     set<Vertex *> processedSet;
     map<int, set<int> > newRetroMapping;
     vector<Vertex *> workQueue;
@@ -2399,7 +2484,12 @@ Graph::coarsenApproxIteration(int factor) {
     // Forward graphs one level
     sourceGraph = coarseGraph;
     coarseGraph = new Graph(false);
+    mapping.clear();
 
+    // Prepare the progress bar
+    string localTitle = barTitle + to_string(i) + "/" + to_string(iterations) + " ";
+    configureProgressBar(&localTitle, sourceGraph->getVertexCount());
+ 
     // Randomize the workQueue
     workQueue = sourceGraph->vertices;
     random_shuffle(workQueue.begin(), workQueue.end());
@@ -2408,19 +2498,34 @@ Graph::coarsenApproxIteration(int factor) {
       bool backTrace = false;
       Vertex * newVertex = NULL;
       Vertex * fuseVertex = NULL;
+      map<Vertex *, int> localMapping;
+
+      resultProgressBar(++progressCount);
 
       if (processedSet.count(*it))
         continue;
+
+#ifdef ENABLE_COARSEN_STATISTICS
+      workListCount += 1;
+#endif // ENABLE_COARSEN_STATISTICS
 
       for (auto succIt = (*it)->successors_begin(), succEnd = (*it)->successors_end();
           succIt != succEnd; ++succIt) {
         if (processedSet.count(*succIt))
           continue;
 
+#ifdef ENABLE_COARSEN_STATISTICS
+        totalWorkListSize += 1;
+#endif // ENABLE_COARSEN_STATISTICS
+
         for (auto predIt = (*succIt)->predecessors_begin(), predEnd = (*succIt)->predecessors_end();
             predIt != predEnd; ++predIt) {
           if (*predIt == *it)
             continue;
+
+#ifdef ENABLE_COARSEN_STATISTICS
+          convexSearchCount += 1;
+#endif // ENABLE_COARSEN_STATISTICS
 
           query->source = *it;
           query->target = *predIt;
@@ -2435,8 +2540,12 @@ Graph::coarsenApproxIteration(int factor) {
           areConnectedApprox(query, 0);
 #endif // ENABLE_TLS
 
-          if ((backTrace = query->getAnswer()))
+          if ((backTrace = query->getAnswer())) {
+#ifdef ENABLE_COARSEN_STATISTICS
+            convexSearchAborts += 1;
+#endif // ENABLE_COARSEN_STATISTICS
             break;
+          }
         }
 
         if (!backTrace) {
@@ -2446,20 +2555,51 @@ Graph::coarsenApproxIteration(int factor) {
       }
 
       newVertex = coarseGraph->addVertex();
+      mapping[(*it)->id] = newVertex->id;
       newRetroMapping[newVertex->id] = retroMapping[(*it)->id];
 
       if (fuseVertex) {
         set<int> &fuseSet = retroMapping[fuseVertex->id];
+        mapping[fuseVertex->id] = newVertex->id;
         newRetroMapping[newVertex->id].insert(fuseSet.begin(), fuseSet.end());
       }
+
+      // Create predecessors edges where necessary
+      localMapping.clear();
+      gatherEdgeInformation((*it)->predecessors, coarseGraph, mapping, localMapping, true);
+
+      if (fuseVertex)
+        gatherEdgeInformation(fuseVertex->predecessors, coarseGraph, mapping, localMapping, true);
+
+      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
+          mapIt != mapEnd; ++mapIt) {
+        mapIt->first->addSuccessor(newVertex, mapIt->second);
+        newVertex->addPredecessor(mapIt->first, mapIt->second);
+      }
+
+      // Create successors edges where necessary
+      localMapping.clear();
+      gatherEdgeInformation((*it)->successors, coarseGraph, mapping, localMapping, false);
+
+      if (fuseVertex)
+        gatherEdgeInformation(fuseVertex->successors, coarseGraph, mapping, localMapping, false);
+
+      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
+          mapIt != mapEnd; ++mapIt) {
+        newVertex->addSuccessor(mapIt->first, mapIt->second);
+        mapIt->first->addPredecessor(newVertex, mapIt->second);
+      }
     }
+
+    retroMapping = newRetroMapping;
+
+    // Re-index the intermediary graph
+    coarseGraph->indexMethod = sourceGraph->indexMethod;
+    coarseGraph->indexGraph();
 
     // When necessary clean-up the intermediary graph
     if (sourceGraph != this)
       delete sourceGraph;
-
-    retroMapping = newRetroMapping;
-    currentFactor |= 2;
   }
 
   // Construct the forward mapping of vertex IDs
@@ -2468,41 +2608,21 @@ Graph::coarsenApproxIteration(int factor) {
       mapping[*setIt] = mapIt->first;
   }
 
-  // Construct the edges of the final coarsened graph
-  for (auto it = retroMapping.begin(), end = retroMapping.end(); it != end; ++it) {
-    map<Vertex *, int> localMapping;
-    Vertex * source = coarseGraph->getVertexFromId(it->first);
+  cout << endl;
 
-    for (auto setIt = it->second.begin(), setEnd = it->second.end();
-        setIt != setEnd; ++setIt) {
-      Vertex * origin = getVertexFromId(*setIt);
-      set<Vertex *> predecessorSet;
+#ifdef ENABLE_COARSEN_STATISTICS
+  double includedNodes = 0L;
+  for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt)
+    includedNodes += (double) mapIt->second.size();
 
-      for (auto predIt = origin->predecessors_begin(), predEnd = origin->predecessors_end();
-          predIt != predEnd; ++predIt) {
-        if (!it->second.count((*predIt)->id)) {
-          Vertex * localPred = coarseGraph->getVertexFromId(mapping[(*predIt)->id]);
+  includedNodes /= (double) retroMapping.size();
 
-          if (predecessorSet.count(localPred))
-            continue;
-          else
-            predecessorSet.insert(localPred);
-
-          auto localIt = localMapping.find(localPred);
-          if (localIt == localMapping.end())
-            localMapping[localPred] = origin->getPredecessorWeight(*predIt);
-          else
-            localIt->second += origin->getPredecessorWeight(*predIt);
-        }
-      }
-    }
-
-    for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end(); mapIt != mapEnd; ++mapIt) {
-      mapIt->first->addSuccessor(source, mapIt->second);
-      source->addPredecessor(mapIt->first, mapIt->second);
-    }
-  }
-
+  cout << "Average coarsen ratio: " << includedNodes << endl;
+  cout << "Worklist count: " << workListCount << endl;
+  cout << "Average worklist size: " << totalWorkListSize / workListCount << endl;
+  cout << "Convex search count: " << convexSearchCount << endl;
+  cout << "Convex search aborts: " << convexSearchAborts << endl;
+#endif // ENABLE_COARSE_STATISTICS
   coarseGraph->printToFile("coarsened_approx_iteration.gra", true);
 
   mappingStream.open("mapping_approx_iteration.txt", ios_base::out);
