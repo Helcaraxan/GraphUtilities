@@ -16,5 +16,5 @@ ExternalProject_Add(
 
 install(
 	FILES "${PROJECT_BINARY_DIR}/lib/libmtmetis.so"
-	DESTINATION "${PROJECT_SOURCE_DIR}/lib"
+	DESTINATION "lib"
 	)

@@ -1,4 +1,4 @@
-#include "queries.hpp"
+#include "graph-utilities/queries.hpp"
 
 using namespace std;
 

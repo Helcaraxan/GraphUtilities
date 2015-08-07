@@ -22,9 +22,9 @@ class Graph;
 #include <papi.h>
 #include <tbb/concurrent_queue.h>
 
-#include "queries.hpp"
-#include "support.hpp"
-#include "metis-extra.hpp"
+#include "graph-utilities/queries.hpp"
+#include "graph-utilities/support.hpp"
+#include "graph-utilities/metis-extra.hpp"
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_RETRO_LABELS
@@ -39,9 +39,6 @@ class Graph;
 
 using namespace std;
 
-#ifdef ENABLE_TLS
-thread_local vector<uint64_t> DFSId;
-#endif
 
 // Semaphore class (passive wait variant)
 
@@ -88,6 +85,10 @@ void queryWorker(Graph * graph, int threadId);
 
 class Vertex;
 class Graph;
+
+#ifdef ENABLE_TLS
+thread_local vector<uint64_t> * DFSId = new vector<uint64_t>();
+#endif
 
 
 // Class declarations
@@ -147,16 +148,6 @@ public:
 #endif // ENABLE_TLS
 
   ~Vertex(void) {
-    while (!predecessors.empty()) {
-      predecessors.back()->removeSuccessor(this);
-      predecessors.pop_back();
-    }
-
-    while (!successors.empty()) {
-      successors.back()->removePredecessor(this);
-      successors.pop_back();
-    }
-
 #ifndef ENABLE_TLS
     delete[] DFSId;
 #endif // ENABLE_TLS
@@ -335,6 +326,9 @@ public:
   Vertex * getVertexFromId(int id);
   IndexMethod getIndexMethod(void);
 
+  // Checks
+  list<Vertex *> * hasCycles(void);
+
   // Reachability queries
   void pushQuery(Query * query);
   Query * pullResult(void);
@@ -345,7 +339,7 @@ public:
   PartitionSet * getPartitionSet(int count);
 
   // Graph coarsening
-  Graph * coarsen(CoarsenMethod method, int factor, map<int, int> &vertexMap);
+  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor, map<int, int> &vertexMap);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -386,6 +380,7 @@ protected:
 
 private:
   // Maintenance
+  vector<Vertex *> * hasCyclesFromSource(Vertex * source);
   void condenseFromSource(Vertex * source);
   Vertex * addVertexUnsafe(int threadCount);
   bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
@@ -418,7 +413,9 @@ private:
   bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
   Graph * coarsenGreedy(int factor, map<int, int> &vertexMap);
   Graph * coarsenEdgeRedux(int factor, map<int, int> &vertexMap);
-  Graph * coarsenApproxIteration(int factor, map<int, int> &vertexMap);
+  void gatherEdgeInformation(set<Vertex *> &vertexGroup, Graph * coarseGraph,
+    map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward);
+  Graph * coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &vertexMap);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance

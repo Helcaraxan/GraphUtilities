@@ -5,7 +5,7 @@
 
 #include <mtmetis.h>
 
-#include "metis-extra.hpp"
+#include "graph-utilities/metis-extra.hpp"
 
 using namespace std;
 

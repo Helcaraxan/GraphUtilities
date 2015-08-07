@@ -11,7 +11,7 @@
 
 #include <unistd.h>
 
-#include "graph.hpp"
+#include "graph-utilities/graph.hpp"
 
 using namespace std;
 
@@ -143,7 +143,7 @@ Vertex::addSuccessor(Vertex * succ, int weight) {
   if (succ == this)
     return false;
 
-  for (auto it = successors.begin(), end = successors.end(); it != end; ++it) {
+  for (auto it = successors_begin(), end = successors_end(); it != end; ++it) {
     if (*it == succ)
       return false;
   }
@@ -176,7 +176,7 @@ Vertex::removePredecessor(Vertex * pred) {
 bool
 Vertex::removeSuccessor(Vertex * succ) {
   auto weightIt = successorWeights.begin();
-  for (auto succIt = successors.begin(), end = successors.end(); succIt != end; ++succIt) {
+  for (auto succIt = successors_begin(), end = successors_end(); succIt != end; ++succIt) {
     if (*succIt == succ) {
       successors.erase(succIt);
       successorWeights.erase(weightIt);
@@ -209,13 +209,13 @@ Vertex::clearSuccessors() {
 
 Vertex *
 Vertex::getPredecessor(int idx) const {
-  return predecessors[idx];
+  return predecessors.at(idx);
 }
 
 
 Vertex *
 Vertex::getSuccessor(int idx) const {
-  return successors[idx];
+  return successors.at(idx);
 }
 
 
@@ -308,7 +308,7 @@ Vertex::successors_end() {
 #ifdef ENABLE_TLS
 void
 Vertex::setDFSId(uint64_t newId) {
-  DFSId[id] = newId;
+  DFSId->at(id) = newId;
 }
 #else // ENABLE_TLS
 void
@@ -321,7 +321,7 @@ Vertex::setDFSId(int idx, uint64_t newId) {
 #ifdef ENABLE_TLS
 uint64_t
 Vertex::getDFSId() {
-  return DFSId[id];
+  return DFSId->at(id);
 }
 #else // ENABLE_TLS
 uint64_t
@@ -624,6 +624,13 @@ Graph::removeVertex(Vertex * v) {
   vertices.back()->id = v->id;
   vertices[v->id] = vertices.back();
   vertices.pop_back();
+
+  for (int i = 0, e = v->getPredecessorCount(); i < e; i++)
+    v->getPredecessor(i)->removeSuccessor(v);
+
+  for (int i = 0, e = v->getSuccessorCount(); i < e; i++)
+    v->getSuccessor(i)->removePredecessor(v);
+
   delete v;
 }
 
@@ -635,13 +642,13 @@ Graph::mergeVertices(Vertex * s, Vertex * t) {
   auto weightIt = s->predecessorWeights.begin();
   for (auto predIt = s->predecessors_begin(), end = s->predecessors_end(); predIt != end; ++predIt) {
     t->addPredecessor(*predIt, *weightIt);
-    ++weightIt;
+    weightIt++;
   }
 
   weightIt = s->successorWeights.begin();
   for (auto succIt = s->successors_begin(), end = s->successors_end(); succIt != end; ++succIt) {
     t->addSuccessor(*succIt, *weightIt);
-    ++weightIt;
+    weightIt++;
   }
 
   t->weight += s->weight;
@@ -744,7 +751,52 @@ Graph::getIndexMethod() {
 }
 
 
-// Queries
+// Checks
+
+list<Vertex *> *
+Graph::hasCycles() {
+  list<Vertex *> * retValue = new list<Vertex *>();
+  vector<Vertex *> * cyclePath = NULL;
+  globalTimestamp =
+    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
+  discoverExtremities();
+
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
+  // Iterate over the sources and check
+  for (auto it = sources.begin(); it != sources.end(); ++it) {
+    if ((cyclePath = hasCyclesFromSource(*it)))
+      break;
+  }
+
+  if (cyclePath) {
+    Vertex * start = cyclePath->back();
+    cyclePath->pop_back();
+
+    do {
+      retValue->push_front(cyclePath->back());
+      cyclePath->pop_back();
+    } while (retValue->front() != start);
+
+    delete cyclePath;
+
+    return retValue;
+  }
+
+  delete retValue;
+
+  return NULL;
+}
+
+
+// Reachability queries
 
 void
 Graph::pushQuery(Query * query) {
@@ -898,7 +950,7 @@ getPartitionSet(int count) {
 // Graph coarsening
 
 Graph *
-Graph::coarsen(CoarsenMethod method, int factor, map<int, int> &vertexMap) {
+Graph::coarsen(CoarsenMethod method, int factor, int secondaryFactor, map<int, int> &vertexMap) {
   Graph * coarsenedGraph = NULL;
 
   indexGraph();
@@ -913,7 +965,7 @@ Graph::coarsen(CoarsenMethod method, int factor, map<int, int> &vertexMap) {
       break;
 
     case ApproxIteration:
-      coarsenedGraph = coarsenApproxIteration(factor, vertexMap);
+      coarsenedGraph = coarsenApproxIteration(factor, secondaryFactor, vertexMap);
       break;
 
     case UndefinedCoarsenMethod:
@@ -1160,11 +1212,11 @@ Graph::indexGraph() {
   if (indexed)
     return;
 
-  // Make sure we are indexing a DAG
-  condenseGraph();
-
   // Make sure we discovered the sources
   discoverExtremities();
+
+  // Make sure we are indexing a DAG
+  condenseGraph();
 
   if (indexMethod == UndefinedIndexMethod) {
     cerr << "ERROR: Unknown indexing method. Aborting.\n";
@@ -1252,16 +1304,22 @@ Graph::condenseGraph() {
   if (condensed)
     return;
 
-#ifdef ENABLE_TLS
-  DFSId.resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
-
   // Prepare for the upcoming DFSs
   globalTimestamp =
     chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
-  // Iterate over the vertices and condense
-  for (auto it = vertices.begin(); it != vertices.end(); ++it) {
+  discoverExtremities();
+
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
+  // Iterate over the sources and condense
+  for (auto it = sources.begin(); it != sources.end(); ++it) {
 #ifdef ENABLE_TLS
     if ((*it)->getDFSId() != globalTimestamp)
 #else // ENABLE_TLS
@@ -1372,6 +1430,55 @@ Graph::disableGraph() {
 
 // Maintenance
 
+vector<Vertex *> *
+Graph::hasCyclesFromSource(Vertex * source) {
+  set<Vertex *> DFSSet;
+  vector<Vertex *> * DFSPath = new vector<Vertex *>();
+  stack<Vertex *> toVisit;
+  Vertex * curr = NULL;
+
+  toVisit.push(source);
+#ifdef ENABLE_TLS
+  source->setDFSId(globalTimestamp);
+#else // ENABLE_TLS
+  source->setDFSId(0, globalTimestamp);
+#endif // ENABLE_TLS
+
+  while (!toVisit.empty()) {
+    curr = toVisit.top();
+    if (!DFSPath->empty() && (curr == DFSPath->back())) {
+      DFSPath->pop_back();
+      DFSSet.erase(curr);
+      toVisit.pop();
+      continue;
+    }
+
+    DFSPath->push_back(curr);
+    DFSSet.insert(curr);
+
+    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
+      if (DFSSet.count(*it)) {
+        DFSPath->push_back(*it);
+        return DFSPath;
+      }
+ 
+#ifdef ENABLE_TLS
+      if ((*it)->getDFSId() != globalTimestamp) {
+        (*it)->setDFSId(globalTimestamp);
+#else // ENABLE_TLS
+      if ((*it)->getDFDSId(0) != globalTimestamp) {
+        (*it)->setDFSId(0, globalTimestamp);
+#endif // ENABLE_TLS
+        toVisit.push(*it);
+      }
+    }
+  }
+
+  delete DFSPath;
+
+  return NULL;
+}
+
 void
 Graph::condenseFromSource(Vertex * source) {
   set<Vertex *> DFSSet;
@@ -1406,7 +1513,7 @@ Graph::condenseFromSource(Vertex * source) {
         // Mark the cycle for merging into the first vertex of the cycle
         auto it2 = DFSPath.rbegin();
         while (*it2 != *it) {
-          if (mergeMap.count(*it2) == 0)
+          if (!mergeMap.count(*it2))
             mergeMap[*it2] = *it;
 
           it2++;
@@ -1457,15 +1564,9 @@ Graph::addVertexUnsafe(int threadCount) {
 
 bool
 Graph::addEdgeUnsafe(Vertex * source, Vertex * target, int weight) {
-  startGlobalOperation();
-  source->successors.push_back(target);
-  source->successorWeights.push_back(weight);
-  source->successorCount++;
-  target->predecessors.push_back(source);
-  target->predecessorWeights.push_back(weight);
-  target->predecessorCount++;
+  source->addSuccessorUnsafe(target, weight);
+  target->addPredecessorUnsafe(source, weight);
   edgeCount++;
-  stopGlobalOperation();
   return true;
 }
 
@@ -1548,6 +1649,14 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
   Vertex * curr;
   vector<Vertex *> searchStack;
 
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
   PAPI_start_counters(&event, 1);
@@ -1555,6 +1664,8 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
   if (query->getInternal() == 1)
     PAPI_start_counters(&event, 1);
 #endif // ENABLE_BENCHMARKS
+
+  query->setAnswer(false);
 
   // Are U and V the same vertex?
   if (query->getSource() == query->getTarget()) {
@@ -1584,8 +1695,10 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
   searchStack.push_back(query->getSource());
 
   while (!searchStack.empty()) {
-    if (query->getCancel())
+    if (query->getCancel()) {
+      query->setError(true);
       goto cancel;
+    }
 
     curr = searchStack.back();
 
@@ -1682,6 +1795,14 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   queue<Vertex *> searchQueueForward;
   queue<Vertex *> searchQueueBackward;
 
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
   PAPI_start_counters(&event, 1);
@@ -1689,6 +1810,8 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   if (query->getInternal() == 1)
     PAPI_start_counters(&event, 1);
 #endif // ENABLE_BENCHMARKS
+
+  query->setAnswer(false);
 
   // Are U and V the same vertex?
   if (query->getSource() == query->getTarget()) {
@@ -1727,8 +1850,10 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   searchQueueBackward.push(query->getTarget());
 
   while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
-    if (query->getCancel())
+    if (query->getCancel()) {
+      query->setError(true);
       goto cancel;
+    }
 
     if (!searchQueueForward.empty()) {
       curr = searchQueueForward.front();
@@ -1863,13 +1988,17 @@ Graph::areConnectedApprox(ReachabilityQuery * query, int threadId) {
   }
 
   if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel))
+      (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel)) {
+    query->setAnswer(false);
     return;
+  }
 
 #ifdef ENABLE_RETRO_LABELS
   if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel))
+      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel)) {
+    query->setAnswer(false);
     return;
+  }
 #endif // ENABLE_RETRO_LABELS
 
   query->setAnswer(true);
@@ -1886,7 +2015,17 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
   stack<Vertex *> toVisit;
   Vertex * curr;
 
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
   timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
+  query->setAnswer(false);
 
   toVisit.push(query->getSource());
 #ifdef ENABLE_TLS
@@ -1896,8 +2035,10 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
 #endif // ENABLE_TLS
 
   while (!toVisit.empty()) {
-    if (query->getCancel())
+    if (query->getCancel()) {
+      query->setError(true);
       return;
+    }
 
     curr = toVisit.top();
     toVisit.pop();
@@ -2079,10 +2220,8 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
       }
 
       for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt) {
-        mapIt->first->addSuccessor(newVertex, mapIt->second);
-        newVertex->addPredecessor(mapIt->first, mapIt->second);
-      }
+          mapIt != mapEnd; ++mapIt)
+        coarseGraph->addEdgeUnsafe(mapIt->first, newVertex, mapIt->second);
 
       localMapping.clear();
     }
@@ -2355,10 +2494,8 @@ Graph::coarsenEdgeRedux(int factor, map<int, int> &vertexMap) {
       }
     }
 
-    for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end(); mapIt != mapEnd; ++mapIt) {
-      mapIt->first->addSuccessor(source, mapIt->second);
-      source->addPredecessor(mapIt->first, mapIt->second);
-    }
+    for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end(); mapIt != mapEnd; ++mapIt)
+      coarseGraph->addEdgeUnsafe(mapIt->first, source, mapIt->second);
   }
 
   cout << endl;
@@ -2386,34 +2523,42 @@ Graph::coarsenEdgeRedux(int factor, map<int, int> &vertexMap) {
 }
 
 
-static void
-gatherEdgeInformation(Vertex * origin, vector<Vertex *> &neighbours, Graph * coarseGraph,
+void
+Graph::gatherEdgeInformation(set<Vertex *> &vertexGroup, Graph * coarseGraph,
     map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward) {
   set<Vertex *> neighbourSet;
 
-  for (auto it = neighbours.begin(), end = neighbours.end(); it != end; ++it) {
-    auto localIt = IDMap.find((*it)->id);
-    if (localIt != IDMap.end()) {
-      Vertex * target = coarseGraph->getVertexFromId(localIt->second);
+  for (auto setIt = vertexGroup.begin(), setEnd = vertexGroup.end(); setIt != setEnd; ++setIt) {
+    vector<Vertex *> &neighbours = backward ? (*setIt)->predecessors : (*setIt)->successors;
+    neighbourSet.clear();
 
-      if (neighbourSet.count(target))
+    for (auto it = neighbours.begin(), end = neighbours.end(); it != end; ++it) {
+      if (vertexGroup.count(*it))
         continue;
-      else
-        neighbourSet.insert(target);
 
-      auto weightIt = weightMap.find(target);
-      int weight = backward ? origin->getPredecessorWeight(*it) : origin->getSuccessorWeight(*it);
+      auto localIt = IDMap.find((*it)->id);
+      if (localIt != IDMap.end()) {
+        Vertex * target = coarseGraph->getVertexFromId(localIt->second);
 
-      if (weightIt == weightMap.end())
-        weightMap[target] = weight;
-      else
-        weightIt->second += weight;
+        if (neighbourSet.count(target))
+          continue;
+        else
+          neighbourSet.insert(target);
+
+        int weight =
+          backward ? (*setIt)->getPredecessorWeight(*it) : (*setIt)->getSuccessorWeight(*it);
+        auto weightIt = weightMap.find(target);
+        if (weightIt == weightMap.end())
+          weightMap[target] = weight;
+        else
+          weightIt->second += weight;
+      }
     }
   }
 }
 
 Graph *
-Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
+Graph::coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &vertexMap) {
   int iterations = 0;
   string barTitle = "Iterative coarsening - level ";
   map<int, set<int> > retroMapping;
@@ -2429,21 +2574,29 @@ Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
   double convexSearchAborts= 0;
 #endif // ENABLE_COARSEN_STATISTICS
 
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount())
+    DFSId->resize(getVertexCount(), 0);
+#endif // ENABLE_TLS
+
   // Compute the number of necessary iterations
-  while (factor != 1) {
+  while (factor > 1) {
     iterations++;
-    factor >>= 1;
+    factor /= secondaryFactor;
   }
 
   // Pre-fill the vertex mappings
-  for (unsigned int i = 0, e = getVertexCount(); i < e; i++) {
-    vertexMap[i] = i;
+  for (unsigned int i = 0, e = getVertexCount(); i < e; i++)
     retroMapping[i].insert(i);
-  }
 
   for (int i = 1; i <= iterations; i++) {
     int progressCount = 0;
-    set<Vertex *> processedSet;
+    uint64_t iterationId = 
+        chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+    map<int, Vertex *> sourceMap;
     map<int, set<int> > newRetroMapping;
     vector<Vertex *> workQueue;
 
@@ -2464,32 +2617,58 @@ Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
     random_shuffle(workQueue.begin(), workQueue.end());
 
     for (auto it = workQueue.begin(), end = workQueue.end(); it != end; ++it) {
-      bool backTrace = false;
       Vertex * newVertex = NULL;
-      Vertex * fuseVertex = NULL;
+      set<Vertex *> vertexGroup;
+      set<int> predecessorSources;
+      set<int> successorSources;
       map<Vertex *, int> localMapping;
+      queue<Vertex *> localWorkQueue;
 
       resultProgressBar(++progressCount);
 
-      if (vertexMap.count((*it)->id))
+#ifdef ENABLE_TLS
+      if ((*it)->getDFSId() == iterationId)
         continue;
+      else
+        (*it)->setDFSId(iterationId);
+#else // ENABLE_TLS
+      if ((*it)->getDFSId(0) == iterationId)
+        continue;
+      else
+        (*it)->setDFSId(0, iterationId);
+#endif // ENABLE_TLS
+
+      vertexGroup.insert(*it);
+
+      for (auto succIt = (*it)->successors_begin(), succEnd = (*it)->successors_end();
+          succIt != succEnd; ++succIt) {
+        if (!vertexMap.count((*succIt)->id))
+          localWorkQueue.push(*succIt);
+      }
 
 #ifdef ENABLE_COARSEN_STATISTICS
       workListCount += 1;
 #endif // ENABLE_COARSEN_STATISTICS
 
-      for (auto succIt = (*it)->successors_begin(), succEnd = (*it)->successors_end();
-          succIt != succEnd; ++succIt) {
-        if (vertexMap.count((*succIt)->id))
+      while (!localWorkQueue.empty()) {
+        bool skipVertex = false;
+        Vertex * next = localWorkQueue.front();
+        localWorkQueue.pop();
+
+#ifdef ENABLE_TLS
+        if (next->getDFSId() == iterationId)
+#else // ENABLE_TLS
+        if (next->getDFSId(0) == iterationId)
+#endif // ENABLE_TLS
           continue;
 
 #ifdef ENABLE_COARSEN_STATISTICS
         totalWorkListSize += 1;
 #endif // ENABLE_COARSEN_STATISTICS
 
-        for (auto predIt = (*succIt)->predecessors_begin(), predEnd = (*succIt)->predecessors_end();
+        for (auto predIt = next->predecessors_begin(), predEnd = next->predecessors_end();
             predIt != predEnd; ++predIt) {
-          if (*predIt == *it)
+          if (vertexGroup.count(*predIt))
             continue;
 
 #ifdef ENABLE_COARSEN_STATISTICS
@@ -2498,18 +2677,18 @@ Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
 
           query->source = *it;
           query->target = *predIt;
-          query->answer = false;
 #ifdef ENABLE_STATISTICS
           query->searchedNodes = 0;
+          query->path.clear();
 #endif // ENABLE_STATISTICS
 
 #ifdef ENABLE_TLS
-          areConnectedApprox(query);
+          sourceGraph->areConnectedApprox(query);
 #else // ENABLE_TLS
-          areConnectedApprox(query, 0);
+          sourceGraph->areConnectedApprox(query, 0);
 #endif // ENABLE_TLS
 
-          if ((backTrace = query->getAnswer())) {
+          if ((skipVertex = query->getAnswer())) {
 #ifdef ENABLE_COARSEN_STATISTICS
             convexSearchAborts += 1;
 #endif // ENABLE_COARSEN_STATISTICS
@@ -2517,51 +2696,51 @@ Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
           }
         }
 
-        if (!backTrace) {
-          fuseVertex = *succIt;
-          break;
+        if (skipVertex)
+          continue;
+
+        vertexGroup.insert(next);
+
+#ifdef ENABLE_TLS
+        next->setDFSId(iterationId);
+#else // ENABLE_TLS
+        next->setDFSId(0, iterationId);
+#endif // ENABLE_TLS
+
+        for (auto succIt = next->successors_begin(), succEnd = next->successors_end();
+            succIt != succEnd; ++succIt) {
+          if (!vertexMap.count((*succIt)->id))
+            localWorkQueue.push(*succIt);
         }
+
+        if (vertexGroup.size() >= (unsigned int) secondaryFactor)
+          break;
       }
 
       newVertex = coarseGraph->addVertex();
-      vertexMap[(*it)->id] = newVertex->id;
-      newRetroMapping[newVertex->id] = retroMapping[(*it)->id];
-
-      if (fuseVertex) {
-        set<int> &fuseSet = retroMapping[fuseVertex->id];
-        vertexMap[fuseVertex->id] = newVertex->id;
-        newRetroMapping[newVertex->id].insert(fuseSet.begin(), fuseSet.end());
+      sourceMap[newVertex->id] = *it;
+      newRetroMapping.insert(pair<int, set<int> >(newVertex->id, set<int>()));
+      for (auto setIt = vertexGroup.begin(), setEnd = vertexGroup.end(); setIt != setEnd; ++setIt) {
+        set<int> &retroSet = retroMapping[(*setIt)->id];
+        vertexMap[(*setIt)->id] = newVertex->id;
+        newRetroMapping[newVertex->id].insert(retroSet.begin(), retroSet.end());
       }
 
       // Create predecessors edges where necessary
       localMapping.clear();
-      gatherEdgeInformation(*it, (*it)->predecessors, coarseGraph,
-          vertexMap, localMapping, true);
-
-      if (fuseVertex)
-        gatherEdgeInformation(fuseVertex, fuseVertex->predecessors, coarseGraph,
-            vertexMap, localMapping, true);
+      gatherEdgeInformation(vertexGroup, coarseGraph, vertexMap, localMapping, true);
 
       for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt) {
-        mapIt->first->addSuccessor(newVertex, mapIt->second);
-        newVertex->addPredecessor(mapIt->first, mapIt->second);
-      }
+          mapIt != mapEnd; ++mapIt)
+        coarseGraph->addEdgeUnsafe(mapIt->first, newVertex, mapIt->second);
 
       // Create successors edges where necessary
       localMapping.clear();
-      gatherEdgeInformation(*it, (*it)->successors, coarseGraph,
-          vertexMap, localMapping, false);
-
-      if (fuseVertex)
-        gatherEdgeInformation(fuseVertex, fuseVertex->successors, coarseGraph,
-            vertexMap, localMapping, false);
+      gatherEdgeInformation(vertexGroup, coarseGraph, vertexMap, localMapping, false);
 
       for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt) {
-        newVertex->addSuccessor(mapIt->first, mapIt->second);
-        mapIt->first->addPredecessor(newVertex, mapIt->second);
-      }
+          mapIt != mapEnd; ++mapIt)
+        coarseGraph->addEdgeUnsafe(newVertex, mapIt->first, mapIt->second);
     }
 
     retroMapping = newRetroMapping;
@@ -2573,6 +2752,7 @@ Graph::coarsenApproxIteration(int factor, map<int, int> &vertexMap) {
   }
 
   // Construct the forward mapping of vertex IDs
+  vertexMap.clear();
   for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt) {
     for (auto setIt = mapIt->second.begin(), setEnd = mapIt->second.end(); setIt != setEnd; ++setIt)
       vertexMap[*setIt] = mapIt->first;
@@ -2652,10 +2832,6 @@ queryWorker(Graph * graph, int threadId) {
     cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
     exit(EXIT_FAILURE);
   }
-
-#ifdef ENABLE_TLS
-  DFSId.resize(graph->getVertexCount(), 0);
-#endif // ENABLE_TLS
 
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}

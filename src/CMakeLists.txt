@@ -16,6 +16,28 @@ if (PAPI_LIB STREQUAL "PAPI_LIB-NOTFOUND")
 endif()
 
 
+# Generate the header files according to the previously defined options
+configure_file(
+	"${PROJECT_SOURCE_DIR}/src/include/graph.hpp.in"
+	"${PROJECT_BINARY_DIR}/include/graph-utilities/graph.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/src/include/queries.hpp.in"
+	"${PROJECT_BINARY_DIR}/include/graph-utilities/queries.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/src/include/metis-extra.hpp.in"
+	"${PROJECT_BINARY_DIR}/include/graph-utilities/metis-extra.hpp"
+	)
+
+configure_file(
+	"${PROJECT_SOURCE_DIR}/src/include/support.hpp.in"
+	"${PROJECT_BINARY_DIR}/include/graph-utilities/support.hpp"
+	)
+
+
 # Add the library
 add_library(
 	GraphUtilities SHARED
@@ -35,12 +57,14 @@ target_link_libraries(GraphUtilities
 
 # Add the install parameters
 install(TARGETS GraphUtilities
-	LIBRARY DESTINATION "${PROJECT_SOURCE_DIR}/lib"
+	LIBRARY DESTINATION "lib"
 	)
 
 install(
 	FILES
-		"${PROJECT_BINARY_DIR}/include/graph.hpp"
-		"${PROJECT_BINARY_DIR}/include/queries.hpp"
-	DESTINATION "${PROJECT_SOURCE_DIR}/include"
+		"${PROJECT_BINARY_DIR}/include/graph-utilities/graph.hpp"
+		"${PROJECT_BINARY_DIR}/include/graph-utilities/queries.hpp"
+		"${PROJECT_BINARY_DIR}/include/graph-utilities/support.hpp"
+		"${PROJECT_BINARY_DIR}/include/graph-utilities/metis-extra.hpp"
+	DESTINATION "include/graph-utilities"
 	)

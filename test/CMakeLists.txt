@@ -15,14 +15,9 @@ target_link_libraries(QueryDriver
 	tbb
 	)
 
-set_target_properties(QueryDriver PROPERTIES
-	INSTALL_RPATH "${PROJECT_BINARY_DIR}/src:${PROJECT_BINARY_DIR}/lib"
-	)
-
-
 # Set the install parameters
 install(TARGETS QueryDriver
-	RUNTIME DESTINATION "${PROJECT_SOURCE_DIR}/bin"
+	RUNTIME DESTINATION "bin"
 	)
 
 
