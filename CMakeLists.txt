@@ -30,12 +30,6 @@ option(ENABLE_TLS
 option(ENABLE_COARSEN_STATISTICS
 	"Gather statistics from graph coarsening operations" OFF)
 
-if (NOT MAX_THREADS)
-	set(MAX_THREADS "2")
-elseif (MAX_THREADS LESS "2")
-	set(MAX_THREADS "2")
-endif(NOT MAX_THREADS)
-
 if (NOT AUTO_THRESHOLD)
 	set(AUTO_THRESHOLD "10")
 endif(NOT AUTO_THRESHOLD)

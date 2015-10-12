@@ -23,6 +23,7 @@ static PAPI_dmem_info_t memoryInfo;
 static long long baseMemoryUsage;
 #endif // ENABLE_BENCHMARKS
 
+static map<int, int> remappedVertices;
 
 // Semaphore class (passive wait variant)
 
@@ -130,7 +131,7 @@ Vertex::addPredecessor(Vertex * pred, int weight) {
     if (*it == pred)
       return false;
   }
-  
+
   predecessors.push_back(pred);
   predecessorWeights.push_back(weight);
   predecessorCount++;
@@ -237,7 +238,7 @@ Vertex::getPredecessorWeight(Vertex * pred) const {
   for (auto predIt = predecessors.begin(), end = predecessors.end(); predIt != end; ++predIt) {
     if (*predIt == pred)
       return *weightIt;
-    
+
     ++weightIt;
   }
 
@@ -251,7 +252,7 @@ Vertex::getSuccessorWeight(Vertex * succ) const {
   for (auto succIt = successors.begin(), end = successors.end(); succIt != end; ++succIt) {
     if (*succIt == succ)
       return *weightIt;
-    
+
     ++weightIt;
   }
 
@@ -345,7 +346,7 @@ Vertex::visit(Vertex * pred, int method) {
     inVisits = 0;
     outVisits = 0;
   }
-  
+
   // Register the first visiting node
   if (inVisits == 0)
     firstVisit = pred;
@@ -353,7 +354,7 @@ Vertex::visit(Vertex * pred, int method) {
   // If this is the first vertex to be visited (source vertex) then return
   if (!pred)
     return;
-    
+
   // Clear the vector that should be reordered when requested
   if (((inVisits + outVisits) == 0) && (method & 0x02)) {
     if (method & 0x01)
@@ -465,20 +466,21 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
     if (strchr(dump, '>')) {
       sscanf(dump, "%d -> %d", &source, &target);
       maxId = source < target ? target : source;
-      while (graph->vertices.size() <= (unsigned) maxId)
+      while (graph->getVertexCount() <= (unsigned) maxId)
         graph->addVertexUnsafe(graph->threadCount);
 
       if (noDoubleEdges)
-        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
+        graph->addEdgeUnsafe(graph->getVertexFromIdUnsafe(source), 
+            graph->getVertexFromIdUnsafe(target));
       else
-        graph->addEdge(graph->vertices[source], graph->vertices[target]);
+        graph->addEdge(graph->getVertexFromIdUnsafe(source),
+            graph->getVertexFromIdUnsafe(target));
     } else {
       sscanf(dump, "%d", &source);
-      while (graph->vertices.size() <= (unsigned) source)
+      while (graph->getVertexCount() <= (unsigned) source)
         graph->addVertex();
     }
   }
-
   input.close();
   graph->indexed = false;
   graph->condensed = false;
@@ -550,9 +552,11 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
       target = atoi(dump);
 
       if (noDoubleEdges)
-        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
+        graph->addEdgeUnsafe(graph->getVertexFromIdUnsafe(source),
+            graph->getVertexFromIdUnsafe(target));
       else
-        graph->addEdge(graph->vertices[source], graph->vertices[target]);
+        graph->addEdge(graph->getVertexFromIdUnsafe(source),
+            graph->getVertexFromIdUnsafe(target));
     }
 
     resultProgressBar(i + 1);
@@ -579,7 +583,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
 void
 Graph::printToFile(fstream &printStream, bool withWeights) {
-  printStream << "graph_for_greach\n" << vertices.size();
+  printStream << "graph_for_greach\n" << getVertexCount();
   for (auto nodeIt = vertices.begin(), end = vertices.end(); nodeIt != end; ++nodeIt) {
     printStream << "\n" << (*nodeIt)->id << ":";
 
@@ -593,7 +597,7 @@ Graph::printToFile(fstream &printStream, bool withWeights) {
       continue;
 
     printStream << "\n" << (*nodeIt)->weight << ":";
-    
+
     for (auto weightIt = (*nodeIt)->successorWeights.begin(),
         weightEnd = (*nodeIt)->successorWeights.end(); weightIt != weightEnd; ++weightIt)
       printStream << " " << (*weightIt);
@@ -621,9 +625,11 @@ Graph::addVertex(void) {
 
 void
 Graph::removeVertex(Vertex * v) {
-  vertices.back()->id = v->id;
-  vertices[v->id] = vertices.back();
-  vertices.pop_back();
+  int remapTarget = -1;
+  auto remapping = remappedVertices.find(v->id);
+
+  if (remapping != remappedVertices.end())
+    remapTarget = remapping->second;
 
   for (int i = 0, e = v->getPredecessorCount(); i < e; i++)
     v->getPredecessor(i)->removeSuccessor(v);
@@ -631,28 +637,70 @@ Graph::removeVertex(Vertex * v) {
   for (int i = 0, e = v->getSuccessorCount(); i < e; i++)
     v->getSuccessor(i)->removePredecessor(v);
 
+  if (remapTarget != -1) {
+    for (auto it = remappedVertices.begin(), end = remappedVertices.end(); it != end; ++it) {
+      if (it->second == v->id)
+        it->second = remapTarget;
+    }
+  }
+
+  vertices[v->id] = NULL;
   delete v;
 }
 
 
 void
-Graph::mergeVertices(Vertex * s, Vertex * t) {
+Graph::mergeVertices(set<Vertex *> &s) {
+  Vertex * target = addVertexUnsafe(threadCount);
   startGlobalOperation();
 
-  auto weightIt = s->predecessorWeights.begin();
-  for (auto predIt = s->predecessors_begin(), end = s->predecessors_end(); predIt != end; ++predIt) {
-    t->addPredecessor(*predIt, *weightIt);
-    weightIt++;
+  int targetWeight = 0;
+  map<Vertex *, int> predWeightMap;
+  map<Vertex *, int> succWeightMap;
+
+  for (auto mergeIt = s.begin(), mergeEnd = s.end(); mergeIt != mergeEnd; ++mergeIt) {
+    auto weightIt = (*mergeIt)->predecessorWeights.begin();
+    for (auto predIt = (*mergeIt)->predecessors_begin(), predEnd = (*mergeIt)->predecessors_end();
+        predIt != predEnd; ++predIt) {
+      if (s.find(*predIt) != s.end()) {
+        auto mapIt = predWeightMap.find(*predIt);
+        if (mapIt != predWeightMap.end())
+          mapIt->second += *weightIt;
+        else
+          predWeightMap[*predIt] = *weightIt;
+      }
+
+      weightIt++;
+    }
+
+    weightIt = (*mergeIt)->successorWeights.begin();
+    for (auto succIt = (*mergeIt)->successors_begin(), succEnd = (*mergeIt)->successors_end();
+        succIt != succEnd; ++succIt) {
+      if (s.find(*succIt) != s.end()) {
+        auto mapIt = succWeightMap.find(*succIt);
+        if (mapIt != succWeightMap.end())
+          mapIt->second += *weightIt;
+        else
+          succWeightMap[*succIt] = *weightIt;
+      }
+
+      weightIt++;
+    }
+
+    targetWeight += (*mergeIt)->weight;
+
+    remappedVertices[(*mergeIt)->id] = target->id;
+
+    removeVertex(*mergeIt);
   }
 
-  weightIt = s->successorWeights.begin();
-  for (auto succIt = s->successors_begin(), end = s->successors_end(); succIt != end; ++succIt) {
-    t->addSuccessor(*succIt, *weightIt);
-    weightIt++;
-  }
+  target->weight = targetWeight;
 
-  t->weight += s->weight;
-  removeVertex(s);
+  for (auto mapIt = predWeightMap.begin(), mapEnd = predWeightMap.end(); mapIt != mapEnd; ++mapIt)
+    addEdgeUnsafe(mapIt->first, target, mapIt->second);
+
+  for (auto mapIt = succWeightMap.begin(), mapEnd = succWeightMap.end(); mapIt != mapEnd; ++mapIt)
+    addEdgeUnsafe(target, mapIt->first, mapIt->second);
 
   indexed = false;
   stopGlobalOperation();
@@ -680,21 +728,49 @@ bool
 Graph::removeEdge(Vertex * source, Vertex * target) {
   startGlobalOperation();
 
-  if (!source->removeSuccessor(target))
+  if (!source->removeSuccessor(target)) {
+    stopGlobalOperation();
     return false;
+  }
 
   source->removePredecessor(source);
   edgeCount--;
 
-  return true;
+  stopGlobalOperation();
 
-  startGlobalOperation();
+  return true;
 }
 
 
 void
 Graph::setIndexMethod(IndexMethod newMethod) {
   indexMethod = newMethod;
+}
+
+
+void
+Graph::condenseGraph() {
+  if (condensed)
+    return;
+
+  // Prepare for the upcoming DFSs
+  globalTimestamp =
+    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+
+  discoverExtremities();
+
+  // Iterate over the sources and condense
+  for (auto it = sources.begin(); it != sources.end(); ++it) {
+#ifdef ENABLE_TLS
+    if ((*it)->getDFSId() != globalTimestamp)
+#else // ENABLE_TLS
+    if ((*it)->getDFSId(0) != globalTimestamp)
+#endif // ENABLE_TLS
+      condenseFromSource(*it);
+  }
+
+  startWorkers();
+  condensed = true;
 }
 
 
@@ -741,7 +817,14 @@ Graph::getVertexCount() {
 
 Vertex *
 Graph::getVertexFromId(int id) {
-  return vertices[id];
+  auto remapping = remappedVertices.find(id);
+
+  if (remapping != remappedVertices.end())
+    return vertices[remapping->second];
+  else if (id >= (int) vertices.size())
+    return NULL;
+  else
+    return vertices[id];
 }
 
 
@@ -760,15 +843,9 @@ Graph::hasCycles() {
   globalTimestamp =
     chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
+  startGlobalOperation();
+
   discoverExtremities();
-
-#ifdef ENABLE_TLS
-  if (!DFSId)
-    DFSId = new vector<uint64_t>();
-
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
 
   // Iterate over the sources and check
   for (auto it = sources.begin(); it != sources.end(); ++it) {
@@ -787,10 +864,13 @@ Graph::hasCycles() {
 
     delete cyclePath;
 
+    stopGlobalOperation();
     return retValue;
   }
 
   delete retValue;
+
+  stopGlobalOperation();
 
   return NULL;
 }
@@ -873,7 +953,7 @@ Graph::pushQuery(Query * query) {
       cerr << "ERROR: Incoherent results between BBFS and DFS search." << endl;
       exit(EXIT_FAILURE);
     }
-    
+
     // Find the fastest search method and register the win
     methodLock.lock();
     if (DFSReachQuery->getInternal() < BBFSReachQuery->getInternal()) {
@@ -1063,7 +1143,7 @@ Graph::printStatistics(ostream &os) {
   os << "- Number of positive answers: " << positiveQueryCount << "\n";
   if (positiveQueryCount && (getMethod() == DFS)) {
     os.precision(3);
-    os << "- Average DFS length / path-length ratio: " << positiveQueryOverhead << "\n"; 
+    os << "- Average DFS length / path-length ratio: " << positiveQueryOverhead << "\n";
   }
 
   os << "\nNegative query statistics:\n";
@@ -1148,6 +1228,13 @@ Graph::printBenchmarks(ostream &os) {
 }
 
 
+// Access
+Vertex *
+Graph::getVertexFromIdUnsafe(int id) {
+  return vertices.at(id);
+}
+
+
 // Indexing
 
 void
@@ -1209,11 +1296,10 @@ void
 Graph::indexGraph() {
   unique_lock<mutex> indexLock(indexMutex);
 
+  startGlobalOperation();
+
   if (indexed)
     return;
-
-  // Make sure we discovered the sources
-  discoverExtremities();
 
   // Make sure we are indexing a DAG
   condenseGraph();
@@ -1279,6 +1365,8 @@ Graph::indexGraph() {
 #endif // ENABLE_BENCHMARKS
 
   indexed = true;
+
+  stopGlobalOperation();
 }
 
 
@@ -1296,40 +1384,6 @@ Graph::discoverExtremities() {
     if ((*it)->successors.empty())
       sinks.push_back(*it);
   }
-}
-
-
-void
-Graph::condenseGraph() {
-  if (condensed)
-    return;
-
-  // Prepare for the upcoming DFSs
-  globalTimestamp =
-    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-
-  discoverExtremities();
-
-#ifdef ENABLE_TLS
-  if (!DFSId)
-    DFSId = new vector<uint64_t>();
-
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
-
-  // Iterate over the sources and condense
-  for (auto it = sources.begin(); it != sources.end(); ++it) {
-#ifdef ENABLE_TLS
-    if ((*it)->getDFSId() != globalTimestamp)
-#else // ENABLE_TLS
-    if ((*it)->getDFSId(0) != globalTimestamp)
-#endif // ENABLE_TLS
-      condenseFromSource(*it);
-  }
-
-  startWorkers();
-  condensed = true;
 }
 
 
@@ -1376,12 +1430,30 @@ Graph::startGlobalOperation() {
     globalWaitCondition.wait(globalWaitLock);
 
   globalWaitLock.unlock();
+
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount()) {
+    DFSId->resize(getVertexCount(), 0);
+  }
+#endif // ENABLE_TLS
 }
 
 
 void
 Graph::stopGlobalOperation() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex);
+
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < getVertexCount()) {
+    DFSId->resize(getVertexCount(), 0);
+  }
+#endif // ENABLE_TLS
 
   noQueries = false;
 
@@ -1461,7 +1533,7 @@ Graph::hasCyclesFromSource(Vertex * source) {
         DFSPath->push_back(*it);
         return DFSPath;
       }
- 
+
 #ifdef ENABLE_TLS
       if ((*it)->getDFSId() != globalTimestamp) {
         (*it)->setDFSId(globalTimestamp);
@@ -1534,14 +1606,29 @@ Graph::condenseFromSource(Vertex * source) {
   }
 
   // Perform the necessary merging
-  for (auto it = mergeMap.begin(), end = mergeMap.end(); it != end; ++it) {
-    // Find the final merge target
-    Vertex * mergeTarget = it->second;
-    while (mergeMap.count(mergeTarget) == 1)
-      mergeTarget = mergeMap[mergeTarget];
+  set<Vertex *> mergeSet;
+  while (!mergeMap.empty()) {
+    Vertex * mergeTarget = NULL;
+    auto mergeIt = mergeMap.begin();
 
-    // Merge the two vertices
-    mergeVertices(it->first, mergeTarget);
+    // Recursively expand the merge set
+    mergeSet.clear();
+    do {
+      mergeSet.insert(mergeIt->first);
+      mergeTarget = mergeIt->second;
+
+      mergeMap.erase(mergeIt);
+      mergeIt = mergeMap.find(mergeTarget);
+    } while (mergeIt != mergeMap.end());
+
+    auto mapIt = remappedVertices.find(mergeTarget->id);
+    if (mapIt != remappedVertices.end())
+      mergeSet.insert(getVertexFromIdUnsafe(mapIt->second));
+    else
+      mergeSet.insert(mergeTarget);
+
+    // Merge the vertice set
+    mergeVertices(mergeSet);
   }
 }
 
@@ -1648,14 +1735,6 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
   uint64_t timestamp;
   Vertex * curr;
   vector<Vertex *> searchStack;
-
-#ifdef ENABLE_TLS
-  if (!DFSId)
-    DFSId = new vector<uint64_t>();
-
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
@@ -1776,7 +1855,7 @@ cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
-  
+
   query->setError(true);
   return;
 }
@@ -1794,14 +1873,6 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   Vertex * curr;
   queue<Vertex *> searchQueueForward;
   queue<Vertex *> searchQueueBackward;
-
-#ifdef ENABLE_TLS
-  if (!DFSId)
-    DFSId = new vector<uint64_t>();
-
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
@@ -1967,7 +2038,7 @@ cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
-  
+
   query->setError(true);
   return;
 }
@@ -2014,14 +2085,6 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
   uint64_t timestamp;
   stack<Vertex *> toVisit;
   Vertex * curr;
-
-#ifdef ENABLE_TLS
-  if (!DFSId)
-    DFSId = new vector<uint64_t>();
-
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
-#endif // ENABLE_TLS
 
   timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
@@ -2350,7 +2413,7 @@ Graph::coarsenEdgeRedux(int factor, map<int, int> &vertexMap) {
       totalWorkListSize += 1;
       totalSuccessorCount += curr->getSuccessorCount();
 #endif // ENABLE_COARSE_STATISTICS
- 
+
       if (vertexGroup.count(curr))
         continue;
 
@@ -2538,7 +2601,7 @@ Graph::gatherEdgeInformation(set<Vertex *> &vertexGroup, Graph * coarseGraph,
 
       auto localIt = IDMap.find((*it)->id);
       if (localIt != IDMap.end()) {
-        Vertex * target = coarseGraph->getVertexFromId(localIt->second);
+        Vertex * target = coarseGraph->getVertexFromIdUnsafe(localIt->second);
 
         if (neighbourSet.count(target))
           continue;
@@ -2594,7 +2657,7 @@ Graph::coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &ve
 
   for (int i = 1; i <= iterations; i++) {
     int progressCount = 0;
-    uint64_t iterationId = 
+    uint64_t iterationId =
         chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
     map<int, Vertex *> sourceMap;
     map<int, set<int> > newRetroMapping;
@@ -2611,7 +2674,7 @@ Graph::coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &ve
     // Prepare the progress bar
     string localTitle = barTitle + to_string(i) + "/" + to_string(iterations) + " ";
     configureProgressBar(&localTitle, sourceGraph->getVertexCount());
- 
+
     // Randomize the workQueue
     workQueue = sourceGraph->vertices;
     random_shuffle(workQueue.begin(), workQueue.end());
@@ -2823,15 +2886,38 @@ unsigned long int getThreadID(void) {
   return h(this_thread::get_id());
 }
 
+mutex printMutex;
 
 void
 queryWorker(Graph * graph, int threadId) {
   Query * query = NULL;
 
-  if (PAPI_thread_init(getThreadID) != PAPI_OK) {
-    cerr << "ERROR: Could not initialize worker thread for PAPI measurements." << endl;
+  /*
+  unique_lock<mutex> printLock(printMutex);
+  cerr << "Initializing PAPI for thread " << threadId << " with system-id ";
+  cerr << getThreadID() << endl;
+  printLock.unlock();
+
+  int errCode = PAPI_register_thread();
+  if (errCode != PAPI_OK) {
+    cerr << "ERROR: Could not initialize worker thread for PAPI measurements in thread ";
+    cerr << threadId << ". Error was : ";
+    switch (errCode) {
+      case PAPI_ENOMEM:
+        cerr << "PAPI_ENOMEM" << endl;
+        break;
+      case PAPI_ESYS:
+        cerr << "PAPI_ESYS" << endl;
+        break;
+      case PAPI_ESBSTR:
+        cerr << "PAPI_ESBSTR" << endl;
+        break;
+      default:
+        cerr << "Unknown (" << errCode << ")" << endl;
+    }
     exit(EXIT_FAILURE);
   }
+  */
 
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}
@@ -2864,4 +2950,6 @@ queryWorker(Graph * graph, int threadId) {
 
     graph->stopQuery();
   }
+
+  //PAPI_unregister_thread();
 }

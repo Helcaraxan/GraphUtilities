@@ -314,10 +314,11 @@ public:
   // Modificators
   Vertex * addVertex();
   void removeVertex(Vertex * v);
-  void mergeVertices(Vertex * s, Vertex * t);
+  void mergeVertices(set<Vertex *> &s);
   bool addEdge(Vertex * s, Vertex * t, int weight = 1);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
+  void condenseGraph(void);
 
   // Access
   graph_t * getMetisGraph(void);
@@ -360,13 +361,15 @@ public:
 
 
 protected:
+  // Access
+  Vertex * getVertexFromIdUnsafe(int id);
+
   // Indexing
   void labelVertices(bool retro, bool reverse);
   void indexGraph(void);
 
   // Graph maintenance
   void discoverExtremities(void);
-  void condenseGraph(void);
 
   // Multi-threading
   void startQuery(void);
