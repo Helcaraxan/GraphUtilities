@@ -216,6 +216,7 @@ protected:
 
   // General data
   bool condensed = false;
+  bool enabled = false;
   unsigned int vertexCount = 0;
   unsigned int edgeCount = 0;
   vector<Vertex *> vertices;

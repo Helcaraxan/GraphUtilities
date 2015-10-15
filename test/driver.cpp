@@ -189,6 +189,7 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
       else
         queryFile << "0\n";
     }
+
     queryAccess.release();
     resultProgressBar(++resultCounter);
   }

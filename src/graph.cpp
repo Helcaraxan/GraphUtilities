@@ -480,10 +480,12 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   }
   input.close();
   graph->indexed = false;
-  graph->condensed = false;
 
   // Make sure the graph is a DAG
-  graph->condenseGraph();
+  if (!graph->hasCycles())
+    graph->condensed = true;
+  else
+    graph->condensed = false;
 
 #ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
@@ -560,10 +562,12 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   input.close();
   graph->indexed = false;
-  graph->condensed = false;
 
   // Make sure the graph is a DAG
-  graph->condenseGraph();
+  if (!graph->hasCycles())
+    graph->condensed = true;
+  else
+    graph->condensed = false;
 
 #ifdef ENABLE_BENCHMARKS
   PAPI_get_dmem_info(&memoryInfo);
@@ -848,11 +852,9 @@ Graph::getVertexFromId(int id) const {
   auto remapping = remappedVertices.find(id);
 
   if (remapping != remappedVertices.end())
-    return vertices[remapping->second];
-  else if (id >= (int) vertices.size())
-    return NULL;
+    return vertices.at(remapping->second);
   else
-    return vertices[id];
+    return vertices.at(id);
 }
 
 
@@ -1259,7 +1261,7 @@ Graph::getCyclesSpentQuerying(void) {
 void
 Graph::printBenchmarks(ostream &os) {
 #ifdef ENABLE_BENCHMARKS
-  int indexMemoryUsage = (8 * vertices.size()) / 1024;
+  int indexMemoryUsage = (8 * getVertexCount()) / 1024;
   double indexOverhead = ((double) indexMemoryUsage) / ((double) graphMemoryUsage - indexMemoryUsage);
   os << "\n---\nBenchmarking\n";
   os << "Speed performances:\n";
@@ -1344,7 +1346,8 @@ Graph::indexGraph() {
     return;
 
   // Make sure we are indexing a DAG
-  condenseGraph();
+  if (!condensed)
+    condenseGraph();
 
   if (indexMethod == UndefinedIndexMethod) {
     cerr << "ERROR: Unknown indexing method. Aborting.\n";
@@ -1480,8 +1483,8 @@ Graph::startGlobalOperation() {
   if (!DFSId)
     DFSId = new vector<uint64_t>();
 
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
+  if (DFSId->size() < vertices.size())
+    DFSId->resize(vertices.size(), 0);
 #endif // ENABLE_TLS
 }
 
@@ -1494,8 +1497,8 @@ Graph::stopGlobalOperation() {
   if (!DFSId)
     DFSId = new vector<uint64_t>();
 
-  if (DFSId->size() < getVertexCount())
-    DFSId->resize(getVertexCount(), 0);
+  if (DFSId->size() < vertices.size())
+    DFSId->resize(vertices.size(), 0);
 #endif // ENABLE_TLS
 
   noQueries = false;
@@ -1518,9 +1521,16 @@ Graph::startWorkers() {
 
 void
 Graph::enableGraph(int numberOfThreads) {
+  if ((enabled) || (numberOfThreads == 0))
+    return;
+
   threadCount = numberOfThreads;
   PAPI_library_init(PAPI_VER_CURRENT);
   internalResultSpinSemaphore.initialize(numberOfThreads);
+
+  startWorkers();
+
+  enabled = true;
 }
 
 
@@ -1539,6 +1549,8 @@ Graph::disableGraph() {
     internalResultSpinSemaphore.reset();
 
     PAPI_shutdown();
+
+    threadCount = 0;
   }
 }
 
@@ -1597,7 +1609,7 @@ Graph::hasCyclesFromSource(Vertex * source) {
 
 Vertex *
 Graph::addVertexUnsafe(int threadCount) {
-  int id = vertices.size();;
+  int id = vertices.size();
 #ifdef ENABLE_TLS
   Vertex * newVertex = new Vertex(id);
 #else // ENABLE_TLS
@@ -1666,6 +1678,14 @@ void
 #ifdef ENABLE_TLS
 Graph::processReachabilityQuery(Query * query) {
   unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
+
+#ifdef ENABLE_TLS
+  if (!DFSId)
+    DFSId = new vector<uint64_t>();
+
+  if (DFSId->size() < vertices.size())
+    DFSId->resize(vertices.size(), 0);
+#endif // ENABLE_TLS
 
   switch (query->query.reachability->getMethod()) {
     case DFS:
@@ -1903,7 +1923,7 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 
 #ifdef ENABLE_RETRO_LABELS
   if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel)) {
+      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel))
     goto end;
 #endif // ENABLE_RETRO_LABELS
 
