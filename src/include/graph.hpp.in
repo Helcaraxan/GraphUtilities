@@ -14,6 +14,7 @@ class Graph;
 #include <set>
 #include <list>
 #include <mutex>
+#include <stack>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -140,7 +141,9 @@ private:
 public:
   // Constructors & Destructor
 #ifdef ENABLE_TLS
-  Vertex(int i, int w = 1) : id(i), weight(w) {}
+  Vertex(int i, int w = 1) : id(i), weight(w) {
+    DFSId->push_back(0);
+  }
 #else // ENABLE_TLS
   Vertex(int tc, int i, int w = 1) : id(i), weight(w) {
     DFSId = new uint64_t[tc];
@@ -213,6 +216,7 @@ protected:
 
   // General data
   bool condensed = false;
+  unsigned int vertexCount = 0;
   unsigned int edgeCount = 0;
   vector<Vertex *> vertices;
   vector<Vertex *> sources;
@@ -226,6 +230,9 @@ private:
   /* Reachability data */
   // Indexing
   mutex indexMutex;
+
+  // Condensing
+  vector<set<Vertex *> *> sccSets;
 
   // Queries
   mutex methodMutex;
@@ -318,16 +325,17 @@ public:
   bool addEdge(Vertex * s, Vertex * t, int weight = 1);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
-  void condenseGraph(void);
+  void condenseGraph(bool dumpSCC = false);
 
   // Access
   graph_t * getMetisGraph(void);
-  unsigned int getEdgeCount(void);
-  unsigned int getVertexCount(void);
-  Vertex * getVertexFromId(int id);
-  IndexMethod getIndexMethod(void);
+  unsigned int getEdgeCount(void) const;
+  unsigned int getVertexCount(void) const;
+  Vertex * getVertexFromId(int id) const;
+  IndexMethod getIndexMethod(void) const;
 
   // Checks
+  void verifyVertexIds(void) const;
   list<Vertex *> * hasCycles(void);
 
   // Reachability queries
@@ -361,9 +369,6 @@ public:
 
 
 protected:
-  // Access
-  Vertex * getVertexFromIdUnsafe(int id);
-
   // Indexing
   void labelVertices(bool retro, bool reverse);
   void indexGraph(void);
@@ -384,9 +389,12 @@ protected:
 private:
   // Maintenance
   vector<Vertex *> * hasCyclesFromSource(Vertex * source);
-  void condenseFromSource(Vertex * source);
   Vertex * addVertexUnsafe(int threadCount);
   bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
+
+  // Internal condense functions
+  int sccVertexVisit(Vertex * target, int label, vector<int> &labels,
+      stack<Vertex *> &unclassified, stack<Vertex *> &undetermined);
 
   // Internal reachability query functions
 #ifdef ENABLE_TLS
