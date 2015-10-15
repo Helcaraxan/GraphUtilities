@@ -1581,7 +1581,7 @@ Graph::hasCyclesFromSource(Vertex * source) {
       if ((*it)->getDFSId() != globalTimestamp) {
         (*it)->setDFSId(globalTimestamp);
 #else // ENABLE_TLS
-      if ((*it)->getDFDSId(0) != globalTimestamp) {
+      if ((*it)->getDFSId(0) != globalTimestamp) {
         (*it)->setDFSId(0, globalTimestamp);
 #endif // ENABLE_TLS
         toVisit.push(*it);
