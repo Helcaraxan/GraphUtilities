@@ -1282,18 +1282,12 @@ Graph::printBenchmarks(ostream &os) {
 // Indexing
 
 void
-Graph::labelVertices(bool retro, bool reverse) {
+Graph::labelVertices(bool reverse) {
   int traversalMethod = 0;
   int currLabel = 0;
   Vertex * nextVertex;
   vector<Vertex *> * startVertices;;
   vector<Vertex *> * postOrder = reverse ? &predecessorQueue : &successorQueue;
-
-#ifndef ENABLE_RETRO_LABELS
-  // In case retro labels have not been compiled we should abort
-  if (retro)
-    return;
-#endif // ENABLE_RETRO_LABELS
 
   startVertices = reverse ? &sinks : &sources;
 
@@ -1301,10 +1295,7 @@ Graph::labelVertices(bool retro, bool reverse) {
   if (reverse)
     traversalMethod |= 0x01;
 
-  if (retro)
-    traversalMethod |= 0x04;
-  else
-    traversalMethod |= (indexMethod & 0x02);
+  traversalMethod |= (indexMethod & 0x02);
 
   // Loop while there are unlabeled sources / sinks
   for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
@@ -1319,19 +1310,10 @@ Graph::labelVertices(bool retro, bool reverse) {
 
   // Label the vertices in reverse post-order
   for (auto it = postOrder->rbegin(), end = postOrder->rend(); it != end; ++it) {
-    if (retro) {
-#ifdef ENABLE_RETRO_LABELS
-      if (reverse)
-        (*it)->retroReverseOrderLabel = currLabel++;
-      else
-        (*it)->retroOrderLabel = currLabel++;;
-#endif // ENABLE_RETRO_LABELS
-    } else {
-      if (reverse)
-        (*it)->reverseOrderLabel = currLabel++;
-      else
-        (*it)->orderLabel = currLabel++;
-    }
+    if (reverse)
+      (*it)->reverseOrderLabel = currLabel++;
+    else
+      (*it)->orderLabel = currLabel++;
   }
 }
 
@@ -1360,10 +1342,10 @@ Graph::indexGraph() {
 #endif // ENABLE_BENCHMARKS
 
   // First traversal
-  labelVertices(false, false);
+  labelVertices(false);
 
   // Second traversal
-  labelVertices(false, true);
+  labelVertices(true);
 
   // When requested reorder the successors and predecessors in all vertices
   if (indexMethod & 0x04) {
@@ -1392,16 +1374,6 @@ Graph::indexGraph() {
     successorQueue.clear();
     predecessorQueue.clear();
   }
-#ifdef ENABLE_RETRO_LABELS
-  // Third traversal
-  labelVertices(true, false);
-
-  // Fourth traversal
-  labelVertices(true, true);
-
-  successorQueue.clear();
-  predecessorQueue.clear();
-#endif // ENABLE_RETRO_LABELS
 
 #ifdef ENABLE_BENCHMARKS
   long long indexCycles;
@@ -1784,12 +1756,6 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
       (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel))
     goto end;
 
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel))
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
   // Do a DFS on the subgraph specified by both orders to get the final answer
   timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
 
@@ -1837,16 +1803,8 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
       if ((*it)->getDFSId(threadId) != timestamp) {
         (*it)->setDFSId(threadId, timestamp);
 #endif // ENABLE_TLS
-
-#ifdef ENABLE_RETRO_LABELS
-        if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-            ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel) &&
-            ((*it)->retroOrderLabel < query->getTarget()->retroOrderLabel) &&
-            ((*it)->retroReverseOrderLabel > query->getTarget()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
         if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
             ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
           searchStack.push_back(*it);
       }
     }
@@ -1921,12 +1879,6 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
       (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel))
     goto end;
 
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel))
-    goto end;
-#endif // ENABLE_RETRO_LABELS
-
   // Do a BBFS on the subgraph specified by both orders to get the final answer
   forwardId = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
   backwardId = forwardId + 1;
@@ -1976,16 +1928,8 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
         if ((*it)->getDFSId(threadId) != forwardId) {
           (*it)->setDFSId(threadId, forwardId);
 #endif
-
-#ifdef ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-              ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel) &&
-              ((*it)->retroOrderLabel < query->getTarget()->retroOrderLabel) &&
-              ((*it)->retroReverseOrderLabel > query->getTarget()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
           if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
               ((*it)->reverseOrderLabel > query->getTarget()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
             searchQueueForward.push(*it);
         }
       }
@@ -2019,16 +1963,8 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
         if ((*it)->getDFSId(threadId) != backwardId) {
           (*it)->setDFSId(threadId, backwardId);
 #endif // ENABLE_TLS
-
-#ifdef ENABLE_RETRO_LABELS
-          if (((*it)->orderLabel > query->getSource()->orderLabel) &&
-              ((*it)->reverseOrderLabel < query->getSource()->reverseOrderLabel) &&
-              ((*it)->retroOrderLabel > query->getSource()->retroOrderLabel) &&
-              ((*it)->retroReverseOrderLabel < query->getSource()->retroReverseOrderLabel))
-#else // ENABLE_RETRO_LABELS
           if (((*it)->orderLabel > query->getSource()->orderLabel) &&
               ((*it)->reverseOrderLabel < query->getSource()->reverseOrderLabel))
-#endif // ENABLE_RETRO_LABELS
             searchQueueBackward.push(*it);
         }
       }
@@ -2085,14 +2021,6 @@ Graph::areConnectedApprox(ReachabilityQuery * query, int threadId) {
     query->setAnswer(false);
     return;
   }
-
-#ifdef ENABLE_RETRO_LABELS
-  if ((query->getSource()->retroOrderLabel > query->getTarget()->retroOrderLabel) ||
-      (query->getTarget()->retroReverseOrderLabel > query->getSource()->retroReverseOrderLabel)) {
-    query->setAnswer(false);
-    return;
-  }
-#endif // ENABLE_RETRO_LABELS
 
   query->setAnswer(true);
 }

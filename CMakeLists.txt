@@ -23,8 +23,6 @@ option(ENABLE_STATISTICS
 	"Gather statistics from each query about the algorithm's effectiveness" ON)
 option(ENABLE_BENCHMARKS
 	"Perform benchmark measures on indexing and queries" OFF)
-option(ENABLE_RETRO_LABELS
-	"During labeling perform a 3rd and 4th reversed pass for stricter labeling" OFF)
 option(ENABLE_TLS
 	"Use thread local storage for DFS identification" OFF)
 option(ENABLE_COARSEN_STATISTICS

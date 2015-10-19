@@ -28,7 +28,6 @@ class Graph;
 #include "graph-utilities/metis-extra.hpp"
 
 // Let cmake choose which options are enabled
-#cmakedefine ENABLE_RETRO_LABELS
 #cmakedefine ENABLE_STATISTICS
 #cmakedefine ENABLE_BENCHMARKS
 #cmakedefine ENABLE_TLS
@@ -112,11 +111,6 @@ private:
   // Reachability data
   int orderLabel = -1;
   int reverseOrderLabel = -1;
-#ifdef ENABLE_RETRO_LABELS
-  int retroOrderLabel = -1;
-  int retroReverseOrderLabel = -1;
-#endif // ENABLE_RETRO_LABELS
-
   int inVisits = 0;
   int outVisits = 0;
 #ifndef ENABLE_TLS
@@ -371,7 +365,7 @@ public:
 
 protected:
   // Indexing
-  void labelVertices(bool retro, bool reverse);
+  void labelVertices(bool reverse);
   void indexGraph(void);
 
   // Graph maintenance
