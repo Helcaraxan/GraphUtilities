@@ -78,10 +78,12 @@ public:
 };
 
 
+// The global slave function that performs queries
+
 void queryWorker(Graph * graph, int threadId);
 
 
-// The Graph classes
+// Forward declaration of the Graph classes and global variables
 
 class Vertex;
 class Graph;
@@ -171,7 +173,6 @@ public:
   // Iterators
   iterator predecessors_begin(void);
   iterator predecessors_end(void);
-
   iterator successors_begin(void);
   iterator successors_end(void);
 
@@ -180,13 +181,12 @@ private:
   // Indexing
 #ifdef ENABLE_TLS
   void setDFSId(uint64_t newId);
-  uint64_t getDFSId(void);
+  uint64_t getDFSId(void) const;
 #else // ENABLE_TLS
   void setDFSId(int idx, uint64_t newId);
-  uint64_t getDFSId(int idx);
+  uint64_t getDFSId(int idx) const;
 #endif // ENABLE_TLS
-  void visit(Vertex * pred, int method);
-  Vertex * createPostOrder(vector<Vertex *> * postOrder, int method);
+  pair<bool, Vertex *> getNextDFS(Vertex * origin, bool postOrder, bool reverse);
 
   // Modificators
   void addPredecessorUnsafe(Vertex * pred, int weight = 1);
@@ -200,6 +200,10 @@ friend void queryWorker(Graph * graph, int id);
 // Local types
 public:
   typedef vector<set<Vertex *> *> PartitionSet;
+  typedef enum {
+    PreOrder,
+    PostOrder
+  } TraversalMethod;
 
 
 // Data members
@@ -303,7 +307,8 @@ public:
     disableGraph();
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
-      delete *it;
+      if (*it != NULL)
+        delete *it;
   }
 
   // Parser functions
@@ -320,7 +325,7 @@ public:
   bool addEdge(Vertex * s, Vertex * t, int weight = 1);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
-  void condenseGraph(bool dumpSCC = false);
+  bool condenseGraph(bool dummy = false, bool dumpSCC = false);
 
   // Access
   graph_t * getMetisGraph(void);
@@ -328,10 +333,10 @@ public:
   unsigned int getVertexCount(void) const;
   Vertex * getVertexFromId(int id) const;
   IndexMethod getIndexMethod(void) const;
+  Vertex * getNextDFS(bool postOrder, bool reverse);
 
   // Checks
   void verifyVertexIds(void) const;
-  list<Vertex *> * hasCycles(void);
 
   // Reachability queries
   void pushQuery(Query * query);
@@ -383,12 +388,11 @@ protected:
 
 private:
   // Maintenance
-  vector<Vertex *> * hasCyclesFromSource(Vertex * source);
   Vertex * addVertexUnsafe(int threadCount);
   bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
 
-  // Internal condense functions
-  int sccVertexVisit(Vertex * target, int label, vector<int> &labels,
+  // Internal condense function
+  int sccVertexVisit(Vertex * target, int label, vector<pair<int, int>> &labels,
       stack<Vertex *> &unclassified, stack<Vertex *> &undetermined);
 
   // Internal reachability query functions
@@ -396,13 +400,11 @@ private:
   void processReachabilityQuery(Query * query);
   void areConnectedDFS(ReachabilityQuery * query);
   void areConnectedBBFS(ReachabilityQuery * query);
-  void areConnectedApprox(ReachabilityQuery * query);
   void areConnectedNoLabels(ReachabilityQuery * query);
 #else //  ENABLE_TLS
   void processReachabilityQuery(int threadId, Query * query);
   void areConnectedDFS(ReachabilityQuery * query, int threadId);
   void areConnectedBBFS(ReachabilityQuery * query, int threadId);
-  void areConnectedApprox(ReachabilityQuery * query, int threadId);
   void areConnectedNoLabels(ReachabilityQuery * query, int threadId);
 #endif //  ENABLE_TLS
   SearchMethod getMethod(void);
@@ -418,10 +420,6 @@ private:
   // Internal coarsening functions
   bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
   Graph * coarsenGreedy(int factor, map<int, int> &vertexMap);
-  Graph * coarsenEdgeRedux(int factor, map<int, int> &vertexMap);
-  void gatherEdgeInformation(set<Vertex *> &vertexGroup, Graph * coarseGraph,
-    map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward);
-  Graph * coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &vertexMap);
 
 #ifdef ENABLE_STATISTICS
   // Internal statistic maintenance

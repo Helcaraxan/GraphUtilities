@@ -5,7 +5,6 @@
 #include <vector>
 
 // Let cmake choose which options are enabled
-#cmakedefine ENABLE_RETRO_LABELS
 #cmakedefine ENABLE_STATISTICS
 #cmakedefine ENABLE_BENCHMARKS
 
@@ -23,7 +22,7 @@ class Graph;
 /* The IndexMethod values obey the following rules:
  * 0x01 (first bit) Indicates if predecessors are rescheduled on traversal
  * 0x02 (second bit) Indicates if successors are rescheduled on traversal
- * 0x04 (third bit) Indicates if successors are ordered with their labels
+ * 0x04 (third bit) Indicates if successors and predecessors are ordered with their labels
  */
 typedef enum {
   ShortIndexing = 0x00,
@@ -37,7 +36,6 @@ typedef enum {
 typedef enum {
   DFS,
   BBFS,
-  Approx,
   NoLabels,
   UndefinedSearchMethod
 } SearchMethod;
@@ -56,8 +54,6 @@ typedef enum {
 
 typedef enum {
   Greedy,
-  EdgeRedux,
-  ApproxIteration,
   UndefinedCoarsenMethod
 } CoarsenMethod;
 

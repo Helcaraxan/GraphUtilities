@@ -131,9 +131,7 @@ Vertex::addPredecessor(Vertex * pred, int weight) {
       return false;
   }
 
-  predecessors.push_back(pred);
-  predecessorWeights.push_back(weight);
-  predecessorCount++;
+  addPredecessorUnsafe(pred, weight);
   return true;
 }
 
@@ -148,9 +146,8 @@ Vertex::addSuccessor(Vertex * succ, int weight) {
       return false;
   }
 
-  successors.push_back(succ);
-  successorWeights.push_back(weight);
-  successorCount++;
+  addSuccessorUnsafe(succ, weight);
+
   return true;
 }
 
@@ -195,6 +192,7 @@ void
 Vertex::clearPredecessors() {
   predecessors.clear();
   predecessorWeights.clear();
+  predecessorCount = 0;
 }
 
 
@@ -202,6 +200,7 @@ void
 Vertex::clearSuccessors() {
   successors.clear();
   successorWeights.clear();
+  successorCount = 0;
 }
 
 
@@ -310,102 +309,98 @@ void
 Vertex::setDFSId(uint64_t newId) {
   DFSId->at(id) = newId;
 }
+
+uint64_t
+Vertex::getDFSId() const {
+  return DFSId->at(id);
+}
 #else // ENABLE_TLS
 void
 Vertex::setDFSId(int idx, uint64_t newId) {
   DFSId[idx] = newId;
 }
-#endif // ENABLE_TLS
 
-
-#ifdef ENABLE_TLS
 uint64_t
-Vertex::getDFSId() {
-  return DFSId->at(id);
-}
-#else // ENABLE_TLS
-uint64_t
-Vertex::getDFSId(int idx) {
+Vertex::getDFSId(int idx) const {
   return DFSId[idx];
 }
 #endif // ENABLE_TLS
 
 
-/* Performs a "visit" of the Vertex when coming from the pred Vertex.
- * The boolean reverse indicates if the graph traversal is on the normal graph
- * or on the inverse graph.
- * The main effect is the reordering of the successor/predecessor list according
- * to the order in which the parent vertices access this Vertex instance during
- * graph traversal.
+/* Compute the next Vertex to be visited in a DFS traversal of the graph
+ * from the current Vertex instance. This allows for an iterative traversal and
+ * not a recursive one in order to prevent stack-overflows on large graphs. The
+ * result pair gives the potential next vertice in the DFS traversal and the
+ * boolean telling if its the real next vertice or if it's an intermediary one.
  */
-void
-Vertex::visit(Vertex * pred, int method) {
-  // Reinitialize in case we are at the start of a new labeling traversal
-  if ((inVisits + outVisits) == (predecessorCount + successorCount)) {
+pair<bool, Vertex *>
+Vertex::getNextDFS(Vertex * origin, bool postOrder, bool reverse) {
+  bool isTarget = false;
+  Vertex * target = NULL;
+
+  if (inVisits == 0) {
+    // This is part of the first visit to this Vertex
+
+    if (firstVisit == NULL) {
+      // Register the origin as the source of the DFS traversal
+      if (origin == this) {
+        firstVisit = (Vertex *) 0x1;
+      } else {
+        firstVisit = origin;
+      }
+
+      target = this;
+      if (!postOrder)
+        isTarget = true;
+      else
+        isTarget = false;
+    } else if (outVisits < (reverse ? predecessorCount : successorCount)) {
+      // Visit successors if some have not yet been visited
+      isTarget = false;
+      target = reverse ? predecessors[outVisits++] : successors[outVisits++];
+    } else {
+      // All successors have been visited so either...
+
+      if ((!postOrder) || (outVisits == (reverse ? predecessorCount : successorCount))) {
+        // ... go back to the first visiting Vertex for this traversal
+        if (firstVisit == (Vertex *) 0x1) {
+          inVisits = 0;
+          outVisits = 0;
+          firstVisit = NULL;
+
+          isTarget = true;
+          target = NULL;
+        } else {
+          inVisits = 1;
+
+          isTarget = false;
+          target = firstVisit;
+        }
+      } else {
+        // ... or return this Vertex as target ...
+        outVisits++;
+
+        isTarget = true;
+        target = this;
+      }
+    }
+  } else {
+    // Register a visit to this Vertex but bounce back to the origin
+    inVisits++;
+
+    isTarget = false;
+    target = origin;
+  }
+
+  // If this was the last visit to a non source then reinitialize the Vertex's counters
+  if ((firstVisit != (Vertex *) 0x1) &&
+        (inVisits == (reverse ? successorCount : predecessorCount))) {
     inVisits = 0;
     outVisits = 0;
+    firstVisit = NULL;
   }
 
-  // Register the first visiting node
-  if (inVisits == 0)
-    firstVisit = pred;
-
-  // If this is the first vertex to be visited (source vertex) then return
-  if (!pred)
-    return;
-
-  // Clear the vector that should be reordered when requested
-  if (((inVisits + outVisits) == 0) && (method & 0x02)) {
-    if (method & 0x01)
-      clearSuccessors();
-    else
-      clearPredecessors();
-  }
-
-  // When necessary push the visiting parent on the reordered vector
-  if (method & 0x02) {
-    if (method & 0x01) {
-      successors.push_back(pred);
-      successorWeights.push_back(pred->getPredecessorWeight(this));
-    } else {
-      predecessors.push_back(pred);
-      predecessorWeights.push_back(pred->getSuccessorWeight(this));
-    }
-  }
-
-  inVisits++;
-}
-
-
-/* Compute the next Vertex to be visited in a post-order traversal of the graph
- * from the current Vertex instance. This allows for an iterative traversal and
- * not a recursive one in order to prevent stack-overflows on large graphs
- */
-Vertex *
-Vertex::createPostOrder(vector<Vertex *> * postOrder, int method) {
-  int visitIndex, visitNumber;
-  vector<Vertex *> * nextVertices;
-
-  // Determine what is up and what is down depending on the reverse boolean
-  nextVertices = (method & 0x01) ? &predecessors : &successors;
-  visitNumber = (method & 0x01) ? predecessorCount : successorCount;
-
-  // Visit all the child vertices
-  while (outVisits < visitNumber) {
-    visitIndex = (method & 0x04) ? visitNumber - outVisits - 1 : outVisits;
-    (*nextVertices)[visitIndex]->visit(this, method);
-
-    outVisits++;
-
-    if ((*nextVertices)[visitIndex]->inVisits == 1)
-      return (*nextVertices)[visitIndex];
-  }
-
-  // Push the vertex on the stack only when all children have been visited
-  postOrder->push_back(this);
-
-  // Return the predecessor from which the first visit to this vertex was made
-  return firstVisit;
+  return pair<bool, Vertex *>(isTarget, target);
 }
 
 
@@ -415,6 +410,7 @@ void
 Vertex::addPredecessorUnsafe(Vertex * pred, int weight) {
   predecessors.push_back(pred);
   predecessorWeights.push_back(weight);
+  predecessorCount++;
 }
 
 
@@ -422,6 +418,7 @@ void
 Vertex::addSuccessorUnsafe(Vertex * succ, int weight) {
   successors.push_back(succ);
   successorWeights.push_back(weight);
+  successorCount++;
 }
 
 
@@ -482,7 +479,7 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   graph->indexed = false;
 
   // Make sure the graph is a DAG
-  if (!graph->hasCycles())
+  if (!graph->condenseGraph(true))
     graph->condensed = true;
   else
     graph->condensed = false;
@@ -564,7 +561,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   graph->indexed = false;
 
   // Make sure the graph is a DAG
-  if (!graph->hasCycles())
+  if (!graph->condenseGraph(true))
     graph->condensed = true;
   else
     graph->condensed = false;
@@ -759,25 +756,34 @@ Graph::setIndexMethod(IndexMethod newMethod) {
 }
 
 
-void
-Graph::condenseGraph(bool dumpSCC) {
+bool
+Graph::condenseGraph(bool dummy, bool dumpSCC) {
   int label = 0;
+  bool result = false;
   stack<Vertex *> unclassified;
   stack<Vertex *> undetermined;
-  vector<int> labels(vertices.size(), -1);
+  vector<pair<int, int> > labels(vertices.size(), pair<int, int>(-1, -1));
+  vector<int> sccLabels(vertices.size(), -1);
 
   // Erase any existing SCCs
   for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it)
     delete *it;
 
   sccSets.clear();
+  discoverExtremities();
 
   // Loop over all vertices and apply the Path-based SCC algorithm
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if ((*it == NULL) || (labels[(*it)->id] != -1))
+  for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
+    if ((*it == NULL) || (labels[(*it)->id].first != -1))
       continue;
 
     label = sccVertexVisit(*it, label, labels, unclassified, undetermined);
+
+    if (!unclassified.empty())
+      cerr << "ERROR : unclassified stack was not empty." << endl;
+
+    if (!undetermined.empty())
+      cerr << "ERROR : undetermined stack was not empty." << endl;
   }
 
   // Verify that all valid vertices have been visited
@@ -788,17 +794,26 @@ Graph::condenseGraph(bool dumpSCC) {
   if (dumpSCC) {
     cerr << "DEBUG : SCC dump\n----" << endl;
     for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it) {
-      for (auto setIt = (*it)->begin(), setEnd = (*it)->end(); setIt != setEnd; ++setIt)
-        cerr << (*setIt)->id << " ";
+      if ((*it)->size() > 1) {
+        for (auto setIt = (*it)->begin(), setEnd = (*it)->end(); setIt != setEnd; ++setIt)
+          cerr << (*setIt)->id << " ";
 
-      cerr << "\n----" << endl;
+        cerr << "\n----" << endl;
+      }
     }
   }
 
   // Merge the SCCs that have more than one vertex
-  for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it)
-    if ((*it)->size() > 1)
-      mergeVertices(**it);
+  for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it) {
+    if ((*it)->size() > 1) {
+      if (!dummy)
+        mergeVertices(**it);
+
+      result = true;
+    }
+  }
+
+  return result;
 }
 
 
@@ -864,6 +879,50 @@ Graph::getIndexMethod() const {
 }
 
 
+Vertex *
+Graph::getNextDFS(bool postOrder, bool reverse) {
+  static bool reverseMemory = false;
+  static Vertex * currentVertex = NULL;
+  static vector<Vertex *>::iterator originIt = sources.begin();
+  Vertex * lastVertex = NULL;
+  pair<bool, Vertex *> next(false, NULL);
+
+  if (reverse != reverseMemory) {
+    discoverExtremities();
+    reverseMemory = reverse;
+    originIt = reverse ? sinks.begin() : sources.begin();
+  }
+
+  while (true) {
+    // When at the end reinitialize the static variables and signal the end
+    if ((originIt == (reverse ? sinks.end() : sources.end())) && (currentVertex == NULL)) {
+      discoverExtremities();
+      originIt = reverse ? sinks.begin() : sources.begin();
+      return NULL;
+    }
+
+    lastVertex = currentVertex;
+    if (!currentVertex) {
+      currentVertex = *originIt;
+      originIt++;
+
+      return currentVertex;
+    }
+
+    do {
+      next = currentVertex->getNextDFS(lastVertex, postOrder, reverse);
+      lastVertex = currentVertex;
+      currentVertex = next.second;
+    } while (!next.first);
+
+    if (currentVertex)
+      break;
+  }
+
+  return currentVertex;
+}
+
+
 // Checks
 
 void
@@ -881,45 +940,6 @@ Graph::verifyVertexIds() const {
 
     i++;
   }
-}
-
-list<Vertex *> *
-Graph::hasCycles() {
-  list<Vertex *> * retValue = new list<Vertex *>();
-  vector<Vertex *> * cyclePath = NULL;
-  globalTimestamp =
-    chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-
-  startGlobalOperation();
-
-  discoverExtremities();
-
-  // Iterate over the sources and check
-  for (auto it = sources.begin(); it != sources.end(); ++it) {
-    if ((cyclePath = hasCyclesFromSource(*it)))
-      break;
-  }
-
-  if (cyclePath) {
-    Vertex * start = cyclePath->back();
-    cyclePath->pop_back();
-
-    do {
-      retValue->push_front(cyclePath->back());
-      cyclePath->pop_back();
-    } while (retValue->front() != start);
-
-    delete cyclePath;
-
-    stopGlobalOperation();
-    return retValue;
-  }
-
-  delete retValue;
-
-  stopGlobalOperation();
-
-  return NULL;
 }
 
 
@@ -1087,14 +1107,6 @@ Graph::coarsen(CoarsenMethod method, int factor, int secondaryFactor, map<int, i
   switch (method) {
     case Greedy:
       coarsenedGraph = coarsenGreedy(factor, vertexMap);
-      break;
-
-    case EdgeRedux:
-      coarsenedGraph = coarsenEdgeRedux(factor, vertexMap);
-      break;
-
-    case ApproxIteration:
-      coarsenedGraph = coarsenApproxIteration(factor, secondaryFactor, vertexMap);
       break;
 
     case UndefinedCoarsenMethod:
@@ -1285,11 +1297,8 @@ void
 Graph::labelVertices(bool reverse) {
   int traversalMethod = 0;
   int currLabel = 0;
-  Vertex * nextVertex;
-  vector<Vertex *> * startVertices;;
-  vector<Vertex *> * postOrder = reverse ? &predecessorQueue : &successorQueue;
-
-  startVertices = reverse ? &sinks : &sources;
+  Vertex * nextVertex = NULL;
+  vector<Vertex *> * order = reverse ? &predecessorQueue : &successorQueue;
 
   // Compose the method used for post-order labeling
   if (reverse)
@@ -1297,19 +1306,36 @@ Graph::labelVertices(bool reverse) {
 
   traversalMethod |= (indexMethod & 0x02);
 
-  // Loop while there are unlabeled sources / sinks
-  for (auto it = startVertices->begin(), end = startVertices->end(); it != end; ++it) {
-    // Initialize
-    nextVertex = *it;
-    (*it)->visit(NULL, traversalMethod);
+  while ((nextVertex = getNextDFS(true, reverse))) {
+    order->push_back(nextVertex);
 
-    // Run the DFS and use an iterative method to prevent memory overflow in large graphs
-    while (nextVertex)
-      nextVertex = nextVertex->createPostOrder(postOrder, traversalMethod);
+    if (reverse)
+      nextVertex->clearSuccessors();
+    else
+      nextVertex->clearPredecessors();
+  }
+
+  // Refill the predecessors or successors of all the vertices
+  for (auto it = order->begin(), end = order->end(); it != end; ++it) {
+    if (reverse) {
+      for (int i = 0, e = (*it)->getPredecessorCount(); i < e; i++) {
+        Vertex * predVertex = (*it)->getPredecessor(i);
+        int predWeight = (*it)->getPredecessorWeight(i);
+
+        predVertex->addSuccessorUnsafe(*it, predWeight);
+      }
+    } else {
+      for (int i = 0, e = (*it)->getSuccessorCount(); i < e; i++) {
+        Vertex * succVertex = (*it)->getSuccessor(i);
+        int succWeight = (*it)->getSuccessorWeight(i);
+
+        succVertex->addPredecessorUnsafe(*it, succWeight);
+      }
+    }
   }
 
   // Label the vertices in reverse post-order
-  for (auto it = postOrder->rbegin(), end = postOrder->rend(); it != end; ++it) {
+  for (auto it = order->rbegin(), end = order->rend(); it != end; ++it) {
     if (reverse)
       (*it)->reverseOrderLabel = currLabel++;
     else
@@ -1328,8 +1354,10 @@ Graph::indexGraph() {
     return;
 
   // Make sure we are indexing a DAG
-  if (!condensed)
-    condenseGraph();
+  if (!condensed) {
+    if (condenseGraph(false, true))
+      cerr << "Graph needed condensing." << endl;
+  }
 
   if (indexMethod == UndefinedIndexMethod) {
     cerr << "ERROR: Unknown indexing method. Aborting.\n";
@@ -1529,56 +1557,6 @@ Graph::disableGraph() {
 
 // Maintenance
 
-vector<Vertex *> *
-Graph::hasCyclesFromSource(Vertex * source) {
-  set<Vertex *> DFSSet;
-  vector<Vertex *> * DFSPath = new vector<Vertex *>();
-  stack<Vertex *> toVisit;
-  Vertex * curr = NULL;
-
-  toVisit.push(source);
-#ifdef ENABLE_TLS
-  source->setDFSId(globalTimestamp);
-#else // ENABLE_TLS
-  source->setDFSId(0, globalTimestamp);
-#endif // ENABLE_TLS
-
-  while (!toVisit.empty()) {
-    curr = toVisit.top();
-    if (!DFSPath->empty() && (curr == DFSPath->back())) {
-      DFSPath->pop_back();
-      DFSSet.erase(curr);
-      toVisit.pop();
-      continue;
-    }
-
-    DFSPath->push_back(curr);
-    DFSSet.insert(curr);
-
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if (DFSSet.count(*it)) {
-        DFSPath->push_back(*it);
-        return DFSPath;
-      }
-
-#ifdef ENABLE_TLS
-      if ((*it)->getDFSId() != globalTimestamp) {
-        (*it)->setDFSId(globalTimestamp);
-#else // ENABLE_TLS
-      if ((*it)->getDFSId(0) != globalTimestamp) {
-        (*it)->setDFSId(0, globalTimestamp);
-#endif // ENABLE_TLS
-        toVisit.push(*it);
-      }
-    }
-  }
-
-  delete DFSPath;
-
-  return NULL;
-}
-
-
 Vertex *
 Graph::addVertexUnsafe(int threadCount) {
   int id = vertices.size();
@@ -1605,36 +1583,39 @@ Graph::addEdgeUnsafe(Vertex * source, Vertex * target, int weight) {
 }
 
 
-// Internal condense functions
+// Internal condense function
 
 int
-Graph::sccVertexVisit(Vertex * target, int label, vector<int> &labels,
+Graph::sccVertexVisit(Vertex * target, int label, vector<pair<int, int> > &labels,
     stack<Vertex *> &unclassified, stack<Vertex *> &undetermined) {
-  if (labels[target->id] != -1)
+  if (labels[target->id].first != -1)
     cerr << "Revisited node " << target->id << " during graph condensation!" << endl;
 
-  labels[target->id] = label++;
+  labels[target->id].first = label++;
   unclassified.push(target);
   undetermined.push(target);
 
   for (auto it = target->successors_begin(), end = target->successors_end(); it != end; ++it) {
-    if (labels[(*it)->id] == -1) {
+    if (labels[(*it)->id].first == -1) {
       label = sccVertexVisit(*it, label, labels, unclassified, undetermined);
-    } else {
-      while (labels[undetermined.top()->id] > labels[(*it)->id])
+    } else if (labels[(*it)->id].second == -1) {
+      while (labels[undetermined.top()->id].first >= labels[(*it)->id].first)
         undetermined.pop();
     }
   }
 
   if (target == undetermined.top()) {
+    int sccId = sccSets.size();
     sccSets.push_back(new set<Vertex *>);
 
     while (unclassified.top() != target) {
       sccSets.back()->insert(unclassified.top());
+      labels[unclassified.top()->id].second = sccId;
       unclassified.pop();
     }
 
     sccSets.back()->insert(unclassified.top());
+    labels[unclassified.top()->id].second = sccId;
     unclassified.pop();
 
     undetermined.pop();
@@ -1668,10 +1649,6 @@ Graph::processReachabilityQuery(Query * query) {
       areConnectedBBFS(query->query.reachability);
       break;
 
-    case Approx:
-      areConnectedApprox(query->query.reachability);
-      break;
-
     case NoLabels:
       areConnectedNoLabels(query->query.reachability);
       break;
@@ -1686,10 +1663,6 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
 
     case BBFS:
       areConnectedBBFS(query->query.reachability, threadId);
-      break;
-
-    case Approx:
-      areConnectedApprox(query->query.reachability, threadId);
       break;
 
     case NoLabels:
@@ -2004,30 +1977,6 @@ cancel:
 
 void
 #ifdef ENABLE_TLS
-Graph::areConnectedApprox(ReachabilityQuery * query) {
-#else // ENABLE_TLS
-Graph::areConnectedApprox(ReachabilityQuery * query, int threadId) {
-#endif // ENABLE_TLS
-  if (query->getSource() == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-    query->searchedNodes++;
-#endif // ENABLE_STATISTICS
-    query->setAnswer(true);
-    return;
-  }
-
-  if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->reverseOrderLabel > query->getSource()->reverseOrderLabel)) {
-    query->setAnswer(false);
-    return;
-  }
-
-  query->setAnswer(true);
-}
-
-
-void
-#ifdef ENABLE_TLS
 Graph::areConnectedNoLabels(ReachabilityQuery * query) {
 #else // ENABLE_TLS
 Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
@@ -2155,6 +2104,8 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 
   configureProgressBar(&barTitle, getVertexCount());
 
+  discoverExtremities();
+
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it) {
     addToReadySet(*it, readySet, processedSet);
     workQueue.push(*it);
@@ -2255,543 +2206,9 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 }
 
 
-static bool
-reduxOrder(const Vertex * lhs, const Vertex * rhs, int f) {
-  static int factor = 1;
-  int lhsWeight = 0;
-  int rhsWeight = 0;
-
-  if (f != 0) {
-    factor = f - 1;
-    return true;
-  }
-
-  for (int i = 0, e = lhs->getSuccessorCount(); i < e; i++)
-    lhsWeight += lhs->getSuccessorWeight(i);
-
-  for (int i = 0, e = rhs->getSuccessorCount(); i < e; i++)
-    rhsWeight += rhs->getSuccessorWeight(i);
-
-  if (lhsWeight >= rhsWeight) {
-    if (rhsWeight > factor)
-      return false;
-    else if (lhsWeight > factor)
-      return true;
-    else
-      return false;
-  } else {
-    return !reduxOrder(rhs, lhs, 0);
-  }
-}
-
-
-class edgeReduxOrder {
-public:
-  bool operator() (const Vertex * lhs, const Vertex * rhs) const {
-    return reduxOrder(lhs, rhs, 0);
-  }
-};
-
-
-class edgeReduxOrderReverse {
-public:
-  bool operator() (const Vertex * lhs, const Vertex * rhs) const {
-    return !reduxOrder(lhs, rhs, 0);
-  }
-};
-
-
-Graph *
-Graph::coarsenEdgeRedux(int factor, map<int, int> &vertexMap) {
-  int progressCount = 0;
-  string barTitle = "Edge Redux coarsening ";
-  Vertex * curr = NULL, * search = NULL, * source = NULL;
-  Vertex * newVertex = NULL;
-  Graph * coarseGraph = new Graph(false);
-  ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, DFS);
-  map<int, set<int> > retroMapping;
-  set<Vertex *> vertexGroup;
-  set<Vertex *> processedSet;
-  priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrder> workQueue;
-  fstream mappingStream;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-  double totalWorkListSize = 0;
-  double workListCount = 0;
-  double totalSuccessorCount = 0;
-  double illegalSuccessorCount = 0;
-  double convexSearchCount = 0;
-  double convexSearchAbortsIllegal = 0;
-  double convexSearchAbortsMaxSize = 0;
-#endif // ENABLE_COARSEN_STATISTICS
-
-  reduxOrder(NULL, NULL, factor);
-
-  configureProgressBar(&barTitle, getVertexCount());
-
-  // Push nodes in reverse ID order. This allows for nodes of same order to be
-  // listed in topological order instead of a detrimental reverse topological
-  // order.
-  for (auto it = vertices.rbegin(), end = vertices.rend(); it != end; ++it) {
-    if (*it)
-      workQueue.push(*it);
-  }
-
-  while (!workQueue.empty()) {
-    priority_queue<Vertex *, vector<Vertex *>, edgeReduxOrderReverse> localWorkQueue;
-
-    curr = workQueue.top();
-    workQueue.pop();
-
-    resultProgressBar(++progressCount);
-
-    if (processedSet.count(curr))
-      continue;
-
-    vertexGroup.clear();
-
-    localWorkQueue.push(curr);
-    source = curr;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-    workListCount += 1;
-#endif // ENABLE_COARSE_STATISTICS
-
-    while (!localWorkQueue.empty()) {
-      curr = localWorkQueue.top();
-      localWorkQueue.pop();
-
-#ifdef ENABLE_COARSEN_STATISTICS
-      totalWorkListSize += 1;
-      totalSuccessorCount += curr->getSuccessorCount();
-#endif // ENABLE_COARSE_STATISTICS
-
-      if (vertexGroup.count(curr))
-        continue;
-
-      if (curr != source) {
-        bool backTrace = false;
-        set<Vertex *> shadowVertexGroup;
-        set<Vertex *> newlyProcessedSet;
-        queue<Vertex *> searchQueue;
-
-        shadowVertexGroup = vertexGroup;
-
-        for (auto predIt = curr->predecessors_begin(), predEnd = curr->predecessors_end();
-            predIt != predEnd; ++predIt) {
-          if (!vertexGroup.count(*predIt))
-            searchQueue.push(*predIt);
-        }
-
-        while (!searchQueue.empty()) {
-          search = searchQueue.front();
-          searchQueue.pop();
-
-          if (vertexGroup.count(search))
-            continue;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-          convexSearchCount += 1;
-#endif // ENABLE_COARSE_STATISTICS
-
-          query->source = source;
-          query->target = search;
-          query->answer = false;
-#ifdef ENABLE_STATISTICS
-          query->path.clear();
-          query->searchedNodes = 0;
-#endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_TLS
-          areConnectedDFS(query);
-#else // ENABLE_TLS
-          areConnectedDFS(query, 0);
-#endif // ENABLE_TLS
-
-          if (query->getAnswer()) {
-#ifdef ENABLE_STATISTICS
-            for (auto pathIt = query->path.begin(), pathEnd = query->path.end();
-                pathIt != pathEnd; ++pathIt) {
-              if (processedSet.count(*pathIt) && !vertexGroup.count(*pathIt)) {
-#ifdef ENABLE_COARSEN_STATISTICS
-                convexSearchAbortsIllegal += 1;
-#endif // ENABLE_COARSE_STATISTICS
-                backTrace = true;
-                break;
-              }
-
-              vertexGroup.insert(*pathIt);
-              processedSet.insert(*pathIt);
-              newlyProcessedSet.insert(*pathIt);
-              for (auto predIt = (*pathIt)->predecessors_begin(), predEnd = (*pathIt)->predecessors_end();
-                  predIt != predEnd; ++predIt) {
-                if (!vertexGroup.count(*predIt))
-                  searchQueue.push(*predIt);
-              }
-
-              if (vertexGroup.size() > 2 * (unsigned int) factor) {
-#ifdef ENABLE_COARSEN_STATISTICS
-                convexSearchAbortsMaxSize += 1;
-#endif // ENABLE_COARSE_STATISTICS
-                backTrace = true;
-                break;
-              }
-            }
-#else // ENABLE_STATISTICS
-            backTrace = true;
-#endif // ENABLE_STATISTICS
-          }
-
-          if (backTrace) {
-            vertexGroup = shadowVertexGroup;
-
-            for (auto it = newlyProcessedSet.begin(), end = newlyProcessedSet.end(); it != end; ++it)
-              processedSet.erase(*it);
-
-            break;
-          }
-        }
-
-        if (backTrace)
-          continue;
-      }
-
-      vertexGroup.insert(curr);
-      processedSet.insert(curr);
-
-      if (vertexGroup.size() >= (unsigned int) factor)
-        break;
-
-      for (auto succIt = curr->successors_begin(), succEnd = curr->successors_end();
-          succIt != succEnd; ++succIt) {
-        if (!processedSet.count(*succIt))
-          localWorkQueue.push(*succIt);
-#ifdef ENABLE_COARSEN_STATISTICS
-        else
-          illegalSuccessorCount += 1;
-#endif // ENABLE_COARSE_STATISTICS
-      }
-    }
-
-    newVertex = coarseGraph->addVertex();
-    for (auto it = vertexGroup.begin(), end = vertexGroup.end(); it != end; ++it) {
-      vertexMap[(*it)->id] = newVertex->id;
-      retroMapping[newVertex->id].insert((*it)->id);
-      newVertex->weight += (*it)->weight;
-    }
-  }
-
-  for (auto it = retroMapping.begin(), end = retroMapping.end(); it != end; ++it) {
-    map<Vertex *, int> localMapping;
-    Vertex * source = coarseGraph->getVertexFromId(it->first);
-
-    for (auto setIt = it->second.begin(), setEnd = it->second.end();
-        setIt != setEnd; ++setIt) {
-      Vertex * origin = getVertexFromId(*setIt);
-      set<Vertex *> predecessorSet;
-
-      for (auto predIt = origin->predecessors_begin(), predEnd = origin->predecessors_end();
-          predIt != predEnd; ++predIt) {
-        if (!it->second.count((*predIt)->id)) {
-          Vertex * localPred = coarseGraph->getVertexFromId(vertexMap[(*predIt)->id]);
-
-          if (predecessorSet.count(localPred))
-            continue;
-          else
-            predecessorSet.insert(localPred);
-
-          auto localIt = localMapping.find(localPred);
-          if (localIt == localMapping.end())
-            localMapping[localPred] = origin->getPredecessorWeight(*predIt);
-          else
-            localIt->second += origin->getPredecessorWeight(*predIt);
-        }
-      }
-    }
-
-    for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end(); mapIt != mapEnd; ++mapIt)
-      coarseGraph->addEdgeUnsafe(mapIt->first, source, mapIt->second);
-  }
-
-  cout << endl;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-  double includedNodes = 0L;
-  for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt)
-    includedNodes += (double) mapIt->second.size();
-
-  includedNodes /= (double) retroMapping.size();
-
-  cout << "Average coarsen ratio: " << includedNodes << endl;
-  cout << "Worklist count: " << workListCount << endl;
-  cout << "Average worklist size: " << totalWorkListSize / workListCount << endl;
-  cout << "Average successor count: " << totalSuccessorCount / totalWorkListSize << endl;
-  cout << "Average illegal successor count: " << illegalSuccessorCount / totalWorkListSize << endl;
-  cout << "Convex search count: " << convexSearchCount << endl;
-  cout << "Illegal path aborts: " << convexSearchAbortsIllegal << endl;
-  cout << "MaxSize path aborts: " << convexSearchAbortsMaxSize << endl;
-#endif // ENABLE_COARSE_STATISTICS
-
-  delete query;
-
-  return coarseGraph;
-}
-
-
-void
-Graph::gatherEdgeInformation(set<Vertex *> &vertexGroup, Graph * coarseGraph,
-    map<int, int> &IDMap, map<Vertex *, int> &weightMap, bool backward) {
-  set<Vertex *> neighbourSet;
-
-  for (auto setIt = vertexGroup.begin(), setEnd = vertexGroup.end(); setIt != setEnd; ++setIt) {
-    vector<Vertex *> &neighbours = backward ? (*setIt)->predecessors : (*setIt)->successors;
-    neighbourSet.clear();
-
-    for (auto it = neighbours.begin(), end = neighbours.end(); it != end; ++it) {
-      if (vertexGroup.count(*it))
-        continue;
-
-      auto localIt = IDMap.find((*it)->id);
-      if (localIt != IDMap.end()) {
-        Vertex * target = coarseGraph->getVertexFromId(localIt->second);
-
-        if (neighbourSet.count(target))
-          continue;
-        else
-          neighbourSet.insert(target);
-
-        int weight =
-          backward ? (*setIt)->getPredecessorWeight(*it) : (*setIt)->getSuccessorWeight(*it);
-        auto weightIt = weightMap.find(target);
-        if (weightIt == weightMap.end())
-          weightMap[target] = weight;
-        else
-          weightIt->second += weight;
-      }
-    }
-  }
-}
-
-Graph *
-Graph::coarsenApproxIteration(int factor, int secondaryFactor, map<int, int> &vertexMap) {
-  int iterations = 0;
-  string barTitle = "Iterative coarsening - level ";
-  map<int, set<int> > retroMapping;
-  Graph * sourceGraph = NULL;
-  Graph * coarseGraph = this;
-  ReachabilityQuery * query = new ReachabilityQuery(NULL, NULL, Approx);
-  fstream mappingStream;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-  double totalWorkListSize = 0;
-  double workListCount = 0;
-  double convexSearchCount = 0;
-  double convexSearchAborts= 0;
-#endif // ENABLE_COARSEN_STATISTICS
-
-  // Compute the number of necessary iterations
-  while (factor > 1) {
-    iterations++;
-    factor /= secondaryFactor;
-  }
-
-  // Pre-fill the vertex mappings
-  for (unsigned int i = 0, e = getVertexCount(); i < e; i++)
-    retroMapping[i].insert(i);
-
-  for (int i = 1; i <= iterations; i++) {
-    int progressCount = 0;
-    uint64_t iterationId =
-        chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
-    map<int, Vertex *> sourceMap;
-    map<int, set<int> > newRetroMapping;
-    vector<Vertex *> workQueue;
-
-    // Forward graphs one level
-    sourceGraph = coarseGraph;
-    coarseGraph = new Graph(false);
-    vertexMap.clear();
-
-    // Index the source graph
-    sourceGraph->indexGraph();
-
-    // Prepare the progress bar
-    string localTitle = barTitle + to_string(i) + "/" + to_string(iterations) + " ";
-    configureProgressBar(&localTitle, sourceGraph->getVertexCount());
-
-    // Randomize the workQueue
-    for (auto it = sourceGraph->vertices.begin(), end = sourceGraph->vertices.end();
-        it != end; ++it) {
-      if (*it)
-        workQueue.push_back(*it);
-    }
-    random_shuffle(workQueue.begin(), workQueue.end());
-
-    for (auto it = workQueue.begin(), end = workQueue.end(); it != end; ++it) {
-      Vertex * newVertex = NULL;
-      set<Vertex *> vertexGroup;
-      set<int> predecessorSources;
-      set<int> successorSources;
-      map<Vertex *, int> localMapping;
-      queue<Vertex *> localWorkQueue;
-
-      resultProgressBar(++progressCount);
-
-#ifdef ENABLE_TLS
-      if ((*it)->getDFSId() == iterationId)
-        continue;
-      else
-        (*it)->setDFSId(iterationId);
-#else // ENABLE_TLS
-      if ((*it)->getDFSId(0) == iterationId)
-        continue;
-      else
-        (*it)->setDFSId(0, iterationId);
-#endif // ENABLE_TLS
-
-      vertexGroup.insert(*it);
-
-      for (auto succIt = (*it)->successors_begin(), succEnd = (*it)->successors_end();
-          succIt != succEnd; ++succIt) {
-        if (!vertexMap.count((*succIt)->id))
-          localWorkQueue.push(*succIt);
-      }
-
-#ifdef ENABLE_COARSEN_STATISTICS
-      workListCount += 1;
-#endif // ENABLE_COARSEN_STATISTICS
-
-      while (!localWorkQueue.empty()) {
-        bool skipVertex = false;
-        Vertex * next = localWorkQueue.front();
-        localWorkQueue.pop();
-
-#ifdef ENABLE_TLS
-        if (next->getDFSId() == iterationId)
-#else // ENABLE_TLS
-        if (next->getDFSId(0) == iterationId)
-#endif // ENABLE_TLS
-          continue;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-        totalWorkListSize += 1;
-#endif // ENABLE_COARSEN_STATISTICS
-
-        for (auto predIt = next->predecessors_begin(), predEnd = next->predecessors_end();
-            predIt != predEnd; ++predIt) {
-          if (vertexGroup.count(*predIt))
-            continue;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-          convexSearchCount += 1;
-#endif // ENABLE_COARSEN_STATISTICS
-
-          query->source = *it;
-          query->target = *predIt;
-#ifdef ENABLE_STATISTICS
-          query->searchedNodes = 0;
-          query->path.clear();
-#endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_TLS
-          sourceGraph->areConnectedApprox(query);
-#else // ENABLE_TLS
-          sourceGraph->areConnectedApprox(query, 0);
-#endif // ENABLE_TLS
-
-          if ((skipVertex = query->getAnswer())) {
-#ifdef ENABLE_COARSEN_STATISTICS
-            convexSearchAborts += 1;
-#endif // ENABLE_COARSEN_STATISTICS
-            break;
-          }
-        }
-
-        if (skipVertex)
-          continue;
-
-        vertexGroup.insert(next);
-
-#ifdef ENABLE_TLS
-        next->setDFSId(iterationId);
-#else // ENABLE_TLS
-        next->setDFSId(0, iterationId);
-#endif // ENABLE_TLS
-
-        for (auto succIt = next->successors_begin(), succEnd = next->successors_end();
-            succIt != succEnd; ++succIt) {
-          if (!vertexMap.count((*succIt)->id))
-            localWorkQueue.push(*succIt);
-        }
-
-        if (vertexGroup.size() >= (unsigned int) secondaryFactor)
-          break;
-      }
-
-      newVertex = coarseGraph->addVertex();
-      sourceMap[newVertex->id] = *it;
-      newRetroMapping.insert(pair<int, set<int> >(newVertex->id, set<int>()));
-      for (auto setIt = vertexGroup.begin(), setEnd = vertexGroup.end(); setIt != setEnd; ++setIt) {
-        set<int> &retroSet = retroMapping[(*setIt)->id];
-        vertexMap[(*setIt)->id] = newVertex->id;
-        newRetroMapping[newVertex->id].insert(retroSet.begin(), retroSet.end());
-      }
-
-      // Create predecessors edges where necessary
-      localMapping.clear();
-      gatherEdgeInformation(vertexGroup, coarseGraph, vertexMap, localMapping, true);
-
-      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt)
-        coarseGraph->addEdgeUnsafe(mapIt->first, newVertex, mapIt->second);
-
-      // Create successors edges where necessary
-      localMapping.clear();
-      gatherEdgeInformation(vertexGroup, coarseGraph, vertexMap, localMapping, false);
-
-      for (auto mapIt = localMapping.begin(), mapEnd = localMapping.end();
-          mapIt != mapEnd; ++mapIt)
-        coarseGraph->addEdgeUnsafe(newVertex, mapIt->first, mapIt->second);
-    }
-
-    retroMapping = newRetroMapping;
-    coarseGraph->indexMethod = sourceGraph->indexMethod;
-
-    // When necessary clean-up the intermediary graph
-    if (sourceGraph != this)
-      delete sourceGraph;
-  }
-
-  // Construct the forward mapping of vertex IDs
-  vertexMap.clear();
-  for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt) {
-    for (auto setIt = mapIt->second.begin(), setEnd = mapIt->second.end(); setIt != setEnd; ++setIt)
-      vertexMap[*setIt] = mapIt->first;
-  }
-
-  cout << endl;
-
-#ifdef ENABLE_COARSEN_STATISTICS
-  double includedNodes = 0L;
-  for (auto mapIt = retroMapping.begin(), mapEnd = retroMapping.end(); mapIt != mapEnd; ++mapIt)
-    includedNodes += (double) mapIt->second.size();
-
-  includedNodes /= (double) retroMapping.size();
-
-  cout << "Average coarsen ratio: " << includedNodes << endl;
-  cout << "Worklist count: " << workListCount << endl;
-  cout << "Average worklist size: " << totalWorkListSize / workListCount << endl;
-  cout << "Convex search count: " << convexSearchCount << endl;
-  cout << "Convex search aborts: " << convexSearchAborts << endl;
-#endif // ENABLE_COARSE_STATISTICS
-
-  return coarseGraph;
-}
-
-
-#ifdef ENABLE_STATISTICS
 // Internal statistics maintenance
 
+#ifdef ENABLE_STATISTICS
 void
 Graph::registerQueryStatistics(ReachabilityQuery * query) {
   double coefficient = 1.0;
@@ -2823,7 +2240,6 @@ Graph::registerQueryStatistics(ReachabilityQuery * query) {
     }
   }
 }
-
 #endif // ENABLE_STATISTICS
 
 
