@@ -36,7 +36,6 @@ static const struct option longopts[] = {
   {"coarsen-factor", required_argument, 0, 'f'},
   {"coarsen-method", required_argument, 0, 'C'},
   {"coarsen-file",   required_argument, 0, 'F'},
-  {"coarsen-iterative-factor", required_argument, 0, 's'},
   {"help",      no_argument,       0, 'h'},
   {"verify",  no_argument,      &verifyFlag, 1},
   {"unique-edges", no_argument, &uniqueFlag, 1},
@@ -64,9 +63,8 @@ printHelpMessage() {
   cout << "\t-c | --count=<number>\t\t\tNumber of queries to generate (only used when --test is not used)\n";
   cout << "\nCoarsening options:\n";
   cout << "\t-f | --coarsen-factor=<number>\t\tSpecify the coarsening factor that is to be applied\n";
-  cout << "\t-C | --coarsen-method=<coarsen-method>\tMethod from <Greedy|EdgeRedux|ApproxIteration> (default: Greedy)\n";
+  cout << "\t-C | --coarsen-method=<coarsen-method>\tMethod from <Greedy> (default: Greedy)\n";
   cout << "\t-F | --coarsen-file=<coarsen-dump-file>\tFile-prefix for dumping the coarsened graph and mapping\n";
-  cout << "\t-s | --coarsen-iterative-factor=<number>\tCoarsening factor of each iteration of ApproxIteration\n";
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
@@ -216,7 +214,7 @@ main(int argc, char * argv[]) {
   char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:s:hvudb", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts, NULL)) != -1) {
     switch (c) {
       case 'i':
         strncpy(fileName, optarg, 511);
@@ -310,10 +308,6 @@ main(int argc, char * argv[]) {
       case 'C':
         if (!strcmp(optarg, "Greedy")) {
           coarsenMethod = Greedy;
-        } else if (!strcmp(optarg, "EdgeRedux")) {
-          coarsenMethod = EdgeRedux;
-        } else if (!strcmp(optarg, "ApproxIteration")) {
-          coarsenMethod = ApproxIteration;
         } else {
           cerr << "ERROR: Unknown argument to --coarsen-method.\n";
           printHelpMessage();
@@ -334,19 +328,6 @@ main(int argc, char * argv[]) {
         if (!coarseMapFile.good()) {
           cerr << "ERROR: Could not open the coarse graph file.\n";
           exit(EXIT_FAILURE);
-        }
-        break;
-
-      case 's':
-        if (!isdigit(optarg[0])) {
-          cerr << "ERROR: The -S | --coarsen-iterative-factor argument is not a number\n";
-          printHelpMessage();
-          exit(EXIT_FAILURE);
-        } else {
-          coarsenSecondaryFactor = atoi(optarg);
-
-          if (coarsenSecondaryFactor < 2)
-            coarsenSecondaryFactor = 2;
         }
         break;
 
