@@ -104,7 +104,7 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
 
       subQuery =
         new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
-      newQuery = new Query(Reachability, subQuery);
+      newQuery = new Query(subQuery);
 
       queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, (res == 0 ? false : true)));
       queryAccess.release();
@@ -132,7 +132,7 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
         subQuery =
           new ReachabilityQuery(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
 
-      newQuery = new Query(Reachability, subQuery);
+      newQuery = new Query(subQuery);
 
       queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, false));
       queryAccess.release();

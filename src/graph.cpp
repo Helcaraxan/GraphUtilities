@@ -951,7 +951,6 @@ Graph::pushQuery(Query * query) {
   static int BBFSwin = 0;
 
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
-  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
 
   // Verify that the graph has been indexed
   if (!indexed) {
@@ -973,40 +972,29 @@ Graph::pushQuery(Query * query) {
   // Else select the method automatically. If there is no
   // preferred method yet then find one.
   if (getMethod() == UndefinedSearchMethod) {
-    int results = 0;
     ReachabilityQuery * reachQuery = query->query.reachability;
     ReachabilityQuery * DFSReachQuery =
       new ReachabilityQuery(reachQuery->getSource(), reachQuery->getTarget(), DFS);
     ReachabilityQuery * BBFSReachQuery =
       new ReachabilityQuery(reachQuery->getSource(), reachQuery->getTarget(), BBFS);
+    ReachabilityQuery::InternalQueue * internal = new ReachabilityQuery::InternalQueue();
 
-    DFSReachQuery->setInternal(1);
-    BBFSReachQuery->setInternal(1);
+    DFSReachQuery->setInternal(internal);
+    BBFSReachQuery->setInternal(internal);
 
-    Query * DFSQuery = new Query(Reachability, DFSReachQuery);
-    Query * BBFSQuery = new Query(Reachability, BBFSReachQuery);
+    Query * DFSQuery = new Query(DFSReachQuery);
+    Query * BBFSQuery = new Query(BBFSReachQuery);
 
+    unique_lock<mutex> lock(internal->guard);
     jobQueue.push(DFSQuery);
     jobQueue.push(BBFSQuery);
 
     // Wait for the results
-    while (results < 2) {
-      internalResultSpinSemaphore.wait();
-      internalResultLock.lock();
+    internal->signal.wait(lock);
 
-      auto it = internalResultQueue.begin();
-      for (auto end = internalResultQueue.end(); it != end; ++it) {
-        if (((*it) == DFSQuery) || ((*it) == BBFSQuery)) {
-          results++;
-          internalResultQueue.erase(it);
-          break;
-        }
-      }
-
-      if (it == internalResultQueue.end())
-        internalResultSpinSemaphore.post();
-
-      internalResultLock.unlock();
+    if (internal->results.size() < 2) {
+      cerr << "ERROR: Did not receive two results for an internal query" << endl;
+      exit(EXIT_FAILURE);
     }
 
     // Check for errors in the queries
@@ -1021,12 +1009,13 @@ Graph::pushQuery(Query * query) {
       exit(EXIT_FAILURE);
     }
 
-    // Find the fastest search method and register the win
-    methodLock.lock();
-    if (DFSReachQuery->getInternal() < BBFSReachQuery->getInternal()) {
-      if ((++DFSwin >= AUTO_THRESHOLD) && (getMethod() == UndefinedSearchMethod))
-        setMethod(DFS);
+    // Record the winner of the query contest
+    int winningIndex = 0;
+    if (internal->results[0].second > internal->results[1].second)
+      winningIndex = 1;
 
+    if (internal->results[winningIndex].first == DFSReachQuery) {
+      DFSwin++;
       query->query.reachability->setAnswer(DFSReachQuery->getAnswer());
       query->query.reachability->setMethod(DFS);
 
@@ -1034,9 +1023,7 @@ Graph::pushQuery(Query * query) {
       registerQueryStatistics(DFSReachQuery);
 #endif // ENABLE_STATISTICS
     } else {
-      if ((++BBFSwin >= AUTO_THRESHOLD) && (getMethod() == UndefinedSearchMethod))
-        setMethod(BBFS);
-
+      BBFSwin++;
       query->query.reachability->setAnswer(BBFSReachQuery->getAnswer());
       query->query.reachability->setMethod(BBFS);
 
@@ -1044,13 +1031,24 @@ Graph::pushQuery(Query * query) {
       registerQueryStatistics(BBFSReachQuery);
 #endif // ENABLE_STATISTICS
     }
+
+    // Push the real query to the results
+    resultQueue.push(query);
+
+    // If necessary register the global query contest winner as method
+    methodLock.lock();
+    if (getMethod() == UndefinedSearchMethod) {
+      if (DFSwin >= AUTO_THRESHOLD)
+        setMethod(DFS);
+      else if (BBFSwin >= AUTO_THRESHOLD)
+        setMethod(BBFS);
+    }
     methodLock.unlock();
 
     // Clean-up the internal queries
     delete DFSQuery;
     delete BBFSQuery;
-
-    resultQueue.push(query);
+    delete internal;
   } else {
     query->query.reachability->setMethod(getMethod());
 
@@ -1437,7 +1435,7 @@ Graph::discoverExtremities() {
 
 // Multi-threading
 void
-Graph::startQuery() {
+Graph::startWorker() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex);
 
   if (noQueries)
@@ -1448,7 +1446,7 @@ Graph::startQuery() {
 
 
 void
-Graph::stopQuery() {
+Graph::stopWorker() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex, defer_lock);
   unique_lock<mutex> globalWaitLock(globalWaitMutex, defer_lock);
 
@@ -1526,7 +1524,6 @@ Graph::enableGraph(int numberOfThreads) {
 
   threadCount = numberOfThreads;
   PAPI_library_init(PAPI_VER_CURRENT);
-  internalResultSpinSemaphore.initialize(numberOfThreads);
 
   startWorkers();
 
@@ -1545,8 +1542,6 @@ Graph::disableGraph() {
       delete queryThreads.back();
       queryThreads.pop_back();
     }
-
-    internalResultSpinSemaphore.reset();
 
     PAPI_shutdown();
 
@@ -1630,15 +1625,11 @@ Graph::sccVertexVisit(Vertex * target, int label, vector<pair<int, int> > &label
 void
 #ifdef ENABLE_TLS
 Graph::processReachabilityQuery(Query * query) {
-  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
-
-#ifdef ENABLE_TLS
   if (!DFSId)
     DFSId = new vector<uint64_t>();
 
   if (DFSId->size() < vertices.size())
     DFSId->resize(vertices.size(), 0);
-#endif // ENABLE_TLS
 
   switch (query->query.reachability->getMethod()) {
     case DFS:
@@ -1654,8 +1645,6 @@ Graph::processReachabilityQuery(Query * query) {
       break;
 #else // ENABLE_TLS
 Graph::processReachabilityQuery(int threadId, Query * query) {
-  unique_lock<mutex> internalResultLock(internalResultMutex, defer_lock);
-
   switch (query->query.reachability->getMethod()) {
     case DFS:
       areConnectedDFS(query->query.reachability, threadId);
@@ -1675,12 +1664,7 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
       break;
   }
 
-  if (query->query.reachability->getInternal() != 0) {
-    internalResultLock.lock();
-    internalResultQueue.push_back(query);
-    internalResultSpinSemaphore.post();
-    internalResultLock.unlock();
-  } else {
+  if (query->query.reachability->getInternal() == NULL) {
 #ifdef ENABLE_STATISTICS
     registerQueryStatistics(query->query.reachability);
 #endif // ENABLE_STATISTICS
@@ -1707,7 +1691,7 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
   PAPI_start_counters(&event, 1);
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() == 1)
+  if (query->getInternal() != NULL)
     PAPI_start_counters(&event, 1);
 #endif // ENABLE_BENCHMARKS
 
@@ -1788,28 +1772,49 @@ end:
   PAPI_stop_counters(&counterValue, 1);
   benchmarkLock.lock();
   cyclesSpentQuerying += counterValue;
-  query->umber++;
+  queryNumber++;
   benchmarkLock.unlock();
 
-  // Set the query->time
-  if (query->getInternal() == 1)
-    query->setInternal(counterValue);
+  if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
-  // In the case of an internal query->register the query->time
-  if (query->getInternal() == 1) {
+  if (query->getInternal() != NULL) {
     PAPI_stop_counters(&counterValue, 1);
-    query->setInternal(counterValue);
-  }
 #endif // ENABLE_BENCHMARKS
+
+    // Set the query time in the case of an internal query
+    unique_lock<mutex> lock(query->getInternal()->guard);
+
+    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    query->getInternal()->results.push_back(result);
+
+    if (query->getInternal()->results.size() == 2)
+      query->getInternal()->signal.notify_all();
+  }
 
   return;
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
+
+  if (query->getInternal() != NULL) {
+#else // ENABLE_BENCHMARKS
+  if (query->getInternal() != NULL) {
+    PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
 
+    // Set the query time in the case of an internal query
+    unique_lock<mutex> lock(query->getInternal()->guard);
+
+    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    query->getInternal()->results.push_back(result);
+
+    if (query->getInternal()->results.size() == 2)
+      query->getInternal()->signal.notify_all();
+  }
+
   query->setError(true);
+
   return;
 }
 
@@ -1831,7 +1836,7 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
   PAPI_start_counters(&event, 1);
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() == 1)
+  if (query->getInternal() == NULL)
     PAPI_start_counters(&event, 1);
 #endif // ENABLE_BENCHMARKS
 
@@ -1949,28 +1954,49 @@ end:
   PAPI_stop_counters(&counterValue, 1);
   benchmarkLock.lock();
   cyclesSpentQuerying += counterValue;
-  query->umber++;
+  queryNumber++;
   benchmarkLock.unlock();
 
   // Set the query time
-  if (query->getInternal() == 1)
-    query->setInternal(counterValue);
+  if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
-  // In the case of an internal query register the query time
-  if (query->getInternal() == 1) {
+  if (query->getInternal() != NULL) {
     PAPI_stop_counters(&counterValue, 1);
-    query->setInternal(counterValue);
-  }
 #endif // ENABLE_BENCHMARKS
+
+    // Set the query time in the case of an internal query
+    unique_lock<mutex> lock(query->getInternal()->guard);
+
+    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    query->getInternal()->results.push_back(result);
+
+    if (query->getInternal()->results.size() == 2)
+      query->getInternal()->signal.notify_all();
+  }
 
   return;
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
   PAPI_stop_counters(&counterValue, 1);
+  if (query->getInternal() != NULL) {
+#else // ENABLE_BENCHMARKS
+  if (query->getInternal() != NULL) {
+    PAPI_stop_counters(&counterValue, 1);
 #endif // ENABLE_BENCHMARKS
 
+    // Set the query time in the case of an internal query
+    unique_lock<mutex> lock(query->getInternal()->guard);
+
+    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    query->getInternal()->results.push_back(result);
+
+    if (query->getInternal()->results.size() == 2)
+      query->getInternal()->signal.notify_all();
+  }
+
   query->setError(true);
+
   return;
 }
 
@@ -2256,33 +2282,6 @@ void
 queryWorker(Graph * graph, int threadId) {
   Query * query = NULL;
 
-  /*
-  unique_lock<mutex> printLock(printMutex);
-  cerr << "Initializing PAPI for thread " << threadId << " with system-id ";
-  cerr << getThreadID() << endl;
-  printLock.unlock();
-
-  int errCode = PAPI_register_thread();
-  if (errCode != PAPI_OK) {
-    cerr << "ERROR: Could not initialize worker thread for PAPI measurements in thread ";
-    cerr << threadId << ". Error was : ";
-    switch (errCode) {
-      case PAPI_ENOMEM:
-        cerr << "PAPI_ENOMEM" << endl;
-        break;
-      case PAPI_ESYS:
-        cerr << "PAPI_ESYS" << endl;
-        break;
-      case PAPI_ESBSTR:
-        cerr << "PAPI_ESBSTR" << endl;
-        break;
-      default:
-        cerr << "Unknown (" << errCode << ")" << endl;
-    }
-    exit(EXIT_FAILURE);
-  }
-  */
-
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}
       // Do nothing
@@ -2290,30 +2289,33 @@ queryWorker(Graph * graph, int threadId) {
     if (graph->threadShutdown)
       return;
 
-    graph->startQuery();
+    graph->startWorker();
 
-    switch (query->type) {
+    while (true) {
+      switch (query->type) {
 #ifdef ENABLE_TLS
-      case Reachability:
-        graph->processReachabilityQuery(query);
-        break;
+        case Reachability:
+          graph->processReachabilityQuery(query);
+          break;
 
-      case Partition:
-        graph->processPartitionQuery(query);
-        break;
+        case Partition:
+          graph->processPartitionQuery(query);
+          break;
 #else // ENABLE_TLS
-      case Reachability:
-        graph->processReachabilityQuery(threadId, query);
-        break;
+        case Reachability:
+          graph->processReachabilityQuery(threadId, query);
+          break;
 
-      case Partition:
-        graph->processPartitionQuery(threadId, query);
-        break;
+        case Partition:
+          graph->processPartitionQuery(threadId, query);
+          break;
 #endif // ENABLE_TLS
+      }
+
+      if (!graph->jobQueue.try_pop(query))
+        break;
     }
 
-    graph->stopQuery();
+    graph->stopWorker();
   }
-
-  //PAPI_unregister_thread();
 }

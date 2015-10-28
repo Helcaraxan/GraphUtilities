@@ -1,8 +1,10 @@
 #ifndef QUERIES_HPP
 #define QUERIES_HPP
 
+#include <mutex>
 #include <atomic>
 #include <vector>
+#include <condition_variable>
 
 // Let cmake choose which options are enabled
 #cmakedefine ENABLE_STATISTICS
@@ -64,6 +66,14 @@ typedef enum {
 class ReachabilityQuery {
 friend class Graph;
 
+// Local types
+private:
+  typedef struct {
+    mutex guard;
+    vector<pair<ReachabilityQuery *, uint64_t> > results;
+    condition_variable signal;
+  } InternalQueue;
+
 // Data members
 private:
   atomic<Vertex *> source;
@@ -71,7 +81,7 @@ private:
   atomic<bool> answer{false};
   atomic<bool> error{false};
   atomic<bool> cancel{false};
-  atomic<uint64_t> internal{0};
+  atomic<InternalQueue *> internal{NULL};
   atomic<SearchMethod> method{UndefinedSearchMethod};
 
 #ifdef ENABLE_STATISTICS
@@ -94,21 +104,21 @@ public:
 #endif // ENABLE_STATISTICS
   }
 
-  Vertex * getSource(void);
-  Vertex * getTarget(void);
-  bool getAnswer(void);
-  bool getError(void);
-  SearchMethod getMethod(void);
+  Vertex * getSource(void) const;
+  Vertex * getTarget(void) const;
+  bool getAnswer(void) const;
+  bool getError(void) const;
+  SearchMethod getMethod(void) const;
 
 
 private:
   void setAnswer(bool value);
   void setError(bool value);
   void setCancel(bool value);
-  void setInternal(uint64_t value);
+  void setInternal(InternalQueue * value);
   void setMethod(SearchMethod value);
-  bool getCancel(void);
-  uint64_t getInternal(void);
+  bool getCancel(void) const;
+  InternalQueue * getInternal(void) const;
 };
 
 
@@ -157,13 +167,13 @@ public:
 
 // Function members
 public:
-  Query(QueryType t, ReachabilityQuery * q) :
-    type(t),
+  Query(ReachabilityQuery * q) :
+    type(Reachability),
     query(q)
   {}
 
-  Query(QueryType t, PartitionQuery * q) :
-    type(t),
+  Query(PartitionQuery * q) :
+    type(Partition),
     query(q)
   {}
 

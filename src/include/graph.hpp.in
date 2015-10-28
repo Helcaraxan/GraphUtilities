@@ -239,10 +239,7 @@ private:
   atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
 
   // Results
-  mutex internalResultMutex;
-  spin_semaphore internalResultSpinSemaphore;
   tbb::concurrent_queue<Query *> resultQueue;
-  list<Query *> internalResultQueue;
 
   // Reordering vectors
   vector<Vertex *> successorQueue;
@@ -377,8 +374,8 @@ protected:
   void discoverExtremities(void);
 
   // Multi-threading
-  void startQuery(void);
-  void stopQuery(void);
+  void startWorker(void);
+  void stopWorker(void);
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
   void startWorkers(void);

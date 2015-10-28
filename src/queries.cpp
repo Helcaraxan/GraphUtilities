@@ -6,31 +6,31 @@ using namespace std;
 // ReachabilityQuery declarations
 
 Vertex *
-ReachabilityQuery::getSource() {
+ReachabilityQuery::getSource() const {
   return source.load(memory_order_acquire);
 }
 
 
 Vertex *
-ReachabilityQuery::getTarget() {
+ReachabilityQuery::getTarget() const {
   return target.load(memory_order_acquire);
 }
 
 
 bool
-ReachabilityQuery::getAnswer() {
+ReachabilityQuery::getAnswer() const {
   return answer.load(memory_order_acquire);
 }
 
 
 bool
-ReachabilityQuery::getError() {
+ReachabilityQuery::getError() const {
   return error.load(memory_order_acquire);
 }
 
 
 SearchMethod
-ReachabilityQuery::getMethod() {
+ReachabilityQuery::getMethod() const {
   return method.load(memory_order_acquire);
 }
 
@@ -54,7 +54,7 @@ ReachabilityQuery::setCancel(bool value) {
 
 
 void
-ReachabilityQuery::setInternal(uint64_t value) {
+ReachabilityQuery::setInternal(ReachabilityQuery::InternalQueue * value) {
   internal.store(value, memory_order_release);
 }
 
@@ -66,12 +66,12 @@ ReachabilityQuery::setMethod(SearchMethod value) {
 
 
 bool
-ReachabilityQuery::getCancel() {
+ReachabilityQuery::getCancel() const {
   return cancel.load(memory_order_acquire);
 }
 
 
-uint64_t
-ReachabilityQuery::getInternal() {
+ReachabilityQuery::InternalQueue *
+ReachabilityQuery::getInternal() const {
   return internal.load(memory_order_acquire);
 }
