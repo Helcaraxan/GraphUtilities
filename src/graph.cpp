@@ -20,6 +20,19 @@ using namespace std;
 static map<int, int> remappedVertices;
 
 
+// Local perf measurement function
+
+#ifdef __amd64
+static __inline__ uint64_t getClock(void) {
+  uint64_t a, d;
+  __asm__ volatile ("rdtsc" : "=a" (a), "=d" (d));
+  return (d << 32) | a;
+}
+#else // __amd64
+#error "The GraphUtilities library only supports x86-64 architectures"
+#endif // __amd64
+
+
 // Semaphore class (passive wait variant)
 
 void
@@ -1333,8 +1346,7 @@ Graph::indexGraph() {
   }
 
 #ifdef ENABLE_BENCHMARKS
-  int event = PAPI_TOT_CYC;
-  PAPI_start_counters(&event, 1);
+  uint64_t startClock = getClock();
 #endif // ENABLE_BENCHMARKS
 
   // First traversal
@@ -1372,9 +1384,7 @@ Graph::indexGraph() {
   }
 
 #ifdef ENABLE_BENCHMARKS
-  long long indexCycles;
-  PAPI_stop_counters(&indexCycles, 1);
-  cyclesSpentIndexing = indexCycles;
+  cyclesSpentIndexing = getClock() - startClock;
 #endif // ENABLE_BENCHMARKS
 
   indexed = true;
@@ -1493,7 +1503,6 @@ Graph::enableGraph(int numberOfThreads) {
     return;
 
   threadCount = numberOfThreads;
-  PAPI_library_init(PAPI_VER_CURRENT);
 
   startWorkers();
 
@@ -1512,8 +1521,6 @@ Graph::disableGraph() {
       delete queryThreads.back();
       queryThreads.pop_back();
     }
-
-    PAPI_shutdown();
 
     threadCount = 0;
   }
@@ -1651,18 +1658,17 @@ Graph::areConnectedDFS(ReachabilityQuery * query) {
 #else // ENABLE_TLS
 Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
 #endif // ENABLE_TLS
-  int event = PAPI_TOT_CYC;
-  long long counterValue;
+  uint64_t cycleCount;
   uint64_t timestamp;
   Vertex * curr;
   vector<Vertex *> searchStack;
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
-  PAPI_start_counters(&event, 1);
+  cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL)
-    PAPI_start_counters(&event, 1);
+    cycleCount = getClock();
 #endif // ENABLE_BENCHMARKS
 
   query->setAnswer(false);
@@ -1739,22 +1745,22 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
 
 end:
 #ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
+  cycleCount = getClock() - cycleCount;
   benchmarkLock.lock();
-  cyclesSpentQuerying += counterValue;
+  cyclesSpentQuerying += cycleCount;
   queryNumber++;
   benchmarkLock.unlock();
 
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL) {
-    PAPI_stop_counters(&counterValue, 1);
+    cycleCount = getClock - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
@@ -1765,18 +1771,18 @@ end:
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
+  cycleCount = getClock() - cycleCount;
 
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL) {
-    PAPI_stop_counters(&counterValue, 1);
+    cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
@@ -1795,8 +1801,7 @@ Graph::areConnectedBBFS(ReachabilityQuery * query) {
 #else // ENABLE_TLS
 Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 #endif
-  int event = PAPI_TOT_CYC;
-  long long counterValue;
+  uint64_t cycleCount;
   uint64_t forwardId, backwardId;
   Vertex * curr;
   queue<Vertex *> searchQueueForward;
@@ -1804,10 +1809,10 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 
 #ifdef ENABLE_BENCHMARKS
   unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
-  PAPI_start_counters(&event, 1);
+  cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() == NULL)
-    PAPI_start_counters(&event, 1);
+    cycleCount = getClock();
 #endif // ENABLE_BENCHMARKS
 
   query->setAnswer(false);
@@ -1921,9 +1926,9 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 
 end:
 #ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
+  cycleCount = getClock() - cycleCount;
   benchmarkLock.lock();
-  cyclesSpentQuerying += counterValue;
+  cyclesSpentQuerying += cycleCount;
   queryNumber++;
   benchmarkLock.unlock();
 
@@ -1931,13 +1936,13 @@ end:
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL) {
-    PAPI_stop_counters(&counterValue, 1);
+    cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
@@ -1948,17 +1953,17 @@ end:
 
 cancel:
 #ifdef ENABLE_BENCHMARKS
-  PAPI_stop_counters(&counterValue, 1);
+  cycleCount = getClock() - cycleCount;
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL) {
-    PAPI_stop_counters(&counterValue, 1);
+    cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, counterValue);
+    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
