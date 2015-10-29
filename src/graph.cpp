@@ -1658,8 +1658,8 @@ Graph::areConnectedDFS(ReachabilityQuery * query) {
 #else // ENABLE_TLS
 Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
 #endif // ENABLE_TLS
-  uint64_t cycleCount;
-  uint64_t timestamp;
+  uint64_t cycleCount = 0;
+  uint64_t timestamp = 0;
   Vertex * curr;
   vector<Vertex *> searchStack;
 
@@ -1754,7 +1754,7 @@ end:
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL) {
-    cycleCount = getClock - cycleCount;
+    cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
     // Set the query time in the case of an internal query
@@ -1801,8 +1801,8 @@ Graph::areConnectedBBFS(ReachabilityQuery * query) {
 #else // ENABLE_TLS
 Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 #endif
-  uint64_t cycleCount;
-  uint64_t forwardId, backwardId;
+  uint64_t cycleCount = 0;
+  uint64_t forwardId = 0, backwardId = 0;
   Vertex * curr;
   queue<Vertex *> searchQueueForward;
   queue<Vertex *> searchQueueBackward;
