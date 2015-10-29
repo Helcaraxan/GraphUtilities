@@ -283,7 +283,6 @@ private:
   long long queryNumber{0};
   long long cyclesSpentIndexing{0};
   long long cyclesSpentQuerying{0};
-  long long graphMemoryUsage{0};
 
   // Multi-threading
   mutex benchmarkMutex;

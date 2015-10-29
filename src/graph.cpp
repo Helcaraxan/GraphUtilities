@@ -17,12 +17,8 @@ using namespace std;
 
 // Local global variables
 
-#ifdef ENABLE_BENCHMARKS
-static PAPI_dmem_info_t memoryInfo;
-static long long baseMemoryUsage;
-#endif // ENABLE_BENCHMARKS
-
 static map<int, int> remappedVertices;
+
 
 // Semaphore class (passive wait variant)
 
@@ -434,11 +430,6 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   fstream input(fileName, fstream::in);
   Graph * graph = NULL;
 
-#ifdef ENABLE_BENCHMARKS
-  PAPI_get_dmem_info(&memoryInfo);
-  baseMemoryUsage = memoryInfo.resident;
-#endif // ENABLE_BENCHMARKS
-
   graph = new Graph();
 
   if (!input.good()) {
@@ -484,11 +475,6 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
   else
     graph->condensed = false;
 
-#ifdef ENABLE_BENCHMARKS
-  PAPI_get_dmem_info(&memoryInfo);
-  graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
-#endif // ENABLE_BENCHMARKS
-
   return graph;
 }
 
@@ -500,11 +486,6 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   string barTitle = "Parsing graph ";
   fstream input(fileName, fstream::in);
   Graph *  graph = NULL;
-
-#ifdef ENABLE_BENCHMARKS
-  PAPI_get_dmem_info(&memoryInfo);
-  baseMemoryUsage = memoryInfo.resident;
-#endif // ENABLE_BENCHMARKS
 
   graph = new Graph();
 
@@ -565,11 +546,6 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
     graph->condensed = true;
   else
     graph->condensed = false;
-
-#ifdef ENABLE_BENCHMARKS
-  PAPI_get_dmem_info(&memoryInfo);
-  graph->graphMemoryUsage = memoryInfo.resident - baseMemoryUsage;
-#endif // ENABLE_BENCHMARKS
 
   return graph;
 }
@@ -1271,17 +1247,11 @@ Graph::getCyclesSpentQuerying(void) {
 void
 Graph::printBenchmarks(ostream &os) {
 #ifdef ENABLE_BENCHMARKS
-  int indexMemoryUsage = (8 * getVertexCount()) / 1024;
-  double indexOverhead = ((double) indexMemoryUsage) / ((double) graphMemoryUsage - indexMemoryUsage);
   os << "\n---\nBenchmarking\n";
   os << "Speed performances:\n";
   os << "Cycles spent indexing: " << cyclesSpentIndexing << "\n";
   os << "Cycles spent querying: " << cyclesSpentQuerying << "\n";
   os << "-> average of " << cyclesSpentQuerying / queryNumber << " cycles per query\n\n";
-  os << "Memory usage: " << graphMemoryUsage << " kilo-bytes.\n";
-  os << "Index memory requirement: " << indexMemoryUsage << " kilo-bytes\n";
-  os.precision(2);
-  os << "Index memory overhead: " << indexOverhead * 100 << "%\n---\n\n";
 #else // ENABLE_BENCHMARKS
   os << "WARNING: Benchmarking has not been enabled at compile time.\n";
   os << "WARNING: To enable benchmarks invoke cmake with '-DENABLE_BENCHMARKS=1'.\n\n";
