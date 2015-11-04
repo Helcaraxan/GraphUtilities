@@ -642,7 +642,7 @@ Graph::removeVertex(Vertex * v) {
 }
 
 
-void
+Vertex *
 Graph::mergeVertices(set<Vertex *> &s) {
   Vertex * target = addVertexUnsafe(threadCount);
   startGlobalOperation();
@@ -701,6 +701,8 @@ Graph::mergeVertices(set<Vertex *> &s) {
 
   indexed = false;
   stopGlobalOperation();
+  
+  return target;
 }
 
 
@@ -746,13 +748,14 @@ Graph::setIndexMethod(IndexMethod newMethod) {
 
 
 bool
-Graph::condenseGraph(bool dummy, bool dumpSCC) {
+Graph::condenseGraph(bool dummy, const char * dumpFile) {
   int label = 0;
   bool result = false;
   stack<Vertex *> unclassified;
   stack<Vertex *> undetermined;
   vector<pair<int, int> > labels(vertices.size(), pair<int, int>(-1, -1));
   vector<int> sccLabels(vertices.size(), -1);
+  fstream outStream;
 
   // Erase any existing SCCs
   for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it)
@@ -779,28 +782,32 @@ Graph::condenseGraph(bool dummy, bool dumpSCC) {
   if (label != (int) getVertexCount())
     cerr << "Did not visit all vertices during graph condensation!" << endl;
 
-  // When requested dump the SCCs that were found
-  if (dumpSCC) {
-    cerr << "DEBUG : SCC dump\n----" << endl;
-    for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it) {
-      if ((*it)->size() > 1) {
-        for (auto setIt = (*it)->begin(), setEnd = (*it)->end(); setIt != setEnd; ++setIt)
-          cerr << (*setIt)->id << " ";
+  // When a filename is provided prepare the stream to dump the correspondance
+  // between original and merged nodes
+  if (dumpFile)
+    outStream.open(dumpFile, ios_base::out);
 
-        cerr << "\n----" << endl;
-      }
-    }
-  }
-
-  // Merge the SCCs that have more than one vertex
+  // Merge the SCCs that have more than one vertex and dump if necessary
   for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it) {
     if ((*it)->size() > 1) {
-      if (!dummy)
+      if (!dummy) {
+        if (dumpFile) {
+          outStream << vertexCount << ":";
+          for (auto setIt = (*it)->begin(), setEnd = (*it)->end(); setIt != setEnd; ++setIt)
+            outStream << " " << (*setIt)->id; 
+
+          outStream << "\n";
+        }
+
         mergeVertices(**it);
+      }
 
       result = true;
     }
   }
+
+  if (dumpFile)
+    outStream.close();
 
   return result;
 }
@@ -950,6 +957,9 @@ Graph::pushQuery(Query * query) {
     BBFSwin = 0;
     methodLock.unlock();
   }
+
+  if (!enabled)
+    enableGraph();
 
   // If a method is specified use it
   if ((query->type != Reachability) ||
@@ -1336,7 +1346,7 @@ Graph::indexGraph() {
 
   // Make sure we are indexing a DAG
   if (!condensed) {
-    if (condenseGraph(false, true))
+    if (condenseGraph())
       cerr << "Graph needed condensing." << endl;
   }
 
@@ -1486,27 +1496,17 @@ Graph::stopGlobalOperation() {
 
 
 void
-Graph::startWorkers() {
-  if (threadsActive)
-    return;
+Graph::enableGraph() {
+  startGlobalOperation();
 
-  for (int i = 0; i < threadCount; i++)
-    queryThreads.push_back(new thread(queryWorker, this, i));
+  if (!enabled) {
+    for (int i = 0; i < threadCount; i++)
+      queryThreads.push_back(new thread(queryWorker, this, i));
 
-  threadsActive = true;
-}
+    enabled = true;
+  }
 
-
-void
-Graph::enableGraph(int numberOfThreads) {
-  if ((enabled) || (numberOfThreads == 0))
-    return;
-
-  threadCount = numberOfThreads;
-
-  startWorkers();
-
-  enabled = true;
+  stopGlobalOperation();
 }
 
 

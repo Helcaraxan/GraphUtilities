@@ -256,7 +256,6 @@ private:
   int activeThreads = 0;
   bool noQueries = false;
   bool threadShutdown = false;
-  bool threadsActive = false;
   mutex queryWaitMutex;
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;
@@ -293,10 +292,7 @@ private:
 public:
   // Constructors & Destructor
   Graph(int numberOfThreads = 2) {
-    if (numberOfThreads < 2)
-      numberOfThreads = 2;
-
-    enableGraph(numberOfThreads);
+    threadCount = (numberOfThreads > 2) ? numberOfThreads : 2;
   }
 
   ~Graph() {
@@ -317,11 +313,11 @@ public:
   // Modificators
   Vertex * addVertex();
   void removeVertex(Vertex * v);
-  void mergeVertices(set<Vertex *> &s);
+  Vertex * mergeVertices(set<Vertex *> &s);
   bool addEdge(Vertex * s, Vertex * t, int weight = 1);
   bool removeEdge(Vertex * s, Vertex * t);
   void setIndexMethod(IndexMethod newMethod);
-  bool condenseGraph(bool dummy = false, bool dumpSCC = false);
+  bool condenseGraph(bool dummy = false, const char * dumpFile = NULL);
 
   // Access
   graph_t * getMetisGraph(void);
@@ -377,8 +373,7 @@ protected:
   void stopWorker(void);
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
-  void startWorkers(void);
-  void enableGraph(int numberOfThreads);
+  void enableGraph(void);
   void disableGraph(void);
 
 
