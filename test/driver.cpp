@@ -11,10 +11,12 @@
 #include <tbb/concurrent_hash_map.h>
 
 #include "graph-utilities/graph.hpp"
+#include "graph-utilities/support.hpp"
 
 using namespace std;
 
 
+int batchFlag = 0;
 static int dryFlag = 0;
 static int uniqueFlag = 0;
 static int verifyFlag = 0;
