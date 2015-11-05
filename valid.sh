@@ -36,7 +36,7 @@ runSubBuild() {
 
 	# Compile the library
 	echo "Building the GraphUtilities library"
-	make -j
+	make
 
 	# Run the tests
 	echo "Running the validation tests"
