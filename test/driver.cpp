@@ -401,7 +401,7 @@ main(int argc, char * argv[]) {
     for (i = 0; i < (int) graph->getVertexCount(); i++) {
       dumpFile << i << ":";
       curr = graph->getVertexFromId(i);
-      for (auto it = curr->successors_begin(); it != curr->successors_end(); ++it)
+      for (auto it = curr->succ_begin(); it != curr->succ_end(); ++it)
         dumpFile << " " << (*it)->id;
 
       dumpFile << " #\n";

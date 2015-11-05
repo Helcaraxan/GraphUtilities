@@ -1,0 +1,162 @@
+#ifndef VERTEX_HPP
+#define VERTEX_HPP
+
+#include <vector>
+#include <cstdint>
+#include <cstring>
+
+#include "graph-utilities/defs.hpp"
+
+using namespace std;
+
+
+// Virtual User-data interface class
+
+class UserDataInterface {
+public:
+  virtual ~UserDataInterface(void) {};
+
+  virtual void merge(const UserDataInterface *) = 0;
+
+  virtual UserDataInterface * clone(void) const = 0;
+};
+
+
+// Templated User-data class that should be inherited by user-specified data
+// classes. This uses Curiously Recurring Template Pattern to achieve it's goal.
+
+template<typename UserDataImpl>
+class UserData : public UserDataInterface {
+public:
+  virtual UserDataInterface * clone() const {
+    return new UserDataImpl(dynamic_cast<UserDataImpl const&>(*this));
+  }
+};
+
+
+// Vertex class
+
+class Vertex {
+friend class Graph;
+
+// Type members
+public:
+  typedef typename vector<Vertex *>::const_iterator const_iterator;
+  typedef typename vector<Vertex *>::iterator iterator;
+
+
+// Data members
+public:
+  int id;
+  int weight;
+
+
+private:
+  // Indexing
+  int inVisits = 0;
+  int outVisits = 0;
+  Vertex * firstVisit = NULL;
+
+  // Reachability data
+  int orderLabel = -1;
+  int revOrderLabel = -1;
+#ifndef ENABLE_TLS
+  uint64_t * DFSId = NULL;
+#endif // ENABLE_TLS
+
+  // Partioning data
+  int partitionID = 0;
+
+  // General data
+  int predecessorCount = 0;
+  int successorCount = 0;
+  vector<Vertex *> predecessors;
+  vector<int> predecessorWeights;
+  vector<Vertex *> successors;
+  vector<int> successorWeights;
+
+  // User data
+  UserDataInterface * userData = NULL;
+
+
+// Function members
+public:
+  // Constructor and destructor
+#ifdef ENABLE_TLS
+  Vertex(int i, int w = 1, UserDataInterface * d = NULL) :
+    id(i),
+    weight(w)
+  {
+    if (d != NULL)
+      userData = d;
+  }
+#else // ENABLE_TLS
+  Vertex(int tc, int i, int w = 1, UserDataInterface * d = NULL) :
+    id(i),
+    weight(w)
+  {
+    if (d != NULL)
+      userData = d;
+
+    DFSId = new uint64_t[tc];
+  }
+#endif // ENABLE_TLS
+
+  ~Vertex(void) {
+    if (userData != NULL)
+      delete userData;
+  }
+
+  // Modificators
+  bool addPredecessor(Vertex * pred, int weight = 1);
+  bool addSuccessor(Vertex * succ, int weight = 1);
+  bool removePredecessor(Vertex * pred);
+  bool removeSuccessor(Vertex * succ);
+  void clearPredecessors(void);
+  void clearSuccessors(void);
+
+  // Access
+  Vertex * getPredecessor(int idx) const;
+  Vertex * getSuccessor(int idx) const;
+  int getPredecessorCount(void) const;
+  int getSuccessorCount(void) const;
+  int getPredecessorWeight(Vertex * pred) const;
+  int getSuccessorWeight(Vertex * succ) const;
+  int getPredecessorWeight(int idx) const;
+  int getSuccessorWeight(int idx) const;
+
+  // Iterators
+  const_iterator pred_begin(void) const;
+  const_iterator pred_end(void) const;
+  const_iterator succ_begin(void) const;
+  const_iterator succ_end(void) const;
+  iterator pred_begin(void);
+  iterator pred_end(void);
+  iterator succ_begin(void);
+  iterator succ_end(void);
+
+  // User data management (local)
+  void setUserData(UserDataInterface * newData);
+  UserDataInterface * getUserData(void) const;
+
+
+private:
+  // Indexing
+#ifdef ENABLE_TLS
+  void setDFSId(uint64_t newId);
+  uint64_t getDFSId(void) const;
+  static void checkDFSId(size_t size);
+#else // ENABLE_TLS
+  void setDFSId(int idx, uint64_t newId);
+  uint64_t getDFSId(int idx) const;
+#endif // ENABLE_TLS
+  pair<bool, Vertex *> getNextDFS(Vertex * origin,
+      bool postOrder, bool reverse);
+
+  // Modificators
+  void addPredecessorUnsafe(Vertex * pred, int weight = 1);
+  void addSuccessorUnsafe(Vertex * succ, int weight = 1);
+};
+
+
+#endif // VERTEX_HPP

@@ -1,0 +1,13 @@
+#ifndef DEFS_HPP
+#define DEFS_HPP
+
+// Let cmake choose which options are enabled
+#cmakedefine ENABLE_STATISTICS
+#cmakedefine ENABLE_BENCHMARKS
+#cmakedefine ENABLE_TLS
+#cmakedefine ENABLE_COARSEN_STATISTICS
+
+// Let cmake choose the maximum number of parallel queries
+#define AUTO_THRESHOLD ${AUTO_THRESHOLD}
+
+#endif // DEFS_HPP

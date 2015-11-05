@@ -6,17 +6,10 @@
 #include <vector>
 #include <condition_variable>
 
-// Let cmake choose which options are enabled
-#cmakedefine ENABLE_STATISTICS
-#cmakedefine ENABLE_BENCHMARKS
+#include "graph-utilities/defs.hpp"
+#include "graph-utilities/vertex.hpp"
 
 using namespace std;
-
-
-// Forward declarations
-
-class Vertex;
-class Graph;
 
 
 // Enumeration types
@@ -92,7 +85,8 @@ private:
 
 // Function members
 public:
-  ReachabilityQuery(Vertex * u, Vertex * v, SearchMethod searchMethod = UndefinedSearchMethod) {
+  ReachabilityQuery(Vertex * u, Vertex * v,
+      SearchMethod searchMethod = UndefinedSearchMethod) {
     source.store(u, memory_order_release);
     target.store(v, memory_order_release);
     method.store(searchMethod, memory_order_release);

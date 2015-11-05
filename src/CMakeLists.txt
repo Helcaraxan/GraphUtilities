@@ -4,33 +4,22 @@ link_directories("${PROJECT_BINARY_DIR}/lib")
 
 
 # Generate the header files according to the previously defined options
-configure_file(
-	"${PROJECT_SOURCE_DIR}/src/include/graph.hpp.in"
-	"${PROJECT_BINARY_DIR}/include/graph-utilities/graph.hpp"
-	)
+file(GLOB SOURCE_HEADER_LIST ${PROJECT_SOURCE_DIR}/src/include/*.hpp.in)
+foreach(SOURCE_HEADER ${SOURCE_HEADER_LIST})
+	get_filename_component(HEADER ${SOURCE_HEADER} NAME_WE)
 
-configure_file(
-	"${PROJECT_SOURCE_DIR}/src/include/queries.hpp.in"
-	"${PROJECT_BINARY_DIR}/include/graph-utilities/queries.hpp"
-	)
-
-configure_file(
-	"${PROJECT_SOURCE_DIR}/src/include/metis-extra.hpp.in"
-	"${PROJECT_BINARY_DIR}/include/graph-utilities/metis-extra.hpp"
-	)
-
-configure_file(
-	"${PROJECT_SOURCE_DIR}/src/include/support.hpp.in"
-	"${PROJECT_BINARY_DIR}/include/graph-utilities/support.hpp"
-	)
+	configure_file(
+		"${PROJECT_SOURCE_DIR}/src/include/${HEADER}.hpp.in"
+		"${PROJECT_BINARY_DIR}/include/graph-utilities/${HEADER}.hpp"
+		)
+endforeach(SOURCE_HEADER)
 
 
 # Add the library
+file(GLOB SOURCE_LIST ${PROJECT_SOURCE_DIR}/src/*.cpp)
 add_library(
 	GraphUtilities SHARED
-	metis-extra.cpp
-	queries.cpp
-	graph.cpp
+	${SOURCE_LIST}
 	)
 
 target_link_libraries(GraphUtilities
@@ -48,9 +37,6 @@ install(TARGETS GraphUtilities
 
 install(
 	FILES
-		"${PROJECT_BINARY_DIR}/include/graph-utilities/graph.hpp"
-		"${PROJECT_BINARY_DIR}/include/graph-utilities/queries.hpp"
-		"${PROJECT_BINARY_DIR}/include/graph-utilities/support.hpp"
-		"${PROJECT_BINARY_DIR}/include/graph-utilities/metis-extra.hpp"
+		${PROJECT_BINARY_DIR}/include/graph-utilities/*.hpp
 	DESTINATION "include/graph-utilities"
 	)

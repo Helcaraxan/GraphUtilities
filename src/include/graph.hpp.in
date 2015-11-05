@@ -1,13 +1,3 @@
-/*
- * graph.hpp
- */
-
-/* Forward declarations */
-class Edge;
-class Vertex;
-class Graph;
-
-
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
 
@@ -23,176 +13,18 @@ class Graph;
 #include <papi.h>
 #include <tbb/concurrent_queue.h>
 
+#include "graph-utilities/defs.hpp"
+#include "graph-utilities/vertex.hpp"
 #include "graph-utilities/queries.hpp"
 #include "graph-utilities/support.hpp"
+#include "graph-utilities/semaphore.hpp"
 #include "graph-utilities/metis-extra.hpp"
-
-// Let cmake choose which options are enabled
-#cmakedefine ENABLE_STATISTICS
-#cmakedefine ENABLE_BENCHMARKS
-#cmakedefine ENABLE_TLS
-#cmakedefine ENABLE_COARSEN_STATISTICS
-
-// Let cmake choose the maximum number of parallel queries
-#define AUTO_THRESHOLD ${AUTO_THRESHOLD}
-
 
 using namespace std;
 
 
-// Semaphore class (passive wait variant)
 
-class semaphore {
-private:
-  mutex mtx;
-  condition_variable cv;
-  atomic<int> count{0};
-
-public:
-  // Increment the counter value
-  void post(void);
-
-  // Wait for a post to the semaphore
-  void wait(void);
-};
-
-
-// Spin-semaphore class (passive wait variant)
-class spin_semaphore {
-private:
-  mutex mtx;
-  atomic<int> maxIdx{0};
-  atomic<int> currIdx{0};
-  atomic<int> overflow{0};
-  atomic<int> members{0};
-  condition_variable * cvs = NULL;
-
-public:
-  void initialize(int memberCount);
-
-  void reset(void);
-
-  void post(void);
-
-  void wait(void);
-};
-
-
-// The global slave function that performs queries
-
-void queryWorker(Graph * graph, int threadId);
-
-
-// Forward declaration of the Graph classes and global variables
-
-class Vertex;
-class Graph;
-
-#ifdef ENABLE_TLS
-thread_local vector<uint64_t> * DFSId = new vector<uint64_t>();
-#endif
-
-
-// Class declarations
-
-class Vertex {
-friend class Graph;
-
-// Local types
-public:
-  typedef vector<Vertex *>::iterator iterator;
-
-
-// Data members
-public:
-  int id;
-  int weight;
-
-
-private:
-  // Reachability data
-  int orderLabel = -1;
-  int reverseOrderLabel = -1;
-  int inVisits = 0;
-  int outVisits = 0;
-#ifndef ENABLE_TLS
-  uint64_t * DFSId = NULL;
-#endif // ENABLE_TLS
-
-  Vertex * firstVisit = NULL;
-
-  // Partioning data
-  int partitionID = 0;
-
-  // General data
-  int predecessorCount = 0;
-  int successorCount = 0;
-  vector<Vertex *> predecessors;
-  vector<int> predecessorWeights;
-  vector<Vertex *> successors;
-  vector<int> successorWeights;
-
-
-// Function members
-public:
-  // Constructors & Destructor
-#ifdef ENABLE_TLS
-  Vertex(int i, int w = 1) : id(i), weight(w) {
-    DFSId->push_back(0);
-  }
-#else // ENABLE_TLS
-  Vertex(int tc, int i, int w = 1) : id(i), weight(w) {
-    DFSId = new uint64_t[tc];
-  }
-#endif // ENABLE_TLS
-
-  ~Vertex(void) {
-#ifndef ENABLE_TLS
-    delete[] DFSId;
-#endif // ENABLE_TLS
-  }
-
-  // Modificators
-  bool addPredecessor(Vertex * pred, int weight = 1);
-  bool addSuccessor(Vertex * succ, int weight = 1);
-  bool removePredecessor(Vertex * pred);
-  bool removeSuccessor(Vertex * succ);
-  void clearPredecessors(void);
-  void clearSuccessors(void);
-
-  // Access
-  Vertex * getPredecessor(int idx) const;
-  Vertex * getSuccessor(int idx) const;
-  int getPredecessorCount(void) const;
-  int getSuccessorCount(void) const;
-  int getPredecessorWeight(Vertex * pred) const;
-  int getSuccessorWeight(Vertex * succ) const;
-  int getPredecessorWeight(int idx) const;
-  int getSuccessorWeight(int idx) const;
-
-  // Iterators
-  iterator predecessors_begin(void);
-  iterator predecessors_end(void);
-  iterator successors_begin(void);
-  iterator successors_end(void);
-
-
-private:
-  // Indexing
-#ifdef ENABLE_TLS
-  void setDFSId(uint64_t newId);
-  uint64_t getDFSId(void) const;
-#else // ENABLE_TLS
-  void setDFSId(int idx, uint64_t newId);
-  uint64_t getDFSId(int idx) const;
-#endif // ENABLE_TLS
-  pair<bool, Vertex *> getNextDFS(Vertex * origin, bool postOrder, bool reverse);
-
-  // Modificators
-  void addPredecessorUnsafe(Vertex * pred, int weight = 1);
-  void addSuccessorUnsafe(Vertex * succ, int weight = 1);
-};
-
+// Graph class
 
 class Graph {
 friend void queryWorker(Graph * graph, int id);
@@ -223,7 +55,6 @@ protected:
 
   // Global timestamp to distinguish between condensation DFSs
   uint64_t globalTimestamp;
-
 
 private:
   /* Reachability data */
@@ -304,8 +135,10 @@ public:
   }
 
   // Parser functions
-  static Graph * createFromDotFile(const char * fileName, bool noDoubleEdges = false);
-  static Graph * createFromGraFile(const char * fileName, bool noDoubleEdges = false);
+  static Graph * createFromDotFile(const char * fileName,
+      bool noDoubleEdges = false);
+  static Graph * createFromGraFile(const char * fileName,
+      bool noDoubleEdges = false);
 
   // Serialization
   void printToFile(fstream &printStream, bool withWeights = false);
@@ -340,7 +173,8 @@ public:
   PartitionSet * getPartitionSet(int count);
 
   // Graph coarsening
-  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor, map<int, int> &vertexMap);
+  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
+      map<int, int> &vertexMap);
 
   // Statistics
   bool statisticsAreEnabled(void);
@@ -359,8 +193,7 @@ public:
   long long getCyclesSpentQuerying(void);
   void printBenchmarks(ostream &os);
 
-
-protected:
+private:
   // Indexing
   void labelVertices(bool reverse);
   void indexGraph(void);
@@ -376,8 +209,6 @@ protected:
   void enableGraph(void);
   void disableGraph(void);
 
-
-private:
   // Maintenance
   Vertex * addVertexUnsafe(int threadCount);
   bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
@@ -409,7 +240,8 @@ private:
 #endif // ENABLE_TLS
 
   // Internal coarsening functions
-  bool addToReadySet(Vertex * curr, set<Vertex *> &readySet, set<Vertex *> &processedSet);
+  bool addToReadySet(Vertex * curr,
+      set<Vertex *> &readySet, set<Vertex *> &processedSet);
   Graph * coarsenGreedy(int factor, map<int, int> &vertexMap);
 
 #ifdef ENABLE_STATISTICS
@@ -417,5 +249,11 @@ private:
   void registerQueryStatistics(ReachabilityQuery * query);
 #endif // ENABLE_STATISTICS
 };
+
+
+// The global slave function that performs queries
+
+void queryWorker(Graph * graph, int threadId);
+
 
 #endif // GRAPH_HPP

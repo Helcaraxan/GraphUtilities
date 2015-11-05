@@ -1,6 +1,8 @@
 #ifndef SUPPORT_HPP
 #define SUPPORT_HPP
 
+#include <iostream>
+
 #include "unistd.h"
 #include "sys/ioctl.h"
 
@@ -61,5 +63,7 @@ inline void resultProgressBar(int progress) {
   cout << string(intRatio, '=') << string(terminalWidth - progressBarTitleWidth - intRatio, ' ');
   cout << "]\r" << flush;
 }
+
+
 
 #endif // SUPPORT_HPP

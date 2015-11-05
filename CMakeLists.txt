@@ -33,8 +33,8 @@ if (NOT AUTO_THRESHOLD)
 endif(NOT AUTO_THRESHOLD)
 
 # Set the compile options depending on the build-type
-set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -pthread -g3 -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -pthread -g -O3")
+set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -pthread -g3 -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -pthread -g -O3")
 
 
 # Create a target for removing the files installed by the 'install' target
