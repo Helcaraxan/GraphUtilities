@@ -35,8 +35,8 @@ install(TARGETS GraphUtilities
 	LIBRARY DESTINATION "lib"
 	)
 
+file(GLOB HEADER_LIST ${PROJECT_BINARY_DIR}/include/graph-utilities/*.hpp)
 install(
-	FILES
-		${PROJECT_BINARY_DIR}/include/graph-utilities/*.hpp
+	FILES ${HEADER_LIST}
 	DESTINATION "include/graph-utilities"
 	)

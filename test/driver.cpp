@@ -16,7 +16,14 @@
 using namespace std;
 
 
-int batchFlag = 0;
+// Externally defined variables for progress bars
+
+extern int batchFlag;
+extern int progressBarFinish;
+
+
+// Local variables
+
 static int dryFlag = 0;
 static int uniqueFlag = 0;
 static int verifyFlag = 0;
@@ -25,6 +32,8 @@ static bool poison = false;
 static semaphore openQueries;
 static tbb::concurrent_hash_map<Query *, bool> queryMap;
 
+
+// Command-line option specifications
 
 static const struct option longopts[] = {
   {"input",     required_argument, 0, 'i'},
@@ -46,6 +55,8 @@ static const struct option longopts[] = {
   {0,0,0,0}
 };
 
+
+// Driver functions
 
 void
 printHelpMessage() {
