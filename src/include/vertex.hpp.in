@@ -10,26 +10,22 @@
 using namespace std;
 
 
-// Virtual User-data interface class
+// User-data abstract interface and implementation classes
 
 class UserDataInterface {
 public:
-  virtual ~UserDataInterface(void) {};
-
-  virtual void merge(const UserDataInterface *) = 0;
+  virtual ~UserDataInterface(void) = default;
 
   virtual UserDataInterface * clone(void) const = 0;
+  virtual void merge(const UserDataInterface * source) = 0;
 };
 
 
-// Templated User-data class that should be inherited by user-specified data
-// classes. This uses Curiously Recurring Template Pattern to achieve it's goal.
-
-template<typename UserDataImpl>
+template<class UserDataImpl>
 class UserData : public UserDataInterface {
 public:
-  virtual UserDataInterface * clone() const {
-    return new UserDataImpl(dynamic_cast<UserDataImpl const&>(*this));
+  virtual UserDataInterface * clone(void) const {
+    return new UserDataImpl(static_cast<const UserDataImpl&>(*this));
   }
 };
 
