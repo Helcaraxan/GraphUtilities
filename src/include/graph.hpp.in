@@ -16,13 +16,15 @@ using namespace std;
  */
 
 
-// Graph class
+/////////////////
+// Graph class //
+/////////////////
 
 /*!
- * \brief Representation class for a Directed-Acyclic Graph.
+ * \brief Representation class for a Directed-Acyclic-Graph.
  *
- * This class defines an abstract enforces an interface for implementations of
- * this library. It describes a minimal API for high-level graph manipulations.
+ * This class enforces an interface for implementations of this library. It
+ * describes a minimal API for high-level graph manipulations.
  */
 class Graph {
 // Local types

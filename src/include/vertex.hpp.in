@@ -8,70 +8,408 @@
 using namespace std;
 
 
-// User-data abstract interface and implementation classes
+/*!
+ * \file vertex.hpp
+ * \brief Header for the Vertex API
+ */
 
+
+//////////////////////////////////
+// User-data abstract interface //
+//////////////////////////////////
+
+/*!
+ * \brief Interface class for UserData associated with Vertex class instances.
+ *
+ * This class enforces an interface for user-defined UserData implementations
+ * that can be associated with Vertex class instances.
+ */
 class UserDataInterface {
+// Function members
 public:
+  /*!
+   * \brief Default destructor for a UserDataInterface instance.
+   */
   virtual ~UserDataInterface(void) = default;
 
+  /*!
+   * \brief Obtain a copy of this user-data set.
+   *
+   * Creates a copy of this user-data set as an alternative to a
+   * copy-constructor.
+   *
+   * \return Pointer to the newly made copy of this UserDataInterface instance.
+   */
   virtual UserDataInterface * clone(void) const = 0;
+
+  /*!
+   * \brief Merges another user-data set into this one.
+   *
+   * Performs a user-defined merge of two user-data sets into this user-data
+   * set.
+   *
+   * \param source Pointer to the UserDataInterface instance that should be
+   * merged into this one.
+   */
   virtual void merge(const UserDataInterface * source) = 0;
 };
 
 
+/*!
+ * \brief CRTP-base class for UserData implementations.
+ *
+ * This class should be inherited by all user-defined implementations of
+ * user-data sets. It provides a default clone factory method. It is based on
+ * the Curiously Recurring Template Pattern (CRTP).
+ *
+ * \tparam UserDataImpl Should be the same class as the class that inherits from
+ * this class, i.e <tt>class MyUserData : public UserData\<MyUserData\></tt>.
+ */
 template<class UserDataImpl>
 class UserData : public UserDataInterface {
+// Function members
 public:
+  /*!
+   * \brief Factory function that performs cloning of UserData instance.
+   *
+   * \return Pointer to the newly made copy of this UserData instance.
+   */
   virtual UserDataInterface * clone(void) const;
 };
 
 
-// Vertex class
+//////////////////
+// Vertex class //
+//////////////////
 
+/*!
+ * \brief Representation class for nodes in a Directed-Acyclic-Graph.
+ *
+ * This class enforces an interface for implementations of this library. It
+ * describes a minimal API for high-level manipulations.
+ */
 class Vertex {
 // Type members
 public:
+  /*!
+   * \brief STL alias for Vertex vectors
+   */
   typedef vector<Vertex *> Array;
+
+  /*!
+   * \brief STL alias for Vertex sets
+   */
   typedef set<Vertex *> Set;
+
+  /*!
+   * \brief STL alias for Vertex stacks
+   */
   typedef stack<Vertex *> Stack;
+
+  /*!
+   * \brief STL alias for vectors of Vertex sets
+   */
   typedef vector<Set *> PartitionArray;
 
 
 // Function members
 public:
-  // Constructor & Destructor
+  ////////////////////////////////
+  // Constructors & Destructors //
+  ////////////////////////////////
+
+  /*!
+   * \brief Default constructor for a Vertex instance.
+   */
   Vertex(void) = default;
+
+  /*!
+   * \brief Default destructor for a Vertex instance.
+   */
   virtual ~Vertex(void) = default;
 
-  // Remove copy & move constructors
+  /*!
+   * \brief Deleted copy constructor.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Vertex instances.
+   */
   Vertex(const Vertex&) = delete;
+
+  /*!
+   * \brief Deleted move constructor.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Vertex instances.
+   */
   Vertex(Vertex&&) = delete;
+
+  /*!
+   * \brief Deleted copy assignment operator.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Vertex instances.
+   */
   Vertex& operator=(const Vertex&) = delete;
+
+  /*!
+   * \brief Deleted move assignment operator.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Vertex instances.
+   */
   Vertex& operator=(Vertex&&) = delete;
 
-  // Modificator methods
+  /////////////////////////
+  // Modificator methods //
+  /////////////////////////
+
+  /*!
+   * \brief Modify the weight of this node.
+   *
+   * Sets a new weight attribute for this node.
+   *
+   * \param int The new weight of the node.
+   */
   virtual void setWeight(int newWeight) = 0;
+
+  /*!
+   * \brief Add a predecessor to this node.
+   *
+   * Register a node as a predecessor for this node. This checks if the
+   * specified node is not already registered and does not in any case perform a
+   * mutual registration.
+   *
+   * \param predecessor Pointer to the new predecessor Vertex.
+   * \param weight The (optional) weight of the edge between the two nodes.
+   *
+   * \return Boolean indicating if the registration occured.
+   *
+   * \sa removePredecessor()
+   */
   virtual bool addPredecessor(Vertex * predecessor, int weight = 1) = 0;
+
+  /*!
+   * \brief Add a successor to this node.
+   *
+   * Register a node as a successor for this node. This checks if the specified
+   * node is not already registered and does not in any case perform a mutual
+   * registration.
+   *
+   * \param successor Pointer to the new successor Vertex.
+   * \param weight The (optional) weight of the edge between the two nodes.
+   *
+   * \return Boolean indicating if the registration occured.
+   *
+   * \sa removeSuccessor()
+   */
   virtual bool addSuccessor(Vertex * successor, int weight = 1) = 0;
+
+  /*!
+   * \brief Remove a predecessor from this node.
+   *
+   * Unregisters a node as predecessor for this node. If the specified node is
+   * not a predecessor nothing happens. This method does not perform a mutual
+   * unregistration.
+   *
+   * \param predecessor Pointer to the predecessor Vertex to unregister.
+   *
+   * \return Boolean indicating if the unregistration occured.
+   *
+   * \sa addPredecessor()
+   */
   virtual bool removePredecessor(Vertex * predecessor) = 0;
+
+  /*!
+   * \brief Remove a successor from this node.
+   *
+   * Unregisters a node as successor for this node. If the specified node is not
+   * a successor nothing happens. This method does not perform a mutual
+   * unregistration.
+   *
+   * \param successor Pointer to the successor Vertex to unregister.
+   *
+   * \return Boolean indicating if the unregistration occured.
+   *
+   * \sa addSuccessor()
+   */
   virtual bool removeSuccessor(Vertex * successor) = 0;
+
+  /*!
+   * \brief Remove all predecessors from this node.
+   *
+   * Unregisters all existing predecessors from this node. This does not perform
+   * mutual unregistrations.
+   *
+   * \sa removePredecessor()
+   */
   virtual void clearPredecessors(void) = 0;
+
+  /*!
+   * \brief Remove all successors from this node.
+   *
+   * Unregisters all existing successors from this node. This does not perform
+   * mutual unregistrations.
+   *
+   * \sa removeSuccessor()
+   */
   virtual void clearSuccessors(void) = 0;
 
-  // Access methods
+
+  ////////////////////
+  // Access methods //
+  ////////////////////
+
+  /*!
+   * \brief Get the index of this node.
+   *
+   * Retrieve the index of this node. The index for a given node does not change
+   * over time.
+   *
+   * \return Index of this node.
+   */
   virtual int getId(void) const = 0;
+
+  /*!
+   * \brief Get the weight of this node.
+   *
+   * Retrieve the weight of this node. The weight of a given node does not
+   * change over time.
+   *
+   * \return Weight of this node.
+   */
   virtual int getWeight(void) const = 0;
+
+  /*!
+   * \brief Get a predecessor of this node.
+   *
+   * Retrieve a predecessor of this node by its local index. This is not the
+   * predecessors node's index but the number of the node amongst all
+   * predecessors.
+   *
+   * \param index Local index of the node to be retrieved.
+   *
+   * \return Pointer to the Vertex in index-th position among this node's
+   * predecessors.
+   */
   virtual Vertex * getPredecessor(int index) const = 0;
+
+  /*!
+   * \brief Get a successor of this node.
+   *
+   * Retrieve a successor of this node by its local index. This is not the
+   * successors node's index but the number of the node amongst all successors.
+   *
+   * \param index Local index of the node to be retrieved.
+   *
+   * \return Pointer to the Vertex in index-th position among this node's
+   * successors.
+   */
   virtual Vertex * getSuccessor(int index) const = 0;
+
+  /*!
+   * \brief Get the number of predecessors of this node.
+   *
+   * Retrieve the number of predecessors of this node.
+   *
+   * \return The number of predecessors of this node.
+   */
   virtual int getPredecessorCount(void) const = 0;
+
+  /*!
+   * \brief Get the number of successors of this node.
+   *
+   * Retrieve the number of successors of this node.
+   *
+   * \return The number of successors of this node.
+   */
   virtual int getSuccessorCount(void) const = 0;
+
+  /*!
+   * \brief Get the weight of an incoming edge.
+   *
+   * Retrieve the weight associated with an edge coming from a predecessor node.
+   * If there is no predecessor corresponding to the specified one a default
+   * value of 0 is returned.
+   *
+   * \param predecessor Pointer to the source vertex of the edge.
+   *
+   * \return Weight of the edge coming from the specified source vertex. 0 if
+   * there is no such vertex among the predecessors.
+   */
   virtual int getPredecessorWeight(const Vertex * predecessor) const = 0;
+
+  /*!
+   * \brief Get the weight of an outgoing edge.
+   *
+   * Retrieve the weight associated with an edge going to a successor node. If
+   * there is no successor corresponding to the specified one a default value of
+   * 0 is returned.
+   *
+   * \param successor Pointer to the target vertex of the edge.
+   *
+   * \return Weight of the edge going to the specified target vertex. 0 if there
+   * is no such vertex among the successors.
+   */
   virtual int getSuccessorWeight(const Vertex * successor) const = 0;
+
+  /*!
+   * \brief Get the weight of an incoming edge.
+   *
+   * Retrieve the weight associated with an edge coming from a predecessor node.
+   * If there is no predecessor corresponding to the specified one a default
+   * value of 0 is returned.
+   *
+   * \param index Local index of the source vertex of the edge amongst the
+   * node's predecessors.
+   *
+   * \return Weight of the edge coming from the specified source vertex. 0 if
+   * there is no such vertex among the predecessors.
+   */
   virtual int getPredecessorWeight(int index) const = 0;
+
+  /*!
+   * \brief Get the weight of an outgoing edge.
+   *
+   * Retrieve the weight associated with an edge going to a successor node. If
+   * there is no successor corresponding to the specified one a default value of
+   * 0 is returned.
+   *
+   * \param index Local index of the target vertex of the edge amongst the
+   * node's  successors.
+   *
+   * \return Weight of the edge going to the specified target vertex. 0 if there
+   * is no such vertex among the successors.
+   */
   virtual int getSuccessorWeight(int index) const = 0;
 
-  // User data management
+
+  //////////////////////////
+  // User data management //
+  //////////////////////////
+
+  /*!
+   * \brief Set a new user-data set for this node.
+   *
+   * When necessary deletes an old user-data set and register the specified one
+   * as the new user-data set for this node.
+   *
+   * \param newData Pointer to the new user-data set.
+   *
+   * \sa getUserData()
+   */
   virtual void setUserData(UserDataInterface * newData) = 0;
+
+  /*!
+   * \brief Get the user-data set for this node.
+   *
+   * Retrieve the currently associated user-data set for this node.
+   *
+   * \return Pointer to the user-data set associated with this node. Possibly
+   * NULL if no data-set was previously specified.
+   *
+   * \sa setUserData()
+   */
   virtual UserDataInterface * getUserData(void) const = 0;
 };
 
