@@ -78,6 +78,13 @@ VertexImpl::getOrders() const {
 
 // Graph traversal
 
+void
+VertexImpl::resetDFS() {
+  inVisits = 0;
+  outVisits = 0;
+  firstVisit = NULL;
+}
+
 /* Compute the next Vertex to be visited in a DFS traversal of the graph
  * from the current Vertex instance. This allows for an iterative traversal and
  * not a recursive one in order to prevent stack-overflows on large graphs. The
@@ -85,13 +92,19 @@ VertexImpl::getOrders() const {
  * boolean telling if its the real next vertice or if it's an intermediary one.
  */
 pair<bool, VertexImpl *>
-VertexImpl::getNextDFS(VertexImpl * origin, bool postOrder, bool reverse) {
+VertexImpl::getNextDFS(VertexImpl * origin, Graph::TraversalOrder order,
+    Graph::TraversalDirection direction) {
+  int visitLimit = 0;
   bool isTarget = false;
   VertexImpl * target = NULL;
 
   if (inVisits == 0) {
-    // This is part of the first visit to this Vertex
+    if (direction == Graph::TraversalDirection::Forward)
+      visitLimit = successorCount;
+    else if (direction == Graph::TraversalDirection::Backward)
+      visitLimit = predecessorCount;
 
+    // This is part of the first visit to this Vertex
     if (firstVisit == NULL) {
       // Register the origin as the source of the DFS traversal
       if (origin == this) {
@@ -101,24 +114,25 @@ VertexImpl::getNextDFS(VertexImpl * origin, bool postOrder, bool reverse) {
       }
 
       target = this;
-      if (!postOrder)
+      if (order == Graph::TraversalOrder::PreOrder)
         isTarget = true;
-      else
+      else if (order == Graph::TraversalOrder::PostOrder)
         isTarget = false;
-    } else if (outVisits < (reverse ? predecessorCount : successorCount)) {
+    } else if (outVisits < visitLimit) {
       // Visit successors if some have not yet been visited
       isTarget = false;
-      target = reverse ? predecessors[outVisits++] : successors[outVisits++];
+
+      if (direction == Graph::TraversalDirection::Forward)
+        target = successors[outVisits++];
+      else if (direction == Graph::TraversalDirection::Backward)
+        target = predecessors[outVisits++];
     } else {
       // All successors have been visited so either...
-
-      if ((!postOrder)
-          || (outVisits == (reverse ? predecessorCount : successorCount))) {
+      if ((order == Graph::TraversalOrder::PreOrder)
+          || (outVisits == visitLimit)) {
         // ... go back to the first visiting Vertex for this traversal
         if (firstVisit == (Vertex *) 0x1) {
-          inVisits = 0;
-          outVisits = 0;
-          firstVisit = NULL;
+          resetDFS();
 
           isTarget = true;
           target = NULL;
@@ -146,12 +160,13 @@ VertexImpl::getNextDFS(VertexImpl * origin, bool postOrder, bool reverse) {
 
   // If this was the last visit to a non source then reinitialize the Vertex's
   // counters
-  if ((firstVisit != (Vertex *) 0x1) &&
-        (inVisits == (reverse ? successorCount : predecessorCount))) {
-    inVisits = 0;
-    outVisits = 0;
-    firstVisit = NULL;
-  }
+  if (direction == Graph::TraversalDirection::Forward)
+    visitLimit = predecessorCount;
+  else if (direction == Graph::TraversalDirection::Backward)
+    visitLimit = successorCount;
+
+  if ((firstVisit != (Vertex *) 0x1) && (inVisits == visitLimit))
+    resetDFS();
 
   return pair<bool, VertexImpl *>(isTarget, target);
 }

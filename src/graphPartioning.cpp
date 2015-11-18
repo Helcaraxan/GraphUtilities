@@ -11,9 +11,9 @@ GraphImpl::getPartitionCount() const {
 }
 
 
-const Vertex::PartitionArray *
-GraphImpl::getPartitionSet(int count) const {
-  return NULL;
+const Vertex::PartitionArray&
+GraphImpl::getPartitionSet(void) const {
+  return sccSets;
 }
 
 

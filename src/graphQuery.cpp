@@ -7,13 +7,16 @@ using namespace std;
 
 // Generic query management
 
-void
+bool
 GraphImpl::pushQuery(Query * query) {
   static int DFSwin = 0;
   static int BBFSwin = 0;
   ReachabilityQueryImpl * rQuery = dynamic_cast<ReachabilityQueryImpl *>(query);
 
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
+
+  if (queryThreads.size() == 0)
+    return false;
 
   // Verify that the graph has been indexed
   if (!indexed) {
@@ -25,13 +28,10 @@ GraphImpl::pushQuery(Query * query) {
     methodLock.unlock();
   }
 
-  if (queryThreads.size() == 0)
-    enableQueries();
-
   // If a method is specified use it
   if (!rQuery || (rQuery->getMethod() != UndefinedSearchMethod)) {
     jobQueue.push(query);
-    return;
+    return true;
   }
 
   // Else select the method automatically. If there is no
@@ -119,7 +119,7 @@ GraphImpl::pushQuery(Query * query) {
     jobQueue.push(query);
   }
 
-  return;
+  return true;
 }
 
 
@@ -166,4 +166,18 @@ GraphImpl::disableQueries() {
   }
 
   stopGlobalOperation();
+}
+
+
+void
+GraphImpl::setThreadCount(int count) {
+  if (count < 2)
+    count = 2;
+
+#if !defined(ENABLE_TLS)
+  if (count > MAX_THREADS)
+    count = MAX_THREADS;
+#endif // !ENABLE_TLS
+
+  threadCount = count;
 }

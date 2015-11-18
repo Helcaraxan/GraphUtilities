@@ -72,7 +72,7 @@ GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
   string barTitle = "Greedy coarsening ";
   VertexImpl * curr = NULL;
   VertexImpl * newVertex = NULL;
-  GraphImpl * coarseGraph = new GraphImpl(false);
+  GraphImpl * coarseGraph = new GraphImpl();
   map<VertexImpl *, int> localMapping;
   VertexImpl::Set readySet;
   VertexImpl::Set vertexGroup;
@@ -146,7 +146,7 @@ GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
     }
 
     int newWeight = 0;
-    newVertex = coarseGraph->addVertexUnsafe(threadCount, 0);
+    newVertex = coarseGraph->addVertexUnsafe(0);
     for (auto it = vertexGroup.begin(), end = vertexGroup.end();
         it != end; ++it) {
       vertexMap[(*it)->getId()] = newVertex->getId();

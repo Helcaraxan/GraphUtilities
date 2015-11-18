@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/graph.hpp"
 
 #include "graph-utilities/implementation/defs.hpp"
 
@@ -62,29 +62,25 @@ private:
 // Function members
 public:
   // Constructor and destructor
-#if defined(ENABLE_TLS)
   VertexImpl(int i, int w = 1, UserDataInterface * d = NULL) :
     id(i),
     weight(w)
   {
     if (d != NULL)
       userData = d;
-  }
-#else // ENABLE_TLS
-  VertexImpl(int tc, int i, int w = 1, UserDataInterface * d = NULL) :
-    id(i),
-    weight(w)
-  {
-    if (d != NULL)
-      userData = d;
 
-    DFSId = new uint64_t[tc];
-  }
+#if !defined(ENABLE_TLS)
+    DFSId = new uint64_t[MAX_THREADS];
 #endif // ENABLE_TLS
+  }
 
   ~VertexImpl(void) {
     if (userData != NULL)
       delete userData;
+
+#if !defined(ENABLE_TLS)
+    delete DFSId;
+#endif // ENABLE_TLS
   }
 
 
@@ -128,8 +124,9 @@ public:
   pair<int, int> getOrders(void) const;
 
   // Graph traversal
+  void resetDFS(void);
   pair<bool, VertexImpl *> getNextDFS(VertexImpl * origin,
-      bool postOrder, bool reverse);
+      Graph::TraversalOrder order, Graph::TraversalDirection direction);
 
   // Access
   VertexImpl * getPredecessorI(int index) const;

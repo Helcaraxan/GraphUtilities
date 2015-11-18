@@ -32,6 +32,11 @@ if (NOT AUTO_THRESHOLD)
 	set(AUTO_THRESHOLD "10")
 endif(NOT AUTO_THRESHOLD)
 
+if (NOT MAX_THREADS)
+	set(MAX_THREADS "2")
+endif(NOT MAX_THREADS)
+
+
 # Set the compile options depending on the build-type
 set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -Werror -pthread -g3 -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -Werror -pthread -O3")

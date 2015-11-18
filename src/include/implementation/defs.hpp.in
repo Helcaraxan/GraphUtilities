@@ -9,5 +9,6 @@
 
 // Let cmake choose the maximum number of parallel queries
 #define AUTO_THRESHOLD ${AUTO_THRESHOLD}
+#define MAX_THREADS ${MAX_THREADS}
 
 #endif // DEFS_HPP

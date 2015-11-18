@@ -21,26 +21,53 @@ static __inline__ uint64_t getClock(void) {
 // Graph traversal methods
 
 Vertex *
-GraphImpl::getNextDFS(bool postOrder, bool reverse) {
-  static bool reverseMemory = false;
+GraphImpl::getNextDFS(TraversalOrder order, TraversalDirection direction) {
+  // Static variables for statefull processing
+  static Graph::TraversalOrder orderMemory = PostOrder;
+  static Graph::TraversalDirection directionMemory = Forward;
   static VertexImpl * currentVertex = NULL;
   static VertexImpl::iterator originIt = sources.begin();
+
+  // Local temporary variables
   VertexImpl * lastVertex = NULL;
   pair<bool, VertexImpl *> next(false, NULL);
 
-  if (reverse != reverseMemory) {
+  // When necessary reset the state
+  if ((order != NAOrder) || (direction != NADirection)) {
+    if (order != NAOrder)
+      orderMemory = order;
+
+    if (direction != NADirection)
+      directionMemory = direction;
+
+    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+      if (*it)
+        (*it)->resetDFS();
+
     discoverExtremities();
-    reverseMemory = reverse;
-    originIt = reverse ? sinks.begin() : sources.begin();
+
+    if (directionMemory == Forward)
+      originIt = sources.begin();
+    else
+      originIt = sinks.begin();
   }
 
   while (true) {
     // When at the end reinitialize the static variables and signal the end
-    if ((originIt ==
-          (reverse ? sinks.end() : sources.end())) && (currentVertex == NULL)) {
-      discoverExtremities();
-      originIt = reverse ? sinks.begin() : sources.begin();
-      return NULL;
+    if (directionMemory == Forward) {
+      if ((originIt == sources.end()) && (currentVertex == NULL)) {
+        discoverExtremities();
+
+        originIt = sources.begin();
+        return NULL;
+      }
+    } else if (directionMemory == Backward) {
+      if ((originIt == sinks.end()) && (currentVertex == NULL)) {
+        discoverExtremities();
+
+        originIt = sinks.begin();
+        return NULL;
+      }
     }
 
     lastVertex = currentVertex;
@@ -52,7 +79,8 @@ GraphImpl::getNextDFS(bool postOrder, bool reverse) {
     }
 
     do {
-      next = currentVertex->getNextDFS(lastVertex, postOrder, reverse);
+      next =
+        currentVertex->getNextDFS(lastVertex, orderMemory, directionMemory);
       lastVertex = currentVertex;
       currentVertex = next.second;
     } while (!next.first);
@@ -74,41 +102,44 @@ GraphImpl::setIndexed(bool value) {
 
 
 void
-GraphImpl::labelVertices(bool reverse) {
+GraphImpl::labelVertices(TraversalDirection direction) {
   int traversalMethod = 0;
   int currLabel = 0;
   VertexImpl * nextVertex = NULL;
-  VertexImpl::Array * order = reverse ? &predecessorQueue : &successorQueue;
+  VertexImpl::Array * order = NULL;
+  
+  switch(direction) {
+    case Forward: order = &successorQueue; break;
+    case Backward: order = &predecessorQueue; break;
+    default:
+      exit(EXIT_FAILURE);
+      break;
+  }
 
   // Compose the method used for post-order labeling
-  if (reverse)
+  if (direction == Backward)
     traversalMethod |= 0x01;
 
   traversalMethod |= (indexMethod & 0x02);
 
+  nextVertex = dynamic_cast<VertexImpl *>(getNextDFS(PostOrder, direction));
   while (true) {
-    if (!(nextVertex = dynamic_cast<VertexImpl *>(getNextDFS(true, reverse))))
+    if (!nextVertex)
       break;
 
     order->push_back(nextVertex);
 
-    if (reverse)
-      nextVertex->clearSuccessors();
-    else
+    if (direction == Forward)
       nextVertex->clearPredecessors();
+    else
+      nextVertex->clearSuccessors();
+
+    nextVertex = dynamic_cast<VertexImpl *>(getNextDFS());
   }
 
   // Refill the predecessors or successors of all the vertices
   for (auto it = order->begin(), end = order->end(); it != end; ++it) {
-    if (reverse) {
-      for (int i = 0, e = (*it)->getPredecessorCount(); i < e; i++) {
-        Vertex * predVertex = (*it)->getPredecessor(i);
-        int predWeight = (*it)->getPredecessorWeight(i);
-
-        VertexImpl * predVertexImpl = dynamic_cast<VertexImpl *>(predVertex);
-        predVertexImpl->addSuccessorUnsafe(*it, predWeight);
-      }
-    } else {
+    if (direction == Forward) {
       for (int i = 0, e = (*it)->getSuccessorCount(); i < e; i++) {
         Vertex * succVertex = (*it)->getSuccessor(i);
         int succWeight = (*it)->getSuccessorWeight(i);
@@ -116,15 +147,23 @@ GraphImpl::labelVertices(bool reverse) {
         VertexImpl * succVertexImpl = dynamic_cast<VertexImpl *>(succVertex);
         succVertexImpl->addPredecessorUnsafe(*it, succWeight);
       }
+    } else {
+      for (int i = 0, e = (*it)->getPredecessorCount(); i < e; i++) {
+        Vertex * predVertex = (*it)->getPredecessor(i);
+        int predWeight = (*it)->getPredecessorWeight(i);
+
+        VertexImpl * predVertexImpl = dynamic_cast<VertexImpl *>(predVertex);
+        predVertexImpl->addSuccessorUnsafe(*it, predWeight);
+      }
     }
   }
 
-  // Label the vertices in reverse post-order
+  // Label the vertices in inverse post-order
   for (auto it = order->rbegin(), end = order->rend(); it != end; ++it) {
-    if (reverse)
-      (*it)->setOrders(-1, currLabel++);
-    else
+    if (direction == Forward)
       (*it)->setOrders(currLabel++, -1);
+    else
+      (*it)->setOrders(-1, currLabel++);
   }
 }
 
@@ -151,10 +190,10 @@ GraphImpl::indexGraph() {
 #endif // ENABLE_BENCHMARKS
 
   // First traversal
-  labelVertices(false);
+  labelVertices(Forward);
 
   // Second traversal
-  labelVertices(true);
+  labelVertices(Backward);
 
   // When requested reorder the successors and predecessors in all vertices
   if (indexMethod & 0x04) {

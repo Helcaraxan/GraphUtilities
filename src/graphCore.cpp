@@ -19,7 +19,7 @@ GraphImpl::addVertex(int weight) {
 
   startGlobalOperation();
 
-  newVertex = addVertexUnsafe(threadCount, weight);
+  newVertex = addVertexUnsafe(weight);
 
   stopGlobalOperation();
 
@@ -244,13 +244,9 @@ GraphImpl::verifyVertexIds() const {
 // Maintenance
 
 VertexImpl *
-GraphImpl::addVertexUnsafe(int threadCount, int weight) {
+GraphImpl::addVertexUnsafe(int weight) {
   int id = vertices.size();
-#if defined(ENABLE_TLS)
   VertexImpl * newVertex = new VertexImpl(id, weight);
-#else // ENABLE_TLS
-  VertexImpl * newVertex = new VertexImpl(threadCount, id, weight);
-#endif // ENABLE_TLS
 
   vertices.push_back(newVertex);
   indexed = false;

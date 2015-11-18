@@ -10,89 +10,548 @@
 using namespace std;
 
 
+/*!
+ * \file graph.hpp
+ * \brief Header for the Graph API.
+ */
+
+
 // Graph class
 
+/*!
+ * \brief Representation class for a Directed-Acyclic Graph.
+ *
+ * This class defines an abstract enforces an interface for implementations of
+ * this library. It describes a minimal API for high-level graph manipulations.
+ */
 class Graph {
 // Local types
 public:
+  /*!
+   * \brief Method used when traversing a graph
+   *
+   * Enables the traversal of a graph by enumerating nodes in Pre or Post-order.
+   */
   typedef enum {
     PreOrder,
-    PostOrder
-  } TraversalMethod;
+    PostOrder,
+    NAOrder
+  } TraversalOrder;
+
+  /*!
+   * \brief Direction used when traversing graph
+   *
+   * Enables the traversal of a graph by considering its edges in forward or
+   * backward direction.
+   */
+  typedef enum {
+    Forward,
+    Backward,
+    NADirection
+  } TraversalDirection;
 
 
 // Function members
 public:
-  // Constructor & Destructor
+  ////////////////////////////////
+  // Constructors & Destructors //
+  ////////////////////////////////
+
+  /*!
+   * \brief Default constructor for a Graph instance.
+   */
   Graph(void) = default;
+
+  /*!
+   * \brief Default destructor for a Graph instance.
+   */
   virtual ~Graph(void) = default;
 
-  // Remove copy & move constructors
+  /*!
+   * \brief Deleted copy constructor.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Graph instances.
+   */
   Graph(const Graph&) = delete;
+
+  /*!
+   * \brief Deleted move constructor.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Graph instances.
+   */
   Graph(Graph&&) = delete;
+
+  /*!
+   * \brief Deleted copy assignment operator.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Graph instances.
+   */
   Graph& operator=(const Graph&) = delete;
+
+  /*!
+   * \brief Deleted move assignment operator.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Graph instances.
+   */
   Graph& operator=(Graph&&) = delete;
 
-  // Serialization methods
+
+  ///////////////////////////
+  // Serialization methods //
+  ///////////////////////////
+  //
+  /*!
+   * \brief Export the graph under the form of adjacency lists.
+   *
+   * Serialization of the current graph to a .gra file. As such the exported
+   * file can be parsed by the parseGraFile() function.
+   *
+   * \param fileName Native string containing the file to which the export
+   * should happen.
+   * \param weights Boolean indicating whether the export should also include
+   * node and edge weights.
+   *
+   * \sa parseGraFile()
+   */
   virtual void printToFile(const char * fileName, bool weights = false) = 0;
 
-  // Vertex and edge manipulation methods
+
+  //////////////////////////////////////////
+  // Vertex and edge manipulation methods //
+  //////////////////////////////////////////
+
+  /*!
+   * \brief Add an isolated node to the graph.
+   * 
+   * Creates a new node and adds it to the graph. The new node has no
+   * predecessors or successors.
+   *
+   * \param weight The (optional) weight of the new node.
+   *
+   * \return Pointer to the Vertex instance representing the new node.
+   *
+   * \sa removeVertex() and Vertex()
+   */
   virtual Vertex * addVertex(int weight = 0) = 0;
+
+  /*!
+   * \brief Removes a given node from the graph.
+   *
+   * Removes all references to the given node in its predecessors and successors
+   * as well as in the graph general.
+   * 
+   * \param vertex Pointer to the Vertex to remove.
+   *
+   * \sa addVertex() and ~Vertex()
+   */
   virtual void removeVertex(Vertex * vertex) = 0;
+
+  /*!
+   * \brief Adds an edge to the graph.
+   *
+   * Creates mutual references in the specified source and target nodes with the
+   * specified weight. If an edge already exists between the given nodes nothing
+   * is done.
+   *
+   * \param source Pointer to the source Vertex of the new edge.
+   * \param target Pointer to the target Vertex of the new edge.
+   * \param weight The (optional) weight of the new edge.
+   *
+   * \return Boolean indicating if the edge was successfully added.
+   *
+   * \sa removeEdge()
+   */
   virtual bool addEdge(Vertex * source, Vertex * target, int weight = 0) = 0;
+
+  /*!
+   * \brief Removes an edge from the graph.
+   *
+   * If an edges exists between the specified nodes it is removed. If there is
+   * no such edge nothing happens.
+   *
+   * \param source Pointer to the source Vertex of the edge that must be
+   * removed.
+   * \param target Pointer to the target Vertex of the edge that must be
+   * removed.
+   *
+   * \return Boolean indicating if the edge was successfully removed.
+   *
+   * \sa addEdge()
+   */
   virtual bool removeEdge(Vertex * source, Vertex * target) = 0;
 
-  // Vertex index methods
+
+  ////////////////////////////
+  // Graph indexing methods //
+  ////////////////////////////
+
+  /*!
+   * \brief Retrieve the current IndexMethod for this graph.
+   *
+   * Retrieves the method used within this graph to perform node indexing. This
+   * method is essentially used for precalculating node labels for reachability
+   * queries.
+   *
+   * \return IndexMethod currently registred for the graph.
+   *
+   * \sa setIndexMethod() and IndexMethod
+   */
   virtual IndexMethod getIndexMethod(void) const = 0;
+
+  /*!
+   * \brief Sets a new IndexMethod for this graph.
+   *
+   * Sets a new method for performing node indexing on this graph. This method
+   * is essentially used for precalculating node labels for reachability
+   * queries.
+   *
+   * \param newMethod New method to use for future graph indexations.
+   *
+   * \sa getIndexMethod() and IndexMethod
+   */
   virtual void setIndexMethod(IndexMethod newMethod) = 0;
 
-  // Graph traversal methods
-  virtual Vertex * getNextDFS(bool postOrder, bool reverse) = 0;
 
-  // Graph manipulation methods
+  /////////////////////////////
+  // Graph traversal methods //
+  /////////////////////////////
+
+  /*!
+   * \brief Obtain the next node in a DFS traversal.
+   *
+   * Statefull method performing graph traversals. Specifying \p order and / or
+   * \p direction resets the internal state and starts a new Depth-First-Search
+   * traversal of the graph.
+   *
+   * \param order Used to specify a new order to start a new DFS traversal.
+   * \param direction Used to specify a new direction to start a new DFS
+   * traversal.
+   *
+   * \return Pointer to the next Vertex in the current DFS traversal. If \b NULL
+   * is returned then all nodes have been passed through and a new call to this
+   * method will restart a DFS traversal with the same order and direction as
+   * the last one.
+   *
+   * \sa TraversalOrder and TraversalDirection
+   */
+  virtual Vertex * getNextDFS(TraversalOrder order = NAOrder,
+      TraversalDirection direction = NADirection) = 0;
+
+
+  ////////////////////////////////
+  // Graph manipulation methods //
+  ////////////////////////////////
+
+  /*!
+   * \brief Merge a specified set of nodes into a single one.
+   *
+   * Creates a new node representing the entire set of specified nodes. All
+   * existing edges between nodes from the set and external nodes are linked to
+   * the new node with edge fusion where necessary. The new node has the
+   * combined weight of all merged nodes. When specified all UserData
+   * attributes are merged with their merge methods and the result given to the
+   * new node. Once the new node has been created all the original nodes are
+   * removed from the graph and their instances deallocated.
+   *
+   * \param vertexSet Set of nodes that are to be merged.
+   *
+   * \return Pointer to the new Vertex representing the merged set.
+   *
+   * \sa removeVertex() and UserData
+   */
   virtual Vertex * mergeVertices(const Vertex::Set &vertexSet) = 0;
+
+  /*!
+   * \brief Tells if the \c condenseToDAG() method has been called.
+   *
+   * Indicated if the \c condenseToDAG() method has been used on the graph in
+   * its current state thereby guaranteeing that no SCCs of more than one node
+   * exist.
+   *
+   * \return Boolean indicating if the \c condenseToDAG() method has been
+   * called. When \b false is returned no guarantee exists on the presence or
+   * absence of SCCs of more than one node.
+   *
+   * \sa isDAG() and condenseToDAG()
+   */
   virtual bool isCondensed(void) const = 0;
+
+  /*!
+   * \brief Verifies if the graph has SCCs.
+   *
+   * Runs an algorithmic check to see if the graph currently has SCCs of more
+   * than one node.
+   *
+   * \return Boolean indicating the presence of SCCs with more than one node.
+   * The result is a guarantee for the presence or absence of such SCCs.
+   *
+   * \sa isDAG() and condenseToDAG()
+   */
   virtual bool isDAG(void) = 0;
+
+  /*!
+   * \brief Transforms the graph into a DAG.
+   *
+   * Condenses all SCCs of more than one node into single nodes. This guarantees
+   * that after a call to this method the graph is effectively a DAG.
+   *
+   * \param correspondanceFile Name for a file to which to write a mapping
+   * between SCCs and their representant node in the condensed graph.
+   *
+   * \sa isDAG(), isCondensed() and mergeVertices()
+   */
   virtual void condenseToDAG(const char * correspondanceFile = NULL) = 0;
+
+  /*!
+   * \brief Retrieve the SCCs of the graph
+   *
+   * Get the current set of SCCs of the graph. In order for the result to be
+   * up-to-date a call to the \c isDAG() method is required.
+   *
+   * \return Reference to the set of SCCs of the graph.
+   *
+   * \sa isDAG()
+   */
   virtual const Vertex::PartitionArray& getSCCs(void) = 0;
 
-  // Query management
+
+  //////////////////////
+  // Query management //
+  //////////////////////
+
+  /*!
+   * \brief Enable the execution of queries on the graph.
+   *
+   * This starts a number of worker threads that process requests.
+   *
+   * \sa disableQueries(), setThreadCount()
+   */
   virtual void enableQueries(void) = 0;
+
+  /*!
+   * \brief Disable the execution of queries on the graph.
+   *
+   * This stops any worker threads that are running thereby cancelling all
+   * queries that are currently being processed or awaiting processing.
+   *
+   * \sa enableQueries()
+   */
   virtual void disableQueries(void) = 0;
-  virtual void pushQuery(Query * query) = 0;
+
+  /*!
+   * \brief Set the number of worker threads.
+   *
+   * Set the number of threads that should be started at the next call to the \c
+   * enableQueries() method.
+   *
+   * \param count Number of worker threads to be used.
+   *
+   * \sa enableQueries() and disableQueries()
+   */
+  virtual void setThreadCount(int count) = 0;
+
+  /*!
+   * \brief Issues a query on the graph.
+   *
+   * Schedules a query for processing in an asynchronous fashion. If queries are
+   * currently not enabled on the graph nothing is done.
+   *
+   * \param query Pointer to the Query that should be scheduled.
+   *
+   * \return Boolean indicating if the query has been scheduled.
+   *
+   * \sa pullResult(), enableQueries()
+   */
+  virtual bool pushQuery(Query * query) = 0;
+
+  /*!
+   * \brief Retrieves a processed query from the graph.
+   *
+   * Looks in a non-blocking fashion for a query for which processing was
+   * finished.
+   *
+   * \return Pointer to a Query for which processing was finished. Returns \b
+   * NULL if no finished query was available.
+   *
+   * \sa pushQuery()
+   */
   virtual Query * pullResult(void)  = 0;
 
-  // General queries
-  virtual graph_t * getMetisGraph(void) = 0;
+
+  /////////////////////
+  // General queries //
+  /////////////////////
+
+  /*!
+   * \brief Get a pointer to a node.
+   *
+   * Gives a pointer to the node with the specified \p id.
+   *
+   * \param id Index of the node for which to retrieve a pointer.
+   *
+   * \return Pointer to the Vertex with the specified index.
+   */
   virtual Vertex * getVertex(int id) const = 0;
+
+  /*!
+   * \brief Get the number of nodes in the graph.
+   *
+   * Gives the number of nodes currently existing in the graph.
+   *
+   * \return The number of nodes in the graph.
+   */
   virtual unsigned int getVertexCount(void) const = 0;
+
+  /*!
+   * \brief Get the number of edges in the graph.
+   *
+   * Gives the number of edges currently existing in the graph.
+   *
+   * \return The number of edges in the graph.
+   */
   virtual unsigned int getEdgeCount(void) const = 0;
 
-  // Partition-related methods
-  virtual int getPartitionCount(void) const = 0;
-  virtual const Vertex::PartitionArray * getPartitionSet(int count) const = 0;
 
-  // Graph coarsening
+  ///////////////////////////////
+  // Partition-related methods //
+  ///////////////////////////////
+
+  /*!
+   * \brief Get the number of partitions of the graph.
+   *
+   * Give the number of partitions currently references in the graph. The
+   * default value is one and it can be modified by issueing a partition query
+   * to the graph.
+   *
+   * \return The number of partitions registered in the graph.
+   */
+  virtual int getPartitionCount(void) const = 0;
+
+  /*!
+   * \brief Get the partitions in the graph.
+   *
+   * Reference the set of partitions that are currently registered to the graph.
+   * This set is modified by issueing partition queries to the graph.
+   *
+   * \return Reference to the set of partitions currently registred.
+   */
+  virtual const Vertex::PartitionArray& getPartitionSet(void) const = 0;
+
+
+  //////////////////////
+  // Graph coarsening //
+  //////////////////////
+
+  /*!
+   * \brief Perform a coarsening on the graph.
+   *
+   * Creates a new graph that is a coarsened version of the current graph.
+   *
+   * \param method Algorithmic method used to perform the coarsening.
+   * \param factor To be defined.
+   * \param secondaryFactor To be defined.
+   * \param vertexMap Reference to a map where the correspondance between nodes
+   * of the original graph and the coarsened version is recorded.
+   *
+   * \return Pointer to a new Graph instance containing the coarsened graph.
+   */
   virtual Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
       map<int, int> &vertexMap) = 0;
 
-  // Statistics
+
+  ////////////////
+  // Statistics //
+  ////////////////
+
+  /*!
+   * \brief Tells if statistics are available.
+   *
+   * Determines if support for statistics has been compiled in the current
+   * library instance.
+   *
+   * \return Boolean indicating the availability of statistics.
+   */
   virtual bool getStatisticsEnabled(void) = 0;
+
+  /*!
+   * \brief Dump the available statistics.
+   *
+   * Prints out the currently recorded statistics for this graph and the
+   * performed queries to the given stream.
+   *
+   * \param stream Output stream to which to dump the statistics.
+   */
   virtual void printStatistics(ostream &stream) = 0;
 
-  // Benchmarking
+  //////////////////
+  // Benchmarking //
+  //////////////////
+
+  /*!
+   * \brief Tells if benchmarks are available
+   *
+   * Determines if support for benchmarks has been compiled in the current
+   * library instance.
+   *
+   * \return Boolean indicating the availability of benchmarks.
+   */
   virtual bool getBenchmarksEnabled(void) = 0;
+
+  /*!
+   * \brief Dump the available benchmarks.
+   *
+   * Prints out the currently recorded benchmarks for this graph and the
+   * performed queries to the given stream.
+   *
+   * \param stream Output stream to which to dump the benchmarks.
+   */
   virtual void printBenchmarks(ostream &stream) = 0;
 };
 
 
-// Generator function (necessary as Graph has no constructor)
+/*!
+ * \fn Graph * createEmptyGraph(void)
+ * \brief Graph instance generator.
+ *
+ * Creates an instance of the Graph class with the currently underlying
+ * implementation.
+ *
+ * \return Pointer to an empty graph.
+ */
 Graph * createEmptyGraph(void);
 
 
-// Parser functions
-
+/*!
+ * \fn Graph * parseDotFile(const char * fileName, bool noDoubleEdges = false)
+ * \brief Parse a Dot file and instantiate a graph.
+ *
+ * Parses the specified file in Dot format and instantiates a graph with the
+ * obtained information.
+ *
+ * \param fileName Name of the file to parse.
+ * \param noDoubleEdges Boolean indicating if the given file is guaranteed to
+ * have no double edges (i.e two or more edges with the same source / target).
+ * This may speed-up parsing considerably for very large graphs.
+ */
 Graph * parseDotFile(const char * fileName, bool noDoubleEdges = false);
+
+
+/*!
+ * \fn Graph * parseGraFile(const char * fileName, bool noDoubleEdges = false)
+ * \brief Parse a Gra file and instantiate a graph.
+ *
+ * Parses the specified file in Gra format (adjacency lists) and instantiates a
+ * graph with the obtained information.
+ *
+ * \param fileName Name of the file to parse.
+ * \param noDoubleEdges Boolean indicating if the given file is guaranteed to
+ * have no double edges (i.e two or more edges with the same source / target).
+ * This may speed-up parsing considerably for very large graphs.
+ */
 Graph * parseGraFile(const char * fileName, bool noDoubleEdges = false);
 
 
