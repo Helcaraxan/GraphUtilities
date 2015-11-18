@@ -1,10 +1,8 @@
 #include <fstream>
 #include <iostream>
 
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
-#include "graph-utilities/support.hpp"
+#include "graph-utilities/implementation/support.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -12,9 +10,9 @@ using namespace std;
 // Coarsening queries
 
 Graph *
-Graph::coarsen(CoarsenMethod method, int factor, int secondaryFactor,
+GraphImpl::coarsen(CoarsenMethod method, int factor, int secondaryFactor,
     map<int, int> &vertexMap) {
-  Graph * coarsenedGraph = NULL;
+  GraphImpl * coarsenedGraph = NULL;
 
   indexGraph();
 
@@ -39,9 +37,9 @@ Graph::coarsen(CoarsenMethod method, int factor, int secondaryFactor,
 // Internal coarsening functions
 
 static void
-processVertex(Vertex * curr,
-    set<Vertex *> &readySet, set<Vertex *> &processedSet) {
-  set<Vertex *>::iterator it = readySet.find(curr);
+processVertex(VertexImpl * curr, VertexImpl::Set &readySet,
+    VertexImpl::Set &processedSet) {
+  VertexImpl::Set::iterator it = readySet.find(curr);
 
   if (it == readySet.end()) {
     cerr << "ERROR: Tried to process a vertex that is not in the readySet.\n";
@@ -54,38 +52,36 @@ processVertex(Vertex * curr,
 
 
 bool
-Graph::addToReadySet(Vertex * curr,
-    set<Vertex *> &readySet, set<Vertex *> &processedSet) {
+GraphImpl::addToReadySet(VertexImpl * curr, VertexImpl::Set &readySet,
+    VertexImpl::Set &processedSet) {
   if (readySet.count(curr))
     return true;
 
-  for (auto it = curr->predecessors.begin(), end = curr->predecessors.end();
-      it != end; ++it) {
+  for (auto it = curr->predBegin(), end = curr->predEnd(); it != end; ++it)
     if (!processedSet.count(*it))
       return false;
-  }
 
   readySet.insert(curr);
   return true;
 }
 
 
-Graph *
-Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
+GraphImpl *
+GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
   int progressCount = 0;
   string barTitle = "Greedy coarsening ";
-  Vertex * curr = NULL;
-  Vertex * newVertex = NULL;
-  Graph * coarseGraph = new Graph(false);
-  map<Vertex *, int> localMapping;
-  set<Vertex *> readySet;
-  set<Vertex *> vertexGroup;
-  set<Vertex *> processedSet;
-  queue<Vertex *> workQueue;
-  queue<Vertex *> localWorkQueue;
+  VertexImpl * curr = NULL;
+  VertexImpl * newVertex = NULL;
+  GraphImpl * coarseGraph = new GraphImpl(false);
+  map<VertexImpl *, int> localMapping;
+  VertexImpl::Set readySet;
+  VertexImpl::Set vertexGroup;
+  VertexImpl::Set processedSet;
+  VertexImpl::Queue workQueue;
+  VertexImpl::Queue localWorkQueue;
   fstream mappingStream;
 
-#ifdef ENABLE_COARSEN_STATISTICS
+#if defined(ENABLE_COARSEN_STATISTICS)
   double totalWorkListSize = 0;
   double workListCount = 0;
   double totalSuccessorCount = 0;
@@ -108,7 +104,7 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
     if (processedSet.count(curr))
       continue;
 
-#ifdef ENABLE_COARSEN_STATISTICS
+#if defined(ENABLE_COARSEN_STATISTICS)
     workListCount += 1;
 #endif // ENABLE_COARSEN_STATISTICS
 
@@ -119,7 +115,7 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
       curr = localWorkQueue.front();
       localWorkQueue.pop();
 
-#ifdef ENABLE_COARSEN_STATISTICS
+#if defined(ENABLE_COARSEN_STATISTICS)
       totalWorkListSize += 1;
       totalSuccessorCount += curr->getSuccessorCount();
 #endif // ENABLE_COARSEN_STATISTICS
@@ -129,11 +125,11 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 
       resultProgressBar(++progressCount);
 
-      for (auto it = curr->succ_begin(), end = curr->succ_end();
+      for (auto it = curr->succBegin(), end = curr->succEnd();
           it != end; ++it) {
         if (addToReadySet(*it, readySet, processedSet))
           localWorkQueue.push(*it);
-#ifdef ENABLE_COARSEN_STATISTICS
+#if defined(ENABLE_COARSEN_STATISTICS)
         else
           illegalSuccessorCount += 1;
 #endif // ENABLE_COARSEN_STATISTICS
@@ -149,18 +145,20 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
       workQueue.push(curr);
     }
 
-    newVertex = coarseGraph->addVertex();
+    int newWeight = 0;
+    newVertex = coarseGraph->addVertexUnsafe(threadCount, 0);
     for (auto it = vertexGroup.begin(), end = vertexGroup.end();
         it != end; ++it) {
-      vertexMap[(*it)->id] = newVertex->id;
-      newVertex->weight += (*it)->weight;
+      vertexMap[(*it)->getId()] = newVertex->getId();
+      newWeight += (*it)->getWeight();
 
-      for (auto predIt = (*it)->pred_begin(), predEnd = (*it)->pred_end();
+      for (auto predIt = (*it)->predBegin(), predEnd = (*it)->predEnd();
           predIt != predEnd; ++predIt) {
-        set<Vertex *> predecessorSet;
+        VertexImpl::Set predecessorSet;
 
         if (!vertexGroup.count(*predIt)) {
-          Vertex * localPred = coarseGraph->vertices[vertexMap[(*predIt)->id]];
+          VertexImpl * localPred =
+            coarseGraph->vertices[vertexMap[(*predIt)->getId()]];
 
           if (predecessorSet.find(localPred) != predecessorSet.end())
             continue;
@@ -181,11 +179,13 @@ Graph::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 
       localMapping.clear();
     }
+
+    newVertex->setWeight(newWeight);
   }
 
   cout << endl;
 
-#ifdef ENABLE_COARSEN_STATISTICS
+#if defined(ENABLE_COARSEN_STATISTICS)
   cout << "Average coarsen ratio: ";
   cout << ((double) getVertexCount()) / (double) coarseGraph->getVertexCount();
   cout << "\nWorklist count: " << workListCount << endl;

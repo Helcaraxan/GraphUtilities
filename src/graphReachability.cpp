@@ -1,13 +1,11 @@
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
 
 // Local perf measurement function
 
-#ifdef __amd64
+#if defined(__amd64)
 static __inline__ uint64_t getClock(void) {
   uint64_t a, d;
   __asm__ volatile ("rdtsc" : "=a" (a), "=d" (d));
@@ -21,13 +19,13 @@ static __inline__ uint64_t getClock(void) {
 // Reachability query configuration
 
 SearchMethod
-Graph::getMethod() {
+GraphImpl::getMethod() const {
   return searchMethod.load(memory_order_acquire);
 }
 
 
 void
-Graph::setMethod(SearchMethod method) {
+GraphImpl::setMethod(SearchMethod method) {
   searchMethod.store(method, memory_order_release);
 }
 
@@ -35,46 +33,47 @@ Graph::setMethod(SearchMethod method) {
 // Internal reachability query functions
 
 void
-#ifdef ENABLE_TLS
-Graph::processReachabilityQuery(Query * query) {
-  Vertex::checkDFSId(vertices.size());
+#if defined(ENABLE_TLS)
+GraphImpl::processReachabilityQuery(ReachabilityQueryImpl * query) {
+  VertexImpl::checkDFSId(vertices.size());
 
-  switch (query->query.reachability->getMethod()) {
+  switch (query->getMethod()) {
     case DFS:
-      areConnectedDFS(query->query.reachability);
+      areConnectedDFS(query);
       break;
 
     case BBFS:
-      areConnectedBBFS(query->query.reachability);
+      areConnectedBBFS(query);
       break;
 
     case NoLabels:
-      areConnectedNoLabels(query->query.reachability);
+      areConnectedNoLabels(query);
       break;
 #else // ENABLE_TLS
-Graph::processReachabilityQuery(int threadId, Query * query) {
-  switch (query->query.reachability->getMethod()) {
+GraphImpl::processReachabilityQuery(ReachabilityQueryImpl * query,
+    int threadId) {
+  switch (query->getMethod()) {
     case DFS:
-      areConnectedDFS(query->query.reachability, threadId);
+      areConnectedDFS(query, threadId);
       break;
 
     case BBFS:
-      areConnectedBBFS(query->query.reachability, threadId);
+      areConnectedBBFS(query, threadId);
       break;
 
     case NoLabels:
-      areConnectedNoLabels(query->query.reachability, threadId);
+      areConnectedNoLabels(query, threadId);
       break;
 #endif // ENABLE_TLS
 
     case UndefinedSearchMethod:
-      query->query.reachability->setError(true);
+      query->setError(true);
       break;
   }
 
-  if (query->query.reachability->getInternal() == NULL) {
-#ifdef ENABLE_STATISTICS
-    registerQueryStatistics(query->query.reachability);
+  if (query->getInternal() == NULL) {
+#if defined(ENABLE_STATISTICS)
+    registerQueryStatistics(query);
 #endif // ENABLE_STATISTICS
 
     resultQueue.push(query);
@@ -84,18 +83,20 @@ Graph::processReachabilityQuery(int threadId, Query * query) {
 
 /* Use the previously done indexation to answer to the query */
 void
-#ifdef ENABLE_TLS
-Graph::areConnectedDFS(ReachabilityQuery * query) {
+#if defined(ENABLE_TLS)
+GraphImpl::areConnectedDFS(ReachabilityQueryImpl * query) {
 #else // ENABLE_TLS
-Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
+GraphImpl::areConnectedDFS(ReachabilityQueryImpl * query, int threadId) {
 #endif // ENABLE_TLS
   uint64_t cycleCount = 0;
   uint64_t timestamp = 0;
-  Vertex * curr;
-  vector<Vertex *> searchStack;
+  VertexImpl * curr;
+  VertexImpl::Array searchArray;
+  pair<int, int> sourceOrders;
+  pair<int, int> targetOrders;
 
-#ifdef ENABLE_BENCHMARKS
-  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
+#if defined(ENABLE_BENCHMARKS)
+  unique_lock<mutex> counterLock(counterMutex, defer_lock);
   cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() != NULL)
@@ -106,9 +107,9 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
 
   // Are U and V the same vertex?
   if (query->getSource() == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-    query->searchedNodes++;
-    query->path.push_back(query->getSource());
+#if defined(ENABLE_STATISTICS)
+    query->addSearchedNodes();
+    query->getPath().push_back(query->getSourceI());
 #endif // ENABLE_STATISTICS
     query->setAnswer(true);
     goto end;
@@ -116,71 +117,77 @@ Graph::areConnectedDFS(ReachabilityQuery * query, int threadId) {
 
   // Can V be a descendant of U in the standard graph or U a descendant of V in
   // the reverse graph?
-  if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->revOrderLabel > query->getSource()->revOrderLabel))
+  sourceOrders = query->getSourceI()->getOrders();
+  targetOrders = query->getTargetI()->getOrders();
+
+  if ((sourceOrders.first > targetOrders.first) ||
+      (sourceOrders.second < targetOrders.second))
     goto end;
 
   // Do a DFS on the subgraph specified by both orders to get the final answer
-  timestamp = chrono::high_resolution_clock::now().time_since_epoch() / chrono::nanoseconds(1);
+  timestamp = chrono::high_resolution_clock::now().time_since_epoch().count();
 
-  searchStack.push_back(query->getSource());
+  searchArray.push_back(query->getSourceI());
 
-  while (!searchStack.empty()) {
+  while (!searchArray.empty()) {
     if (query->getCancel()) {
       query->setError(true);
       goto cancel;
     }
 
-    curr = searchStack.back();
+    curr = searchArray.back();
 
-#ifdef ENABLE_STATISTICS
-    if (!query->path.empty() && (curr == query->path.back())) {
-      query->path.pop_back();
-      searchStack.pop_back();
+#if defined(ENABLE_STATISTICS)
+    if (!query->getPath().empty() && (curr == query->getPath().back())) {
+      query->getPath().pop_back();
+      searchArray.pop_back();
       continue;
     }
 
-    query->searchedNodes++;
-    query->path.push_back(curr);
+    query->addSearchedNodes();
+    query->getPath().push_back(curr);
 #else // ENABLE_STATISTICS
-    searchStack.pop_back();
+    searchArray.pop_back();
 #endif // ENABLE_STATISTICS
 
-    for (auto it = curr->successors.begin(), end = curr->successors.end(); it != end; ++it) {
-      if ((indexMethod & 0x04) && ((*it)->orderLabel > query->getTarget()->orderLabel))
+    targetOrders = query->getTargetI()->getOrders();
+    for (auto it = curr->succBegin(), end = curr->succEnd();
+        it != end; ++it) {
+      sourceOrders = (*it)->getOrders();
+
+      if ((indexMethod & 0x04) && (sourceOrders.first > targetOrders.first))
         break;
 
       if (*it == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-        query->searchedNodes++;
-        query->path.push_back(query->getTarget());
+#if defined(ENABLE_STATISTICS)
+        query->addSearchedNodes();
+        query->getPath().push_back(query->getTargetI());
 #endif // ENABLE_STATISTICS
 
         query->setAnswer(true);
         goto end;
       }
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
       if ((*it)->getDFSId() != timestamp) {
         (*it)->setDFSId(timestamp);
 #else // ENABLE_TLS
       if ((*it)->getDFSId(threadId) != timestamp) {
         (*it)->setDFSId(threadId, timestamp);
 #endif // ENABLE_TLS
-        if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-            ((*it)->revOrderLabel > query->getTarget()->revOrderLabel))
-          searchStack.push_back(*it);
+        if ((sourceOrders.first < targetOrders.first) &&
+            (sourceOrders.second > targetOrders.second))
+          searchArray.push_back(*it);
       }
     }
   }
 
 end:
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
-  benchmarkLock.lock();
+  counterLock.lock();
   cyclesSpentQuerying += cycleCount;
-  queryNumber++;
-  benchmarkLock.unlock();
+  counterLock.unlock();
 
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
@@ -191,17 +198,21 @@ end:
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
+    pair<ReachabilityQueryImpl *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
       query->getInternal()->signal.notify_all();
   }
 
+#if defined(ENABLE_STATISTICS) || defined(ENABLE_BENCHMARKS)
+  queryCount++;
+#endif //  ENABLE_STATISTICS || ENABLE_BENCHMARKS
+
   return;
 
 cancel:
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
 
   if (query->getInternal() != NULL) {
@@ -213,7 +224,7 @@ cancel:
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
+    pair<ReachabilityQueryImpl *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
@@ -227,19 +238,21 @@ cancel:
 
 
 void
-#ifdef ENABLE_TLS
-Graph::areConnectedBBFS(ReachabilityQuery * query) {
+#if defined(ENABLE_TLS)
+GraphImpl::areConnectedBBFS(ReachabilityQueryImpl * query) {
 #else // ENABLE_TLS
-Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
+GraphImpl::areConnectedBBFS(ReachabilityQueryImpl * query, int threadId) {
 #endif
   uint64_t cycleCount = 0;
   uint64_t forwardId = 0, backwardId = 0;
-  Vertex * curr;
-  queue<Vertex *> searchQueueForward;
-  queue<Vertex *> searchQueueBackward;
+  VertexImpl * curr;
+  VertexImpl::Queue searchQueueForward;
+  VertexImpl::Queue searchQueueBackward;
+  pair<int, int> sourceOrders;
+  pair<int, int> targetOrders;
 
-#ifdef ENABLE_BENCHMARKS
-  unique_lock<mutex> benchmarkLock(benchmarkMutex, defer_lock);
+#if defined(ENABLE_BENCHMARKS)
+  unique_lock<mutex> counterLock(counterMutex, defer_lock);
   cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
   if (query->getInternal() == NULL)
@@ -250,8 +263,8 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 
   // Are U and V the same vertex?
   if (query->getSource() == query->getTarget()) {
-#ifdef ENABLE_STATISTICS
-    query->searchedNodes++;
+#if defined(ENABLE_STATISTICS)
+    query->addSearchedNodes();
 #endif // ENABLE_STATISTICS
     query->setAnswer(true);
     goto end;
@@ -259,24 +272,27 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
 
   // Can V be a descendant of U in the standard graph or U a descendant of V in
   // the reverse graph?
-  if ((query->getSource()->orderLabel > query->getTarget()->orderLabel) ||
-      (query->getTarget()->revOrderLabel > query->getSource()->revOrderLabel))
+  sourceOrders = query->getSourceI()->getOrders();
+  targetOrders = query->getTargetI()->getOrders();
+
+  if ((sourceOrders.first > targetOrders.first) ||
+      (sourceOrders.second < targetOrders.second))
     goto end;
 
   // Do a BBFS on the subgraph specified by both orders to get the final answer
   forwardId = chrono::high_resolution_clock::now().time_since_epoch().count();
   backwardId = forwardId + 1;
 
-#ifdef ENABLE_TLS
-  query->getSource()->setDFSId(forwardId);
-  query->getTarget()->setDFSId(backwardId);
+#if defined(ENABLE_TLS)
+  query->getSourceI()->setDFSId(forwardId);
+  query->getTargetI()->setDFSId(backwardId);
 #else // ENABLE_TLS
-  query->getSource()->setDFSId(threadId, forwardId);
-  query->getTarget()->setDFSId(threadId, backwardId);
+  query->getSourceI()->setDFSId(threadId, forwardId);
+  query->getTargetI()->setDFSId(threadId, backwardId);
 #endif // ENABLE_TLS
 
-  searchQueueForward.push(query->getSource());
-  searchQueueBackward.push(query->getTarget());
+  searchQueueForward.push(query->getSourceI());
+  searchQueueBackward.push(query->getTargetI());
 
   while (!searchQueueForward.empty() || !searchQueueBackward.empty()) {
     if (query->getCancel()) {
@@ -288,17 +304,20 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
       curr = searchQueueForward.front();
       searchQueueForward.pop();
 
-#ifdef ENABLE_STATISTICS
-      query->searchedNodes++;
+#if defined(ENABLE_STATISTICS)
+      query->addSearchedNodes();
 #endif // ENABLE_STATISTICS
 
-      for (auto it = curr->succ_begin(), end = curr->succ_end();
+      targetOrders = query->getTargetI()->getOrders();
+      for (auto it = curr->succBegin(), end = curr->succEnd();
           it != end; ++it) {
+        sourceOrders = (*it)->getOrders();
+
         if ((indexMethod & 0x04) &&
-            ((*it)->orderLabel > query->getTarget()->orderLabel))
+            (sourceOrders.first > targetOrders.first))
           break;
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
         if ((*it)->getDFSId() == backwardId) {
 #else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) == backwardId) {
@@ -307,15 +326,15 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
           goto end;
         }
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
         if ((*it)->getDFSId() != forwardId) {
           (*it)->setDFSId(forwardId);
 #else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) != forwardId) {
           (*it)->setDFSId(threadId, forwardId);
 #endif
-          if (((*it)->orderLabel < query->getTarget()->orderLabel) &&
-              ((*it)->revOrderLabel > query->getTarget()->revOrderLabel))
+          if ((sourceOrders.first < targetOrders.first) &&
+              (targetOrders.second > targetOrders.second))
             searchQueueForward.push(*it);
         }
       }
@@ -325,17 +344,20 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
       curr = searchQueueBackward.front();
       searchQueueBackward.pop();
 
-#ifdef ENABLE_STATISTICS
-      query->searchedNodes++;
+#if defined(ENABLE_STATISTICS)
+      query->addSearchedNodes();
 #endif // ENABLE_STATISTICS
 
-      for (auto it = curr->pred_begin(), end = curr->pred_end();
+      sourceOrders = query->getSourceI()->getOrders();
+      for (auto it = curr->predBegin(), end = curr->predEnd();
           it != end; ++it) {
+        targetOrders = (*it)->getOrders();
+
         if ((indexMethod & 0x04) &&
-            ((*it)->orderLabel < query->getSource()->orderLabel))
+            (sourceOrders.first > targetOrders.first ))
           break;
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
         if ((*it)->getDFSId() == forwardId) {
 #else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) == forwardId) {
@@ -344,15 +366,15 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
           goto end;
         }
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
         if ((*it)->getDFSId() != backwardId) {
           (*it)->setDFSId(backwardId);
 #else // ENABLE_TLS
         if ((*it)->getDFSId(threadId) != backwardId) {
           (*it)->setDFSId(threadId, backwardId);
 #endif // ENABLE_TLS
-          if (((*it)->orderLabel > query->getSource()->orderLabel) &&
-              ((*it)->revOrderLabel < query->getSource()->revOrderLabel))
+          if ((sourceOrders.first < targetOrders.first) &&
+              (sourceOrders.second > targetOrders.second))
             searchQueueBackward.push(*it);
         }
       }
@@ -360,12 +382,11 @@ Graph::areConnectedBBFS(ReachabilityQuery * query, int threadId) {
   }
 
 end:
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
-  benchmarkLock.lock();
+  counterLock.lock();
   cyclesSpentQuerying += cycleCount;
-  queryNumber++;
-  benchmarkLock.unlock();
+  counterLock.unlock();
 
   // Set the query time
   if (query->getInternal() != NULL) {
@@ -377,17 +398,21 @@ end:
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
+    pair<ReachabilityQueryImpl *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
       query->getInternal()->signal.notify_all();
   }
 
+#if defined(ENABLE_STATISTICS) || defined(ENABLE_BENCHMARKS)
+  queryCount++;
+#endif //  ENABLE_STATISTICS || ENABLE_BENCHMARKS
+
   return;
 
 cancel:
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
   if (query->getInternal() != NULL) {
 #else // ENABLE_BENCHMARKS
@@ -398,7 +423,7 @@ cancel:
     // Set the query time in the case of an internal query
     unique_lock<mutex> lock(query->getInternal()->guard);
 
-    pair<ReachabilityQuery *, uint64_t> result(query, cycleCount);
+    pair<ReachabilityQueryImpl *, uint64_t> result(query, cycleCount);
     query->getInternal()->results.push_back(result);
 
     if (query->getInternal()->results.size() == 2)
@@ -412,24 +437,24 @@ cancel:
 
 
 void
-#ifdef ENABLE_TLS
-Graph::areConnectedNoLabels(ReachabilityQuery * query) {
+#if defined(ENABLE_TLS)
+GraphImpl::areConnectedNoLabels(ReachabilityQueryImpl * query) {
 #else // ENABLE_TLS
-Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
+GraphImpl::areConnectedNoLabels(ReachabilityQueryImpl * query, int threadId) {
 #endif // ENABLE_TLS
   uint64_t timestamp;
-  stack<Vertex *> toVisit;
-  Vertex * curr;
+  VertexImpl * curr;
+  VertexImpl::Stack toVisit;
 
   timestamp = chrono::high_resolution_clock::now().time_since_epoch().count();
 
   query->setAnswer(false);
 
-  toVisit.push(query->getSource());
-#ifdef ENABLE_TLS
-  query->getSource()->setDFSId(timestamp);
+  toVisit.push(query->getSourceI());
+#if defined(ENABLE_TLS)
+  query->getSourceI()->setDFSId(timestamp);
 #else // ENABLE_TLS
-  query->getSource()->setDFSId(threadId, timestamp);
+  query->getSourceI()->setDFSId(threadId, timestamp);
 #endif // ENABLE_TLS
 
   while (!toVisit.empty()) {
@@ -441,14 +466,14 @@ Graph::areConnectedNoLabels(ReachabilityQuery * query, int threadId) {
     curr = toVisit.top();
     toVisit.pop();
 
-    for (auto it = curr->succ_begin(), end = curr->succ_end();
+    for (auto it = curr->succBegin(), end = curr->succEnd();
         it != end; ++it) {
-      if (*it == query->getSource()) {
+      if (*it == query->getSourceI()) {
         query->setAnswer(true);
         return;
       }
 
-#ifdef ENABLE_TLS
+#if defined(ENABLE_TLS)
       if ((*it)->getDFSId() != timestamp) {
         (*it)->setDFSId(timestamp);
 #else // ENABLE_TLS

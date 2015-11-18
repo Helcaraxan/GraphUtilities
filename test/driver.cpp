@@ -2,6 +2,7 @@
 #include <chrono>
 #include <random>
 #include <string>
+#include <thread>
 #include <cstring>
 #include <cstdlib>
 #include <fstream>
@@ -11,7 +12,8 @@
 #include <tbb/concurrent_hash_map.h>
 
 #include "graph-utilities/graph.hpp"
-#include "graph-utilities/support.hpp"
+#include "graph-utilities/implementation/support.hpp"
+#include "graph-utilities/implementation/semaphore.hpp"
 
 using namespace std;
 
@@ -88,47 +90,53 @@ printHelpMessage() {
 
 
 void
-queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
+queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
   int i, a, b, res;
   string garbage;
-  Query * newQuery = NULL;
-  ReachabilityQuery * subQuery = NULL;
+  fstream testStream;
+  ReachabilityQuery * query = NULL;
   tbb::concurrent_hash_map<Query *, bool>::accessor queryAccess;
 
+  if (*testFile != '\0')
+    testStream.open(testFile, ios_base::in);
+
   // Fill the queries to process...
-  if (testFile.is_open()) {
+  if (testStream.is_open()) {
     // ... from the specified file
 
     // Count the number of queries
     queryNumber = 0;
-    while (getline(testFile, garbage))
+    while (getline(testStream, garbage))
       queryNumber++;
 
-    testFile.clear();
-    testFile.seekg(0, testFile.beg);
+    testStream.clear();
+    testStream.seekg(0, testStream.beg);
     configureProgressBar(NULL, queryNumber);
 
     // Parse the actual queries
-    while (testFile.good()) {
-      testFile >> a >> b >> res;
+    while (testStream.good()) {
+      testStream >> a >> b >> res;
 
-      if (testFile.eof())
+      if (testStream.eof())
         break;
 
-      subQuery =
-        new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
-      newQuery = new Query(subQuery);
+      query = createRQuery();
+      query->setSource(graph->getVertex(a));
+      query->setTarget(graph->getVertex(b));
+      query->setMethod(method);
 
-      queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, (res == 0 ? false : true)));
+      queryMap.insert(queryAccess,
+          pair<Query *, bool>(query, (res == 0 ? false : true)));
       queryAccess.release();
-      graph->pushQuery(newQuery);
+      graph->pushQuery(query);
       openQueries.post();
     }
 
-    testFile.close();
+    testStream.close();
   } else {
     // ... at random
-    default_random_engine generator(chrono::system_clock::now().time_since_epoch().count());
+    default_random_engine
+      generator(chrono::system_clock::now().time_since_epoch().count());
     uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
 
     progressBarFinish = queryNumber;
@@ -138,18 +146,19 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
         b = queryDistribution(generator);
       } while (a == b);
 
-      if (a < b)
-        subQuery =
-          new ReachabilityQuery(graph->getVertexFromId(a), graph->getVertexFromId(b), method);
-      else
-        subQuery =
-          new ReachabilityQuery(graph->getVertexFromId(b), graph->getVertexFromId(a), method);
+      query = createRQuery();
+      query->setMethod(method);
+      if (a < b) {
+        query->setSource(graph->getVertex(a));
+        query->setTarget(graph->getVertex(b));
+      } else {
+        query->setSource(graph->getVertex(b));
+        query->setTarget(graph->getVertex(a));
+      }
 
-      newQuery = new Query(subQuery);
-
-      queryMap.insert(queryAccess, pair<Query *, bool>(newQuery, false));
+      queryMap.insert(queryAccess, pair<Query *, bool>(query, false));
       queryAccess.release();
-      graph->pushQuery(newQuery);
+      graph->pushQuery(query);
       openQueries.post();
     }
   }
@@ -160,13 +169,18 @@ queryGenerator(Graph * graph, fstream &testFile, SearchMethod method) {
 
 
 void
-resultAnalysis(Graph * graph, fstream &queryFile) {
+resultAnalysis(Graph * graph, const char * queryFile) {
   int resultCounter = 0;
   string barTitle = "Parsing results ";
-  Query * nextQuery = NULL;
+  fstream queryStream;
+  Query * query = NULL;
+  ReachabilityQuery * rQuery = NULL;
   tbb::concurrent_hash_map<Query *, bool>::const_accessor queryAccess;
 
   configureProgressBar(&barTitle, 0);
+
+  if (*queryFile != '\0')
+    queryStream.open(queryFile, ios_base::out);
 
   while (true) {
     openQueries.wait();
@@ -174,31 +188,32 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
     if (poison && (resultCounter == queryNumber))
       break;
 
-    nextQuery = graph->pullResult();
+    query = graph->pullResult();
 
-    if (nextQuery->type != Reachability) {
+    rQuery = dynamic_cast<ReachabilityQuery *>(query);
+    if (!rQuery) {
       cerr << "ERROR: Encountered an unexpected partition query." << endl;
       continue;
     }
 
-    queryMap.find(queryAccess, nextQuery);
+    queryMap.find(queryAccess, query);
 
-    if (nextQuery->query.reachability->getError()) {
-      cerr << "ERROR: Could not process query " << nextQuery->query.reachability->getSource()->id;
-      cerr << " -> " << nextQuery->query.reachability->getTarget()->id << "\n";
+    if (rQuery->getError()) {
+      cerr << "ERROR: Could not process query " << rQuery->getSource()->getId();
+      cerr << " -> " << rQuery->getTarget()->getId() << "\n";
     } else if (verifyFlag) {
-      if (nextQuery->query.reachability->getAnswer() != queryAccess->second) {
-        cerr << "ERROR: Wrong answer for query " << nextQuery->query.reachability->getSource()->id;
-        cerr << " -> " << nextQuery->query.reachability->getTarget()->id << "\n";
+      if (rQuery->getAnswer() != queryAccess->second) {
+        cerr << "ERROR: Wrong answer on query " << rQuery->getSource()->getId();
+        cerr << " -> " << rQuery->getTarget()->getId() << "\n";
       }
-    } else if (queryFile.is_open()) {
-      queryFile << nextQuery->query.reachability->getSource()->id << " ";
-      queryFile << nextQuery->query.reachability->getTarget()->id << " ";
+    } else if (queryStream.is_open()) {
+      queryStream << rQuery->getSource()->getId() << " ";
+      queryStream << rQuery->getTarget()->getId() << " ";
 
       if (queryAccess->second)
-        queryFile << "1\n";
+        queryStream << "1\n";
       else
-        queryFile << "0\n";
+        queryStream << "0\n";
     }
 
     queryAccess.release();
@@ -207,64 +222,44 @@ resultAnalysis(Graph * graph, fstream &queryFile) {
 
   cout << "\n";
 
-  if (queryFile.is_open())
-    queryFile.close();
+  if (queryStream.is_open())
+    queryStream.close();
 }
 
 
 int
 main(int argc, char * argv[]) {
-  string filename = "";
+  string inputFile, outputFile, coarseFile, testFile, dumpFile, queryFile;
 	Graph * graph = NULL;
   CoarsenMethod coarsenMethod = Greedy;
   IndexMethod indexMethod = Standard;
   SearchMethod searchMethod = UndefinedSearchMethod;
-  fstream outputFile, testFile, dumpFile, queryFile, coarseGraphFile, coarseMapFile;
-  ostream * output = &cout;
-  int i, c;
+  int c;
   int coarsenFactor = 0;
   int coarsenSecondaryFactor = 2;
-  char fileName[512] = {'\0'};
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts, NULL)) != -1) {
+  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts,
+          NULL)) != -1) {
     switch (c) {
       case 'i':
-        strncpy(fileName, optarg, 511);
+        inputFile = optarg;
         break;
 
       case 'o':
-        outputFile.open(optarg, fstream::out);
-        if (!outputFile.good()) {
-          cerr << "ERROR: Could not open the output file.\n";
-          exit(EXIT_FAILURE);
-        }
-
-        output = &outputFile;
+        outputFile = optarg;
         break;
 
       case 't':
-        testFile.open(optarg, fstream::in);
-        if (!testFile.good()) {
-          cerr << "ERROR: Could not open the test file.\n";
-          exit(EXIT_FAILURE);
-        }
+        testFile = optarg;
         break;
 
       case 'g':
-        dumpFile.open(optarg, fstream::out);
-        if (!dumpFile.good()) {
-          cerr << "ERROR: Could not open the graph dump file.\n";
-          exit(EXIT_FAILURE);
-        }
+        dumpFile = optarg;
         break;
 
       case 'q':
-        queryFile.open(optarg, fstream::out);
-        if (!queryFile.good()) {
-          cerr << "ERROR: Could not open the query dump file.\n";
-          exit(EXIT_FAILURE);
-        }
+        queryFile = optarg;
         break;
 
       case 'I':
@@ -329,19 +324,7 @@ main(int argc, char * argv[]) {
         break;
 
       case 'F':
-        filename = string(optarg) + "_graph.gra";
-        coarseGraphFile.open(filename.c_str(), ios_base::out);
-        if (!coarseGraphFile.good()) {
-          cerr << "ERROR: Could not open the coarse graph file.\n";
-          exit(EXIT_FAILURE);
-        }
-
-        filename = string(optarg) + "_map.txt";
-        coarseMapFile.open(filename.c_str(), ios_base::out);
-        if (!coarseMapFile.good()) {
-          cerr << "ERROR: Could not open the coarse graph file.\n";
-          exit(EXIT_FAILURE);
-        }
+        coarseFile = optarg;
         break;
 
       case 'h':
@@ -358,18 +341,19 @@ main(int argc, char * argv[]) {
     }
   }
 
-  if (fileName[0] == '\0') {
+  if (inputFile.size() == 0) {
     cerr << "ERROR: No input file was specified.\n\n";
     printHelpMessage();
     exit(EXIT_FAILURE);
   }
 
-  if (strstr(fileName, ".dot")) {
-    graph = Graph::createFromDotFile(fileName, uniqueFlag);
-  } else if (strstr(fileName, ".gra")) {
-    graph = Graph::createFromGraFile(fileName, uniqueFlag);
+  if (!inputFile.substr(inputFile.size() - 4, 4).compare(".dot")) {
+    graph = parseDotFile(inputFile.c_str(), uniqueFlag);
+  } else if (!inputFile.substr(inputFile.size() - 4, 4).compare(".gra")) {
+    graph = parseGraFile(inputFile.c_str(), uniqueFlag);
   } else {
-    cerr << "ERROR: Unknown graph-file extension. Only accepts .dot and .gra files.\n";
+    cerr << "ERROR: Unknown graph-file extension. Only accepts .dot and .gra "
+      << "files.\n";
     exit(EXIT_FAILURE);
   }
 
@@ -385,19 +369,21 @@ main(int argc, char * argv[]) {
   // When necessary create a coarsened graph and dump it
   if (coarsenFactor > 1) {
     map<int, int> vertexMap;
-    Graph * coarseGraph = graph->coarsen(coarsenMethod, coarsenFactor, coarsenSecondaryFactor,
-        vertexMap);
+    Graph * coarseGraph = graph->coarsen(coarsenMethod, coarsenFactor,
+        coarsenSecondaryFactor, vertexMap);
 
-    if (coarseGraphFile.is_open()) {
-      coarseGraph->printToFile(coarseGraphFile, true);
+    if (coarseFile.size() > 0) {
+      fstream coarseMapStream;
+      string mapFile = coarseFile + ".map";
 
-      coarseGraphFile.close();
+      coarseGraph->printToFile(coarseFile.c_str(), true);
+      coarseMapStream.open(mapFile.c_str(), ios_base::out);
 
-      coarseMapFile << "General to coarsened graph index mapping";
+      coarseMapStream << "General to coarsened graph index mapping";
       for (auto it = vertexMap.begin(), end = vertexMap.end(); it != end; ++it)
-        coarseMapFile << "\n" << it->first << " : " << it->second;
+        coarseMapStream << "\n" << it->first << " : " << it->second;
       
-      coarseMapFile.close();
+      coarseMapStream.close();
     }
 
     delete coarseGraph;
@@ -407,19 +393,26 @@ main(int argc, char * argv[]) {
   }
 
   // Dump the parsed graph for verification purposes
-  if (dumpFile.is_open()) {
+  if (dumpFile.size() > 0) {
+    fstream dumpStream;
     Vertex * curr;
 
-    dumpFile << "graph_for_greach\n" << graph->getVertexCount() << "\n";
-    for (i = 0; i < (int) graph->getVertexCount(); i++) {
-      dumpFile << i << ":";
-      curr = graph->getVertexFromId(i);
-      for (auto it = curr->succ_begin(); it != curr->succ_end(); ++it)
-        dumpFile << " " << (*it)->id;
+    dumpStream.open(dumpFile.c_str(), ios_base::out);
 
-      dumpFile << " #\n";
+    dumpStream << "graph_for_greach\n" << graph->getVertexCount() << "\n";
+    for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
+      if (!(curr = graph->getVertex(i)))
+        continue;
+
+      dumpStream << i << ":";
+
+      for (int i2 = 0, e2 = curr->getSuccessorCount(); i2 < e2; i2++)
+        dumpStream << " " << curr->getSuccessor(i2)->getId();
+
+      dumpStream << " #\n";
     }
-    dumpFile.close();
+
+    dumpStream.close();
   }
 
   // Exit here in case of a 'dry' run
@@ -427,20 +420,25 @@ main(int argc, char * argv[]) {
     exit(EXIT_SUCCESS);
 
   // Process the queries with two threads
-  thread pushThread(queryGenerator, graph, ref(testFile), searchMethod);
-  thread pullThread(resultAnalysis, graph, ref(queryFile));
+  thread pushThread(queryGenerator, graph, testFile.c_str(), searchMethod);
+  thread pullThread(resultAnalysis, graph, queryFile.c_str());
 
   // Wait for the queries to be issued and treated
   pushThread.join();
   pullThread.join();
-  graph->endOfQueries();
+  graph->disableQueries();
 	
+  // Prepare output stream for statistics and benchmarks
+  ostream * output = &cout;
+  if (outputFile.size() > 0)
+    output = new fstream(outputFile.c_str(), ios_base::out);
+
   // Dump the statistics of the queries...
-  if (graph->statisticsAreEnabled())
+  if (graph->getStatisticsEnabled())
     graph->printStatistics(*output);
 
   // ...and the benchmarks
-  if (graph->benchmarksAreEnabled())
+  if (graph->getBenchmarksEnabled())
     graph->printBenchmarks(*output);
 
   // Clear up the queries

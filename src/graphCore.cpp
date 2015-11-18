@@ -1,9 +1,7 @@
 #include <map>
 #include <iostream>
 
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -16,12 +14,12 @@ static map<int, int> remappedVertices;
 // Modificators
 
 Vertex *
-Graph::addVertex(void) {
+GraphImpl::addVertex(int weight) {
   Vertex * newVertex = NULL;
 
   startGlobalOperation();
 
-  newVertex = addVertexUnsafe(threadCount);
+  newVertex = addVertexUnsafe(threadCount, weight);
 
   stopGlobalOperation();
 
@@ -30,97 +28,96 @@ Graph::addVertex(void) {
 
 
 void
-Graph::removeVertex(Vertex * v) {
+GraphImpl::removeVertex(Vertex * vertex) {
   int remapTarget = -1;
-  auto remapping = remappedVertices.find(v->id);
+  auto remapping = remappedVertices.find(vertex->getId());
 
   if (remapping != remappedVertices.end())
     remapTarget = remapping->second;
 
-  for (int i = 0, e = v->getPredecessorCount(); i < e; i++) {
-    v->getPredecessor(i)->removeSuccessor(v);
+  for (int i = 0, e = vertex->getPredecessorCount(); i < e; i++) {
+    vertex->getPredecessor(i)->removeSuccessor(vertex);
     edgeCount--;
   }
 
-  for (int i = 0, e = v->getSuccessorCount(); i < e; i++) {
-    v->getSuccessor(i)->removePredecessor(v);
+  for (int i = 0, e = vertex->getSuccessorCount(); i < e; i++) {
+    vertex->getSuccessor(i)->removePredecessor(vertex);
     edgeCount--;
   }
 
   if (remapTarget != -1) {
     for (auto it = remappedVertices.begin(), end = remappedVertices.end();
         it != end; ++it) {
-      if (it->second == v->id)
+      if (it->second == vertex->getId())
         it->second = remapTarget;
     }
   }
 
   vertexCount--;
 
-  vertices[v->id] = NULL;
-  delete v;
+  vertices[vertex->getId()] = NULL;
+  delete vertex;
 }
 
 
 Vertex *
-Graph::mergeVertices(set<Vertex *> &s) {
-  Vertex * target = addVertexUnsafe(threadCount);
+GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
+  VertexImpl * target = addVertexUnsafe(threadCount);
+  VertexImpl::Set internalSet;
   UserDataInterface * mergedData = NULL;
   startGlobalOperation();
 
   int targetWeight = 0;
-  map<Vertex *, int> predWeightMap;
-  map<Vertex *, int> succWeightMap;
+  map<VertexImpl *, int> predWeightMap;
+  map<VertexImpl *, int> succWeightMap;
 
-  for (auto mergeIt = s.begin(), mergeEnd = s.end();
-      mergeIt != mergeEnd; ++mergeIt) {
-    auto weightIt = (*mergeIt)->predecessorWeights.begin();
-    for (auto predIt = (*mergeIt)->pred_begin(),
-        predEnd = (*mergeIt)->pred_end(); predIt != predEnd; ++predIt) {
-      if (s.find(*predIt) == s.end()) {
-        auto mapIt = predWeightMap.find(*predIt);
+  for (auto setIt = vertexSet.begin(), setEnd = vertexSet.end();
+      setIt != setEnd; ++setIt)
+    internalSet.insert(dynamic_cast<VertexImpl *>(*setIt));
+
+  for (auto setIt = internalSet.begin(), setEnd = internalSet.end();
+      setIt != setEnd; ++setIt) {
+    for (int i = 0, e = (*setIt)->getPredecessorCount(); i < e; i++) {
+      VertexImpl * pred = (*setIt)->getPredecessorI(i);
+      if (vertexSet.find(pred) == vertexSet.end()) {
+        auto mapIt = predWeightMap.find(pred);
         if (mapIt != predWeightMap.end())
-          mapIt->second += *weightIt;
+          mapIt->second += (*setIt)->getPredecessorWeight(i);
         else
-          predWeightMap[*predIt] = *weightIt;
+          predWeightMap[pred] = (*setIt)->getPredecessorWeight(i);
       }
-
-      weightIt++;
     }
 
-    weightIt = (*mergeIt)->successorWeights.begin();
-    for (auto succIt = (*mergeIt)->succ_begin(),
-        succEnd = (*mergeIt)->succ_end(); succIt != succEnd; ++succIt) {
-      if (s.find(*succIt) == s.end()) {
-        auto mapIt = succWeightMap.find(*succIt);
+    for (int i = 0, e = (*setIt)->getSuccessorCount(); i < e; i++) {
+      VertexImpl * succ = (*setIt)->getSuccessorI(i);
+      if (vertexSet.find(succ) == vertexSet.end()) {
+        auto mapIt = succWeightMap.find(succ);
         if (mapIt != succWeightMap.end())
-          mapIt->second += *weightIt;
+          mapIt->second += (*setIt)->getSuccessorWeight(i);
         else
-          succWeightMap[*succIt] = *weightIt;
+          succWeightMap[succ] = (*setIt)->getSuccessorWeight(i);
       }
-
-      weightIt++;
     }
 
-    targetWeight += (*mergeIt)->weight;
+    targetWeight += (*setIt)->getWeight();
 
-    auto remapIt = remappedVertices.find((*mergeIt)->id);
+    auto remapIt = remappedVertices.find((*setIt)->getId());
     if (remapIt != remappedVertices.end())
-      remapIt->second = target->id;
+      remapIt->second = target->getId();
     else
-      remappedVertices[(*mergeIt)->id] = target->id;
+      remappedVertices[(*setIt)->getId()] = target->getId();
 
-    if ((*mergeIt)->userData != NULL) {
+    if ((*setIt)->getUserData() != NULL) {
       if (mergedData == NULL)
-        mergedData = (*mergeIt)->userData->clone();
+        mergedData = (*setIt)->getUserData()->clone();
       else
-        mergedData->merge((*mergeIt)->userData);
+        mergedData->merge((*setIt)->getUserData());
     }
 
-    removeVertex(*mergeIt);
+    removeVertex(*setIt);
   }
 
-  target->weight = targetWeight;
+  target->setWeight(targetWeight);
 
   for (auto mapIt = predWeightMap.begin(), mapEnd = predWeightMap.end();
       mapIt != mapEnd; ++mapIt)
@@ -141,7 +138,7 @@ Graph::mergeVertices(set<Vertex *> &s) {
 
 
 bool
-Graph::addEdge(Vertex * source, Vertex * target, int weight) {
+GraphImpl::addEdge(Vertex * source, Vertex * target, int weight) {
   startGlobalOperation();
 
   if (!source->addSuccessor(target, weight))
@@ -158,7 +155,7 @@ Graph::addEdge(Vertex * source, Vertex * target, int weight) {
 
 
 bool
-Graph::removeEdge(Vertex * source, Vertex * target) {
+GraphImpl::removeEdge(Vertex * source, Vertex * target) {
   startGlobalOperation();
 
   if (!source->removeSuccessor(target)) {
@@ -176,27 +173,15 @@ Graph::removeEdge(Vertex * source, Vertex * target) {
 
 
 void
-Graph::setIndexMethod(IndexMethod newMethod) {
+GraphImpl::setIndexMethod(IndexMethod newMethod) {
   indexMethod = newMethod;
 }
 
 
 // Access
 
-unsigned int
-Graph::getEdgeCount() const {
-  return edgeCount;
-}
-
-
-unsigned int
-Graph::getVertexCount() const {
-  return vertexCount;
-}
-
-
 Vertex *
-Graph::getVertexFromId(int id) const {
+GraphImpl::getVertex(int id) const {
   auto remapping = remappedVertices.find(id);
 
   if (remapping != remappedVertices.end())
@@ -206,25 +191,49 @@ Graph::getVertexFromId(int id) const {
 }
 
 
+unsigned int
+GraphImpl::getEdgeCount() const {
+  return edgeCount;
+}
+
+
+unsigned int
+GraphImpl::getVertexCount() const {
+  return vertexCount;
+}
+
+
 IndexMethod
-Graph::getIndexMethod() const {
+GraphImpl::getIndexMethod() const {
   return indexMethod;
+}
+
+
+VertexImpl::Array&
+GraphImpl::getSourceVertices() {
+  return sources;
+}
+
+
+VertexImpl::Array&
+GraphImpl::getSinkVertices() {
+  return sinks;
 }
 
 
 // Checks
 
 void
-Graph::verifyVertexIds() const {
+GraphImpl::verifyVertexIds() const {
   int i = 0;
   int count = getVertexCount();
 
   for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
     if (*it == NULL) {
-      cerr << "Vertex slot n°" << i << " was NULL" << endl;
-    } else if ((*it)->id > count) {
-      cerr << "Vertex slot n°" << i << " has an abnormal ID (" << (*it)->id;
-      cerr << ")" << endl;
+      cerr << "Vertex slot n°" << i << " was NULL\n";
+    } else if ((*it)->getId() > count) {
+      cerr << "Vertex slot n°" << i << " has an abnormal ID ("
+        << (*it)->getId() << ")\n";
     }
 
     i++;
@@ -234,13 +243,13 @@ Graph::verifyVertexIds() const {
 
 // Maintenance
 
-Vertex *
-Graph::addVertexUnsafe(int threadCount) {
+VertexImpl *
+GraphImpl::addVertexUnsafe(int threadCount, int weight) {
   int id = vertices.size();
-#ifdef ENABLE_TLS
-  Vertex * newVertex = new Vertex(id);
+#if defined(ENABLE_TLS)
+  VertexImpl * newVertex = new VertexImpl(id, weight);
 #else // ENABLE_TLS
-  Vertex * newVertex = new Vertex(threadCount, id);
+  VertexImpl * newVertex = new VertexImpl(threadCount, id, weight);
 #endif // ENABLE_TLS
 
   vertices.push_back(newVertex);
@@ -252,11 +261,9 @@ Graph::addVertexUnsafe(int threadCount) {
 
 
 bool
-Graph::addEdgeUnsafe(Vertex * source, Vertex * target, int weight) {
+GraphImpl::addEdgeUnsafe(VertexImpl * source, VertexImpl * target, int weight) {
   source->addSuccessorUnsafe(target, weight);
   target->addPredecessorUnsafe(source, weight);
   edgeCount++;
   return true;
 }
-
-

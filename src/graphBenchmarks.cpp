@@ -1,6 +1,4 @@
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -8,8 +6,8 @@ using namespace std;
 // Benchmarks
 
 bool
-Graph::benchmarksAreEnabled(void) {
-#ifdef ENABLE_BENCHMARKS
+GraphImpl::getBenchmarksEnabled(void) {
+#if defined(ENABLE_BENCHMARKS)
   return true;
 #else // ENABLE_BENCHMARKS
   return false;
@@ -17,44 +15,28 @@ Graph::benchmarksAreEnabled(void) {
 }
 
 
+#if defined(ENABLE_BENCHMARKS)
 long long
-Graph::getQueryNumber(void) {
-#ifdef ENABLE_BENCHMARKS
-  return queryNumber;
-#else // ENABLE_BENCHMARKS
-  return 0;
-#endif // ENABLE_BENCHMARKS
-}
-
-
-long long
-Graph::getCyclesSpentIndexing(void) {
-#ifdef ENABLE_BENCHMARKS
+GraphImpl::getCyclesSpentIndexing(void) {
   return cyclesSpentIndexing;
-#else // ENABLE_BENCHMARKS
-  return 0;
-#endif // ENABLE_BENCHMARKS
 }
 
 
 long long
-Graph::getCyclesSpentQuerying(void) {
-#ifdef ENABLE_BENCHMARKS
+GraphImpl::getCyclesSpentQuerying(void) {
   return cyclesSpentQuerying;
-#else // ENABLE_BENCHMARKS
-  return 0;
-#endif // ENABLE_BENCHMARKS
 }
+#endif // ENABLE_BENCHMARKS
 
 
 void
-Graph::printBenchmarks(ostream &os) {
-#ifdef ENABLE_BENCHMARKS
+GraphImpl::printBenchmarks(ostream &os) {
+#if defined(ENABLE_BENCHMARKS)
   os << "\n---\nBenchmarking\n";
   os << "Speed performances:\n";
   os << "Cycles spent indexing: " << cyclesSpentIndexing << "\n";
   os << "Cycles spent querying: " << cyclesSpentQuerying << "\n";
-  os << "-> average of " << cyclesSpentQuerying / queryNumber;
+  os << "-> average of " << cyclesSpentQuerying / queryCount;
   os << " cycles per query\n\n";
 #else // ENABLE_BENCHMARKS
   os << "WARNING: Benchmarking has not been enabled at compile time.\n";

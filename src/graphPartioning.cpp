@@ -1,6 +1,4 @@
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -8,13 +6,13 @@ using namespace std;
 // Partitioning queries
 
 int
-Graph::getPartitionCount() {
+GraphImpl::getPartitionCount() const {
   return 1;
 }
 
 
-Graph::PartitionSet *
-getPartitionSet(int count) {
+const Vertex::PartitionArray *
+GraphImpl::getPartitionSet(int count) const {
   return NULL;
 }
 
@@ -22,12 +20,10 @@ getPartitionSet(int count) {
 // Internal partitioning query functions
 
 void
-#ifdef ENABLE_TLS
-Graph::processPartitionQuery(Query * query) {
+#if defined(ENABLE_TLS)
+GraphImpl::processPartitionQuery(PartitionQueryImpl * query) {
 #else // ENABLE_TLS
-Graph::processPartitionQuery(int threadId, Query * query) {
+GraphImpl::processPartitionQuery(PartitionQueryImpl * query, int threadId) {
 #endif // ENABLE_TLS
   // TODO
 }
-
-

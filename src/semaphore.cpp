@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "graph-utilities/semaphore.hpp"
+#include "graph-utilities/implementation/semaphore.hpp"
 
 using namespace std;
 

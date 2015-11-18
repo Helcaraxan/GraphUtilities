@@ -1,6 +1,4 @@
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -8,8 +6,8 @@ using namespace std;
 // Statistics
 
 bool
-Graph::statisticsAreEnabled() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getStatisticsEnabled() {
+#if defined(ENABLE_STATISTICS)
   return true;
 #else // ENABLE_STATISTICS
   return false;
@@ -17,69 +15,47 @@ Graph::statisticsAreEnabled() {
 }
 
 
+#if defined(ENABLE_STATISTICS)
 uintmax_t
-Graph::getQueryCount() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getQueryCount() {
   return queryCount;
-#else // ENABLE_STATISTICS
-  return 0;
-#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
-Graph::getPositiveQueryCount() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getPositiveQueryCount() {
   return positiveQueryCount;
-#else // ENABLE_STATISTICS
-  return 0;
-#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
-Graph::getNegativeQueryCount() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getNegativeQueryCount() {
   return negativeQueryCount;
-#else // ENABLE_STATISTICS
-  return 0;
-#endif // ENABLE_STATISTICS
 }
 
 
 uintmax_t
-Graph::getShortNegativeQueryCount() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getShortNegativeQueryCount() {
   return shortNegativeQueryCount;
-#else // ENABLE_STATISTICS
-  return 0;
-#endif // ENABLE_STATISTICS
 }
 
 
 double
-Graph::getPositiveQueryOverhead() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getPositiveQueryOverhead() {
   return positiveQueryOverhead;
-#else // ENABLE_STATISTICS
-  return 0.0L;
-#endif // ENABLE_STATISTICS
 }
 
 
 double
-Graph::getNegativeQueryOverhead() {
-#ifdef ENABLE_STATISTICS
+GraphImpl::getNegativeQueryOverhead() {
   return negativeQueryOverhead;
-#else // ENABLE_STATISTICS
-  return 0.0L;
-#endif // ENABLE_STATISTICS
 }
+#endif // ENABLE_STATISTICS
 
 
 void
-Graph::printStatistics(ostream &os) {
-#ifdef ENABLE_STATISTICS
+GraphImpl::printStatistics(ostream &os) {
+#if defined(ENABLE_STATISTICS)
   double shortFraction =
     ((double) shortNegativeQueryCount / ((double) negativeQueryCount));
   os << "\n---\nStatistics:\n";
@@ -118,30 +94,34 @@ Graph::printStatistics(ostream &os) {
 
 // Internal statistics maintenance
 
-#ifdef ENABLE_STATISTICS
+#if defined(ENABLE_STATISTICS)
 void
-Graph::registerQueryStatistics(ReachabilityQuery * query) {
+GraphImpl::registerQueryStatistics(ReachabilityQuery * query) {
   double coefficient = 1.0;
   double overhead = 1.0;
-  unique_lock<mutex> statisticsLock(statisticsMutex);
+  unique_lock<mutex> counterLock(counterMutex);
+  ReachabilityQueryImpl * cast = dynamic_cast<ReachabilityQueryImpl *>(query);
 
-  queryCount++;
+  if (!cast)
+    return;
 
-  if (query->getAnswer()) {
+  if (cast->getAnswer()) {
     positiveQueryCount++;
 
     coefficient = 1.0 / ((double) positiveQueryCount);
-    if (query->getMethod() == DFS)
-      overhead = ((double) query->searchedNodes) / (double) query->path.size();
+    if (cast->getMethod() == DFS)
+      overhead =
+        ((double) cast->getSearchedNodes()) / (double) cast->getPath().size();
 
     positiveQueryOverhead *= (1.0 - coefficient);
     positiveQueryOverhead += coefficient * overhead;
   } else {
     negativeQueryCount++;
 
-    if (query->searchedNodes > 0) {
+    if (cast->getSearchedNodes() > 0) {
       coefficient = 1.0 / ((double) negativeQueryCount);
-      overhead = ((double) query->searchedNodes) / (double) getVertexCount();
+      overhead =
+        ((double) cast->getSearchedNodes()) / (double) getVertexCount();
 
       negativeQueryOverhead *= (1.0 - coefficient);
       negativeQueryOverhead += coefficient * overhead;

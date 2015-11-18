@@ -1,15 +1,13 @@
 #include <iostream>
 
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
 
 // Local perf measurement function
 
-#ifdef __amd64
+#if defined(__amd64)
 static __inline__ uint64_t getClock(void) {
   uint64_t a, d;
   __asm__ volatile ("rdtsc" : "=a" (a), "=d" (d));
@@ -20,15 +18,15 @@ static __inline__ uint64_t getClock(void) {
 #endif // __amd64
 
 
-// Traversal method
+// Graph traversal methods
 
 Vertex *
-Graph::getNextDFS(bool postOrder, bool reverse) {
+GraphImpl::getNextDFS(bool postOrder, bool reverse) {
   static bool reverseMemory = false;
-  static Vertex * currentVertex = NULL;
-  static vector<Vertex *>::iterator originIt = sources.begin();
-  Vertex * lastVertex = NULL;
-  pair<bool, Vertex *> next(false, NULL);
+  static VertexImpl * currentVertex = NULL;
+  static VertexImpl::iterator originIt = sources.begin();
+  VertexImpl * lastVertex = NULL;
+  pair<bool, VertexImpl *> next(false, NULL);
 
   if (reverse != reverseMemory) {
     discoverExtremities();
@@ -70,11 +68,17 @@ Graph::getNextDFS(bool postOrder, bool reverse) {
 // Indexing
 
 void
-Graph::labelVertices(bool reverse) {
+GraphImpl::setIndexed(bool value) {
+  indexed = value;
+}
+
+
+void
+GraphImpl::labelVertices(bool reverse) {
   int traversalMethod = 0;
   int currLabel = 0;
-  Vertex * nextVertex = NULL;
-  vector<Vertex *> * order = reverse ? &predecessorQueue : &successorQueue;
+  VertexImpl * nextVertex = NULL;
+  VertexImpl::Array * order = reverse ? &predecessorQueue : &successorQueue;
 
   // Compose the method used for post-order labeling
   if (reverse)
@@ -82,7 +86,10 @@ Graph::labelVertices(bool reverse) {
 
   traversalMethod |= (indexMethod & 0x02);
 
-  while ((nextVertex = getNextDFS(true, reverse))) {
+  while (true) {
+    if (!(nextVertex = dynamic_cast<VertexImpl *>(getNextDFS(true, reverse))))
+      break;
+
     order->push_back(nextVertex);
 
     if (reverse)
@@ -98,14 +105,16 @@ Graph::labelVertices(bool reverse) {
         Vertex * predVertex = (*it)->getPredecessor(i);
         int predWeight = (*it)->getPredecessorWeight(i);
 
-        predVertex->addSuccessorUnsafe(*it, predWeight);
+        VertexImpl * predVertexImpl = dynamic_cast<VertexImpl *>(predVertex);
+        predVertexImpl->addSuccessorUnsafe(*it, predWeight);
       }
     } else {
       for (int i = 0, e = (*it)->getSuccessorCount(); i < e; i++) {
         Vertex * succVertex = (*it)->getSuccessor(i);
         int succWeight = (*it)->getSuccessorWeight(i);
 
-        succVertex->addPredecessorUnsafe(*it, succWeight);
+        VertexImpl * succVertexImpl = dynamic_cast<VertexImpl *>(succVertex);
+        succVertexImpl->addPredecessorUnsafe(*it, succWeight);
       }
     }
   }
@@ -113,15 +122,15 @@ Graph::labelVertices(bool reverse) {
   // Label the vertices in reverse post-order
   for (auto it = order->rbegin(), end = order->rend(); it != end; ++it) {
     if (reverse)
-      (*it)->revOrderLabel = currLabel++;
+      (*it)->setOrders(-1, currLabel++);
     else
-      (*it)->orderLabel = currLabel++;
+      (*it)->setOrders(currLabel++, -1);
   }
 }
 
 
 void
-Graph::indexGraph() {
+GraphImpl::indexGraph() {
   unique_lock<mutex> indexLock(indexMutex);
 
   startGlobalOperation();
@@ -130,17 +139,14 @@ Graph::indexGraph() {
     return;
 
   // Make sure we are indexing a DAG
-  if (!condensed) {
-    if (condenseGraph())
-      cerr << "Graph needed condensing." << endl;
-  }
+  condenseToDAG();
 
   if (indexMethod == UndefinedIndexMethod) {
     cerr << "ERROR: Unknown indexing method. Aborting.\n";
     exit(EXIT_FAILURE);
   }
 
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   uint64_t startClock = getClock();
 #endif // ENABLE_BENCHMARKS
 
@@ -152,13 +158,13 @@ Graph::indexGraph() {
 
   // When requested reorder the successors and predecessors in all vertices
   if (indexMethod & 0x04) {
-    Vertex * curr;
+    VertexImpl * curr;
 
     while (!successorQueue.empty()) {
       curr = successorQueue.back();
       successorQueue.pop_back();
 
-      for (auto it = curr->pred_begin(), end = curr->pred_end();
+      for (auto it = curr->predBegin(), end = curr->predEnd();
           it != end; ++it)
         (*it)->addSuccessorUnsafe(curr, curr->getPredecessorWeight(*it));
 
@@ -169,7 +175,7 @@ Graph::indexGraph() {
       curr = predecessorQueue.back();
       predecessorQueue.pop_back();
 
-      for (auto it = curr->succ_begin(), end = curr->succ_end();
+      for (auto it = curr->succBegin(), end = curr->succEnd();
           it != end; ++it)
         (*it)->addPredecessorUnsafe(curr, curr->getSuccessorWeight(*it));
 
@@ -180,7 +186,7 @@ Graph::indexGraph() {
     predecessorQueue.clear();
   }
 
-#ifdef ENABLE_BENCHMARKS
+#if defined(ENABLE_BENCHMARKS)
   cyclesSpentIndexing = getClock() - startClock;
 #endif // ENABLE_BENCHMARKS
 
@@ -193,7 +199,7 @@ Graph::indexGraph() {
 // Maintenance
 
 void
-Graph::discoverExtremities() {
+GraphImpl::discoverExtremities() {
   sources.clear();
   sinks.clear();
 
@@ -201,10 +207,10 @@ Graph::discoverExtremities() {
     if (*it == NULL)
       continue;
 
-    if ((*it)->predecessors.empty())
+    if ((*it)->getPredecessorCount() == 0)
       sources.push_back(*it);
 
-    if ((*it)->successors.empty())
+    if ((*it)->getSuccessorCount() == 0)
       sinks.push_back(*it);
   }
 }

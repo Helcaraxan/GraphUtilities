@@ -1,8 +1,6 @@
 #include <iostream>
 
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -10,9 +8,10 @@ using namespace std;
 // Generic query management
 
 void
-Graph::pushQuery(Query * query) {
+GraphImpl::pushQuery(Query * query) {
   static int DFSwin = 0;
   static int BBFSwin = 0;
+  ReachabilityQueryImpl * rQuery = dynamic_cast<ReachabilityQueryImpl *>(query);
 
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
 
@@ -26,12 +25,11 @@ Graph::pushQuery(Query * query) {
     methodLock.unlock();
   }
 
-  if (!enabled)
-    enableGraph();
+  if (queryThreads.size() == 0)
+    enableQueries();
 
   // If a method is specified use it
-  if ((query->type != Reachability) ||
-      (query->query.reachability->getMethod() != UndefinedSearchMethod)) {
+  if (!rQuery || (rQuery->getMethod() != UndefinedSearchMethod)) {
     jobQueue.push(query);
     return;
   }
@@ -39,21 +37,17 @@ Graph::pushQuery(Query * query) {
   // Else select the method automatically. If there is no
   // preferred method yet then find one.
   if (getMethod() == UndefinedSearchMethod) {
-    ReachabilityQuery * reachQuery = query->query.reachability;
-    ReachabilityQuery * DFSReachQuery =
-      new ReachabilityQuery(reachQuery->getSource(),
-          reachQuery->getTarget(), DFS);
-    ReachabilityQuery * BBFSReachQuery =
-      new ReachabilityQuery(reachQuery->getSource(),
-          reachQuery->getTarget(), BBFS);
-    ReachabilityQuery::InternalQueue * internal =
-      new ReachabilityQuery::InternalQueue();
+    ReachabilityQueryImpl * DFSQuery =
+      new ReachabilityQueryImpl(rQuery->getSourceI(), rQuery->getTargetI(),
+          DFS);
+    ReachabilityQueryImpl * BBFSQuery =
+      new ReachabilityQueryImpl(rQuery->getSourceI(), rQuery->getTargetI(),
+          BBFS);
+    ReachabilityQueryImpl::InternalQueue * internal =
+      new ReachabilityQueryImpl::InternalQueue();
 
-    DFSReachQuery->setInternal(internal);
-    BBFSReachQuery->setInternal(internal);
-
-    Query * DFSQuery = new Query(DFSReachQuery);
-    Query * BBFSQuery = new Query(BBFSReachQuery);
+    DFSQuery->setInternal(internal);
+    BBFSQuery->setInternal(internal);
 
     unique_lock<mutex> lock(internal->guard);
     jobQueue.push(DFSQuery);
@@ -68,13 +62,13 @@ Graph::pushQuery(Query * query) {
     }
 
     // Check for errors in the queries
-    if (DFSReachQuery->getError() || BBFSReachQuery->getError()) {
+    if (DFSQuery->getError() || BBFSQuery->getError()) {
       cerr << "ERROR: Could not correctly process BBFS or DFS search." << endl;
       exit(EXIT_FAILURE);
     }
 
     // Check for coherency between queries
-    if (DFSReachQuery->getAnswer() != BBFSReachQuery->getAnswer()) {
+    if (DFSQuery->getAnswer() != BBFSQuery->getAnswer()) {
       cerr << "ERROR: Incoherent results between BBFS and DFS search." << endl;
       exit(EXIT_FAILURE);
     }
@@ -84,21 +78,21 @@ Graph::pushQuery(Query * query) {
     if (internal->results[0].second > internal->results[1].second)
       winningIndex = 1;
 
-    if (internal->results[winningIndex].first == DFSReachQuery) {
+    if (internal->results[winningIndex].first == DFSQuery) {
       DFSwin++;
-      query->query.reachability->setAnswer(DFSReachQuery->getAnswer());
-      query->query.reachability->setMethod(DFS);
+      rQuery->setAnswer(DFSQuery->getAnswer());
+      rQuery->setMethod(DFS);
 
-#ifdef ENABLE_STATISTICS
-      registerQueryStatistics(DFSReachQuery);
+#if defined(ENABLE_STATISTICS)
+      registerQueryStatistics(DFSQuery);
 #endif // ENABLE_STATISTICS
     } else {
       BBFSwin++;
-      query->query.reachability->setAnswer(BBFSReachQuery->getAnswer());
-      query->query.reachability->setMethod(BBFS);
+      rQuery->setAnswer(BBFSQuery->getAnswer());
+      rQuery->setMethod(BBFS);
 
-#ifdef ENABLE_STATISTICS
-      registerQueryStatistics(BBFSReachQuery);
+#if defined(ENABLE_STATISTICS)
+      registerQueryStatistics(BBFSQuery);
 #endif // ENABLE_STATISTICS
     }
 
@@ -116,11 +110,11 @@ Graph::pushQuery(Query * query) {
     methodLock.unlock();
 
     // Clean-up the internal queries
+    delete internal;
     delete DFSQuery;
     delete BBFSQuery;
-    delete internal;
   } else {
-    query->query.reachability->setMethod(getMethod());
+    rQuery->setMethod(getMethod());
 
     jobQueue.push(query);
   }
@@ -130,7 +124,7 @@ Graph::pushQuery(Query * query) {
 
 
 Query *
-Graph::pullResult() {
+GraphImpl::pullResult() {
   Query * result = NULL;
 
   while (!resultQueue.try_pop(result)) {}
@@ -141,11 +135,35 @@ Graph::pullResult() {
 
 
 void
-Graph::endOfQueries() {
+GraphImpl::enableQueries() {
+  startGlobalOperation();
+
+  threadShutdown = false;
+
+  for (int i = 0; i < threadCount; i++)
+    queryThreads.push_back(new thread(queryWorker, this, i));
+
+  stopGlobalOperation();
+}
+
+
+void
+GraphImpl::disableQueries() {
+  startGlobalOperation();
+
   threadShutdown = true;
 
   for (int i = 0; i < threadCount; i++)
     jobQueue.push(NULL);
+
+  while (threadCount > 0) {
+    queryThreads.back()->join();
+
+    delete queryThreads.back();
+    queryThreads.pop_back();
+
+    threadCount--;
+  }
+
+  stopGlobalOperation();
 }
-
-

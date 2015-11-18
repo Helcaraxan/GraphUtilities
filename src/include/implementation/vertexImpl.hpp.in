@@ -1,0 +1,155 @@
+#ifndef VERTEX_IMPL_HPP
+#define VERTEX_IMPL_HPP
+
+#include <queue>
+#include <cstdint>
+#include <cstring>
+
+#include "graph-utilities/vertex.hpp"
+
+#include "graph-utilities/implementation/defs.hpp"
+
+using namespace std;
+
+
+// Vertex Implementation class
+
+class VertexImpl : public Vertex {
+// Type members
+public:
+  typedef typename vector<VertexImpl *>::const_iterator const_iterator;
+  typedef typename vector<VertexImpl *>::iterator iterator;
+  typedef queue<VertexImpl *> Queue;
+  typedef set<VertexImpl *> Set;
+  typedef stack<VertexImpl *> Stack;
+  typedef vector<VertexImpl *> Array;
+  typedef vector<Set *> PartitionArray;
+
+
+// Data members
+private:
+  // General info
+  const int id;
+  int weight = 0;
+
+  // Indexing
+  int inVisits = 0;
+  int outVisits = 0;
+  VertexImpl * firstVisit = NULL;
+
+  // Reachability data
+  int orderLabel = -1;
+  int revOrderLabel = -1;
+#if !defined(ENABLE_TLS)
+  uint64_t * DFSId = NULL;
+#endif // ENABLE_TLS
+
+  // Partioning data
+  int partitionID = -1;
+
+  // General data
+  int predecessorCount = 0;
+  int successorCount = 0;
+  Array predecessors;
+  vector<int> predecessorWeights;
+  Array successors;
+  vector<int> successorWeights;
+
+  // User data
+  UserDataInterface * userData = NULL;
+
+
+// Function members
+public:
+  // Constructor and destructor
+#if defined(ENABLE_TLS)
+  VertexImpl(int i, int w = 1, UserDataInterface * d = NULL) :
+    id(i),
+    weight(w)
+  {
+    if (d != NULL)
+      userData = d;
+  }
+#else // ENABLE_TLS
+  VertexImpl(int tc, int i, int w = 1, UserDataInterface * d = NULL) :
+    id(i),
+    weight(w)
+  {
+    if (d != NULL)
+      userData = d;
+
+    DFSId = new uint64_t[tc];
+  }
+#endif // ENABLE_TLS
+
+  ~VertexImpl(void) {
+    if (userData != NULL)
+      delete userData;
+  }
+
+
+  /* Interface methods */
+  // Access
+  int getId(void) const;
+  int getWeight(void) const;
+  Vertex * getPredecessor(int index) const;
+  Vertex * getSuccessor(int index) const;
+  int getPredecessorCount(void) const;
+  int getSuccessorCount(void) const;
+  int getPredecessorWeight(const Vertex * predecessor) const;
+  int getSuccessorWeight(const Vertex * successor) const;
+  int getPredecessorWeight(int index) const;
+  int getSuccessorWeight(int index) const;
+
+  // Modifications
+  void setWeight(int newWeight);
+  bool addPredecessor(Vertex * predecessor, int weight = 1);
+  bool addSuccessor(Vertex * successor, int weight = 1);
+  bool removePredecessor(Vertex * predecessor);
+  bool removeSuccessor(Vertex * successor);
+  void clearPredecessors(void);
+  void clearSuccessors(void);
+
+  // User data management
+  void setUserData(UserDataInterface * newData);
+  UserDataInterface * getUserData(void) const;
+
+
+  /* Implementation methods */
+  // Indexing
+#if defined(ENABLE_TLS)
+  void setDFSId(uint64_t newId);
+  uint64_t getDFSId(void) const;
+  static void checkDFSId(size_t size);
+#else // ENABLE_TLS
+  void setDFSId(int index, uint64_t newId);
+  uint64_t getDFSId(int index) const;
+#endif // ENABLE_TLS
+  pair<int, int> getOrders(void) const;
+
+  // Graph traversal
+  pair<bool, VertexImpl *> getNextDFS(VertexImpl * origin,
+      bool postOrder, bool reverse);
+
+  // Access
+  VertexImpl * getPredecessorI(int index) const;
+  VertexImpl * getSuccessorI(int index) const;
+  
+  // Modifications
+  void setOrders(int forward = -1, int backward = -1);
+  void addPredecessorUnsafe(VertexImpl * predecessor, int weight = 1);
+  void addSuccessorUnsafe(VertexImpl * successor, int weight = 1);
+
+  // Iterators
+  const_iterator predBegin(void) const;
+  const_iterator predEnd(void) const;
+  const_iterator succBegin(void) const;
+  const_iterator succEnd(void) const;
+  iterator predBegin(void);
+  iterator predEnd(void);
+  iterator succBegin(void);
+  iterator succEnd(void);
+};
+
+
+#endif // VERTEX_IMPL_HPP

@@ -1,0 +1,246 @@
+#ifndef GRAPH_IMPL_HPP
+#define GRAPH_IMPL_HPP
+
+#include <mutex>
+#include <queue>
+#include <stack>
+#include <atomic>
+#include <thread>
+#include <condition_variable>
+
+#include <tbb/concurrent_queue.h>
+
+#include "graph-utilities/graph.hpp"
+
+#include "graph-utilities/implementation/defs.hpp"
+#include "graph-utilities/implementation/vertexImpl.hpp"
+#include "graph-utilities/implementation/queriesImpl.hpp"
+
+using namespace std;
+
+
+// Graph Implementation class
+
+class GraphImpl : public Graph {
+// Friends
+friend void queryWorker(GraphImpl * graph, int id);
+friend Graph * parseDotFile(const char * fileName, bool noDoubleEdges);
+friend Graph * parseGraFile(const char * fileName, bool noDoubleEdges);
+
+
+// Data members
+private:
+  // General data
+  bool condensed = false;
+  unsigned int vertexCount = 0;
+  unsigned int edgeCount = 0;
+  VertexImpl::Array vertices;
+  VertexImpl::Array sources;
+  VertexImpl::Array sinks;
+
+  // Reachability data
+  bool indexed = false;
+  IndexMethod indexMethod = UndefinedIndexMethod;
+
+  // Global timestamp to distinguish between condensation DFSs
+  uint64_t globalTimestamp = 0;
+
+  // Indexing
+  mutex indexMutex;
+
+  // Condensing
+  Vertex::PartitionArray sccSets;
+
+  // Queries
+  mutex methodMutex;
+  tbb::concurrent_queue<Query *> jobQueue;
+  atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
+
+  // Results
+  tbb::concurrent_queue<Query *> resultQueue;
+
+  // Reordering vectors
+  VertexImpl::Array successorQueue;
+  VertexImpl::Array predecessorQueue;
+
+  // Partitioning data
+  int partitionCount = 0;
+  atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
+
+  // Multi-threading
+  int threadCount = 0;
+  int activeThreads = 0;
+  bool noQueries = false;
+  bool threadShutdown = false;
+  mutex queryWaitMutex;
+  mutex globalWaitMutex;
+  condition_variable queryWaitCondition;
+  condition_variable globalWaitCondition;
+  vector<thread *> queryThreads;
+#if defined(ENABLE_STATISTICS) || defined(ENABLE_BENCHMARKS)
+  mutex counterMutex;
+#endif // ENABLE_ STATISTICS || ENABLE_BENCHMARKS
+
+  // Counters
+#if defined(ENABLE_STATISTICS) || defined(ENABLE_BENCHMARKS)
+  uintmax_t queryCount = 0;
+#endif // ENABLE_ STATISTICS || ENABLE_BENCHMARKS
+#if defined(ENABLE_STATISTICS)
+  uintmax_t positiveQueryCount = 0;
+  uintmax_t negativeQueryCount = 0;
+  uintmax_t shortNegativeQueryCount = 0;
+  double positiveQueryOverhead = 0.0L;
+  double negativeQueryOverhead = 0.0L;
+#endif // ENABLE_STATISTICS
+#if defined(ENABLE_BENCHMARKS)
+  long long cyclesSpentIndexing = 0;
+  long long cyclesSpentQuerying = 0;
+#endif // ENABLE_BENCHMARKS
+
+
+// Function members
+public:
+  GraphImpl(int numberOfThreads = 2) {
+    threadCount = (numberOfThreads > 2) ? numberOfThreads : 2;
+  }
+
+  ~GraphImpl(void) {
+    disableQueries();
+
+    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
+      if (*it != NULL)
+        delete *it;
+  }
+
+  /* Interface methods */
+  // Serialization methods
+  void printToFile(const char * fileName, bool weights = false);
+
+  // Vertex and edge manipulation methods
+  Vertex * addVertex(int weight = 1);
+  void removeVertex(Vertex * vertex);
+  bool addEdge(Vertex * source, Vertex * target, int weight = 0);
+  bool removeEdge(Vertex * source, Vertex * target);
+
+  // Vertex index methods
+  IndexMethod getIndexMethod(void) const;
+  void setIndexMethod(IndexMethod newMethod);
+
+  // Graph traversal methods
+  Vertex * getNextDFS(bool postOrder, bool reverse);
+
+  // Graph manipulation methods
+  Vertex * mergeVertices(const Vertex::Set &vertexSet);
+  bool isCondensed(void) const;
+  bool isDAG(void);
+  void condenseToDAG(const char * correspondanceFile = NULL);
+  const Vertex::PartitionArray& getSCCs(void);
+
+  // Query management
+  void enableQueries(void);
+  void disableQueries(void);
+  void pushQuery(Query * query);
+  Query * pullResult(void) ;
+
+  // General queries
+  graph_t * getMetisGraph(void);
+  Vertex * getVertex(int id) const;
+  unsigned int getVertexCount(void) const;
+  unsigned int getEdgeCount(void) const;
+
+  // Partition-related methods
+  int getPartitionCount(void) const;
+  const Vertex::PartitionArray * getPartitionSet(int count) const;
+
+  // Graph coarsening
+  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
+      map<int, int> &vertexMap);
+
+  // Statistics
+  bool getStatisticsEnabled(void);
+  void printStatistics(ostream &stream);
+
+  // Benchmarking
+  bool getBenchmarksEnabled(void);
+  void printBenchmarks(ostream &stream);
+  
+
+  /* Implementation methods */
+  // Indexing
+  void setIndexed(bool value);
+  void labelVertices(bool reverse);
+  void indexGraph(void);
+
+  // Graph maintenance
+  void setCondensed(bool value);
+  void discoverExtremities(void);
+  void verifyVertexIds(void) const;
+  Vertex::PartitionArray& getSCCsI(void);
+
+  // Multi-threading
+  int getThreadCount(void) const;
+  void startWorker(void);
+  void stopWorker(void);
+  void startGlobalOperation(void);
+  void stopGlobalOperation(void);
+
+  // Maintenance
+  VertexImpl * addVertexUnsafe(int threadCount, int weight = 1);
+  bool addEdgeUnsafe(VertexImpl * source, VertexImpl * target, int weight = 1);
+
+  // General queries
+  VertexImpl::Array& getSourceVertices(void);
+  VertexImpl::Array& getSinkVertices(void);
+
+  // Internal reachability query functions
+#if defined(ENABLE_TLS)
+  void processReachabilityQuery(ReachabilityQueryImpl * query);
+  void areConnectedDFS(ReachabilityQueryImpl * query);
+  void areConnectedBBFS(ReachabilityQueryImpl * query);
+  void areConnectedNoLabels(ReachabilityQueryImpl * query);
+#else //  ENABLE_TLS
+  void processReachabilityQuery(ReachabilityQueryImpl * query, int threadId);
+  void areConnectedDFS(ReachabilityQueryImpl * query, int threadId);
+  void areConnectedBBFS(ReachabilityQueryImpl * query, int threadId);
+  void areConnectedNoLabels(ReachabilityQueryImpl * query, int threadId);
+#endif //  ENABLE_TLS
+  SearchMethod getMethod(void) const;
+  void setMethod(SearchMethod method);
+
+  // Internal partitioning query functions
+#if defined(ENABLE_TLS)
+  void processPartitionQuery(PartitionQueryImpl * query);
+#else // ENABLE_TLS
+  void processPartitionQuery(PartitionQueryImpl * query, int threadId);
+#endif // ENABLE_TLS
+
+  // Internal coarsening functions
+  bool addToReadySet(VertexImpl * curr, VertexImpl::Set &readySet,
+      VertexImpl::Set &processedSet);
+  GraphImpl * coarsenGreedy(int factor, map<int, int> &vertexMap);
+
+#if defined(ENABLE_STATISTICS)
+  // Internal statistics methods
+  uintmax_t getQueryCount(void);
+  uintmax_t getPositiveQueryCount(void);
+  uintmax_t getNegativeQueryCount(void);
+  uintmax_t getShortNegativeQueryCount(void);
+  double getPositiveQueryOverhead(void);
+  double getNegativeQueryOverhead(void);
+  void registerQueryStatistics(ReachabilityQuery * query);
+#endif // ENABLE_STATISTICS
+
+#if defined(ENABLE_BENCHMARKS)
+  // Internal benchmark methods
+  long long getCyclesSpentIndexing(void);
+  long long getCyclesSpentQuerying(void);
+#endif // ENABLE_BENCHMARKS
+};
+
+
+// The global slave function that performs queries
+
+void queryWorker(GraphImpl * graph, int threadId);
+
+
+#endif // GRAPH_IMPL_HPP

@@ -3,10 +3,8 @@
 #include <iomanip>
 #include <iostream>
 
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
-#include "graph-utilities/support.hpp"
+#include "graph-utilities/implementation/support.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
 
@@ -14,13 +12,11 @@ using namespace std;
 // Parser functions
 
 Graph *
-Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
+parseDotFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, maxId;
   fstream input(fileName, fstream::in);
-  Graph * graph = NULL;
-
-  graph = new Graph();
+  GraphImpl * graph = new GraphImpl();
 
   if (!input.good()) {
     cerr << "ERROR: Could not open the Dot input file.\n";
@@ -44,14 +40,12 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
       sscanf(dump, "%d -> %d", &source, &target);
       maxId = source < target ? target : source;
       while (graph->getVertexCount() <= (unsigned) maxId)
-        graph->addVertexUnsafe(graph->threadCount);
+        graph->addVertexUnsafe(graph->getThreadCount());
 
       if (noDoubleEdges)
-        graph->addEdgeUnsafe(graph->getVertexFromId(source),
-            graph->getVertexFromId(target));
+        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
       else
-        graph->addEdge(graph->getVertexFromId(source),
-            graph->getVertexFromId(target));
+        graph->addEdge(graph->vertices[source], graph->vertices[target]);
     } else {
       sscanf(dump, "%d", &source);
       while (graph->getVertexCount() <= (unsigned) source)
@@ -59,27 +53,25 @@ Graph::createFromDotFile(const char * fileName, bool noDoubleEdges) {
     }
   }
   input.close();
-  graph->indexed = false;
+  graph->setIndexed(false);
 
   // Make sure the graph is a DAG
-  if (!graph->condenseGraph(true))
-    graph->condensed = true;
+  if (graph->isDAG())
+    graph->setCondensed(true);
   else
-    graph->condensed = false;
+    graph->setCondensed(false);
 
   return graph;
 }
 
 
 Graph *
-Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
+parseGraFile(const char * fileName, bool noDoubleEdges) {
   char dump[128];
   int source, target, lineNumber;
   string barTitle = "Parsing graph ";
   fstream input(fileName, fstream::in);
-  Graph *  graph = NULL;
-
-  graph = new Graph();
+  GraphImpl * graph = new GraphImpl();
 
   if (!input.good()) {
     cerr << "ERROR: Could not open the Gra input file.\n";
@@ -98,7 +90,7 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 
   // Create all vertices
   for (int i = 0; i < lineNumber; i++)
-    graph->addVertexUnsafe(graph->threadCount);
+    graph->addVertexUnsafe(graph->getThreadCount());
 
   // Parse the adjacency list
   for (int i = 0; i < lineNumber; i++) {
@@ -121,11 +113,9 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
       target = atoi(dump);
 
       if (noDoubleEdges)
-        graph->addEdgeUnsafe(graph->getVertexFromId(source),
-            graph->getVertexFromId(target));
+        graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
       else
-        graph->addEdge(graph->getVertexFromId(source),
-            graph->getVertexFromId(target));
+        graph->addEdge(graph->vertices[source], graph->vertices[target]);
     }
 
     resultProgressBar(i + 1);
@@ -133,13 +123,13 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
   cout << "\n";
 
   input.close();
-  graph->indexed = false;
+  graph->setIndexed(false);
 
   // Make sure the graph is a DAG
-  if (!graph->condenseGraph(true))
-    graph->condensed = true;
+  if (!graph->isDAG())
+    graph->setCondensed(true);
   else
-    graph->condensed = false;
+    graph->setCondensed(false);
 
   return graph;
 }
@@ -148,33 +138,35 @@ Graph::createFromGraFile(const char * fileName, bool noDoubleEdges) {
 // Serialization
 
 void
-Graph::printToFile(fstream &printStream, bool withWeights) {
+GraphImpl::printToFile(const char * fileName, bool withWeights) {
+  fstream printStream;
+
+  printStream.open(fileName, ios_base::out);
+
   printStream << "graph_for_greach\n" << getVertexCount();
   for (auto nodeIt = vertices.begin(), end = vertices.end();
       nodeIt != end; ++nodeIt) {
     if (*nodeIt == NULL)
       continue;
 
-    printStream << "\n" << (*nodeIt)->id << ":";
+    printStream << "\n" << (*nodeIt)->getId() << ":";
 
-    for (auto succIt = (*nodeIt)->succ_begin(), succEnd = (*nodeIt)->succ_end();
+    for (auto succIt = (*nodeIt)->succBegin(), succEnd = (*nodeIt)->succEnd();
         succIt != succEnd; ++succIt)
-      printStream << " " << (*succIt)->id;
+      printStream << " " << (*succIt)->getId();
 
     printStream << " #";
 
     if (!withWeights)
       continue;
 
-    printStream << "\n" << (*nodeIt)->weight << ":";
+    printStream << "\n" << (*nodeIt)->getWeight() << ":";
 
-    for (auto weightIt = (*nodeIt)->successorWeights.begin(),
-        weightEnd = (*nodeIt)->successorWeights.end();
-        weightIt != weightEnd; ++weightIt)
-      printStream << " " << (*weightIt);
+    for (int i = 0, e = (*nodeIt)->getSuccessorCount(); i < e; i++)
+      printStream << " " << (*nodeIt)->getSuccessorWeight(i);
 
     printStream << " #";
   }
+
+  printStream.close();
 }
-
-

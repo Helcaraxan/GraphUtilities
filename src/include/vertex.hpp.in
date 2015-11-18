@@ -1,11 +1,9 @@
-#ifndef VERTEX_HPP
-#define VERTEX_HPP
+#ifndef GRAPH_UTILITIES_VERTEX
+#define GRAPH_UTILITIES_VERTEX
 
+#include <set>
+#include <stack>
 #include <vector>
-#include <cstdint>
-#include <cstring>
-
-#include "graph-utilities/defs.hpp"
 
 using namespace std;
 
@@ -24,135 +22,58 @@ public:
 template<class UserDataImpl>
 class UserData : public UserDataInterface {
 public:
-  virtual UserDataInterface * clone(void) const {
-    return new UserDataImpl(static_cast<const UserDataImpl&>(*this));
-  }
+  virtual UserDataInterface * clone(void) const;
 };
 
 
 // Vertex class
 
 class Vertex {
-friend class Graph;
-
 // Type members
 public:
-  typedef typename vector<Vertex *>::const_iterator const_iterator;
-  typedef typename vector<Vertex *>::iterator iterator;
-
-
-// Data members
-public:
-  int id;
-  int weight;
-
-
-private:
-  // Indexing
-  int inVisits = 0;
-  int outVisits = 0;
-  Vertex * firstVisit = NULL;
-
-  // Reachability data
-  int orderLabel = -1;
-  int revOrderLabel = -1;
-#ifndef ENABLE_TLS
-  uint64_t * DFSId = NULL;
-#endif // ENABLE_TLS
-
-  // Partioning data
-  int partitionID = 0;
-
-  // General data
-  int predecessorCount = 0;
-  int successorCount = 0;
-  vector<Vertex *> predecessors;
-  vector<int> predecessorWeights;
-  vector<Vertex *> successors;
-  vector<int> successorWeights;
-
-  // User data
-  UserDataInterface * userData = NULL;
+  typedef vector<Vertex *> Array;
+  typedef set<Vertex *> Set;
+  typedef stack<Vertex *> Stack;
+  typedef vector<Set *> PartitionArray;
 
 
 // Function members
 public:
-  // Constructor and destructor
-#ifdef ENABLE_TLS
-  Vertex(int i, int w = 1, UserDataInterface * d = NULL) :
-    id(i),
-    weight(w)
-  {
-    if (d != NULL)
-      userData = d;
-  }
-#else // ENABLE_TLS
-  Vertex(int tc, int i, int w = 1, UserDataInterface * d = NULL) :
-    id(i),
-    weight(w)
-  {
-    if (d != NULL)
-      userData = d;
+  // Constructor & Destructor
+  Vertex(void) = default;
+  virtual ~Vertex(void) = default;
 
-    DFSId = new uint64_t[tc];
-  }
-#endif // ENABLE_TLS
+  // Remove copy & move constructors
+  Vertex(const Vertex&) = delete;
+  Vertex(Vertex&&) = delete;
+  Vertex& operator=(const Vertex&) = delete;
+  Vertex& operator=(Vertex&&) = delete;
 
-  ~Vertex(void) {
-    if (userData != NULL)
-      delete userData;
-  }
+  // Modificator methods
+  virtual void setWeight(int newWeight) = 0;
+  virtual bool addPredecessor(Vertex * predecessor, int weight = 1) = 0;
+  virtual bool addSuccessor(Vertex * successor, int weight = 1) = 0;
+  virtual bool removePredecessor(Vertex * predecessor) = 0;
+  virtual bool removeSuccessor(Vertex * successor) = 0;
+  virtual void clearPredecessors(void) = 0;
+  virtual void clearSuccessors(void) = 0;
 
-  // Modificators
-  bool addPredecessor(Vertex * pred, int weight = 1);
-  bool addSuccessor(Vertex * succ, int weight = 1);
-  bool removePredecessor(Vertex * pred);
-  bool removeSuccessor(Vertex * succ);
-  void clearPredecessors(void);
-  void clearSuccessors(void);
+  // Access methods
+  virtual int getId(void) const = 0;
+  virtual int getWeight(void) const = 0;
+  virtual Vertex * getPredecessor(int index) const = 0;
+  virtual Vertex * getSuccessor(int index) const = 0;
+  virtual int getPredecessorCount(void) const = 0;
+  virtual int getSuccessorCount(void) const = 0;
+  virtual int getPredecessorWeight(const Vertex * predecessor) const = 0;
+  virtual int getSuccessorWeight(const Vertex * successor) const = 0;
+  virtual int getPredecessorWeight(int index) const = 0;
+  virtual int getSuccessorWeight(int index) const = 0;
 
-  // Access
-  Vertex * getPredecessor(int idx) const;
-  Vertex * getSuccessor(int idx) const;
-  int getPredecessorCount(void) const;
-  int getSuccessorCount(void) const;
-  int getPredecessorWeight(Vertex * pred) const;
-  int getSuccessorWeight(Vertex * succ) const;
-  int getPredecessorWeight(int idx) const;
-  int getSuccessorWeight(int idx) const;
-
-  // Iterators
-  const_iterator pred_begin(void) const;
-  const_iterator pred_end(void) const;
-  const_iterator succ_begin(void) const;
-  const_iterator succ_end(void) const;
-  iterator pred_begin(void);
-  iterator pred_end(void);
-  iterator succ_begin(void);
-  iterator succ_end(void);
-
-  // User data management (local)
-  void setUserData(UserDataInterface * newData);
-  UserDataInterface * getUserData(void) const;
-
-
-private:
-  // Indexing
-#ifdef ENABLE_TLS
-  void setDFSId(uint64_t newId);
-  uint64_t getDFSId(void) const;
-  static void checkDFSId(size_t size);
-#else // ENABLE_TLS
-  void setDFSId(int idx, uint64_t newId);
-  uint64_t getDFSId(int idx) const;
-#endif // ENABLE_TLS
-  pair<bool, Vertex *> getNextDFS(Vertex * origin,
-      bool postOrder, bool reverse);
-
-  // Modificators
-  void addPredecessorUnsafe(Vertex * pred, int weight = 1);
-  void addSuccessorUnsafe(Vertex * succ, int weight = 1);
+  // User data management
+  virtual void setUserData(UserDataInterface * newData) = 0;
+  virtual UserDataInterface * getUserData(void) const = 0;
 };
 
 
-#endif // VERTEX_HPP
+#endif // GRAPH_UTILITIES_VERTEX

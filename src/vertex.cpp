@@ -1,4 +1,4 @@
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/vertexImpl.hpp"
 
 using namespace std;
 
@@ -9,219 +9,18 @@ thread_local vector<int> DFSId;
 #endif // ENABLE_TLS
 
 
-/* Public member functions */
-
-// Modificators
-
-bool
-Vertex::addPredecessor(Vertex * pred, int weight) {
-  if (pred == this)
-    return false;
-
-  for (auto it = pred_begin(), end = pred_end(); it != end; ++it) {
-    if (*it == pred)
-      return false;
-  }
-
-  addPredecessorUnsafe(pred, weight);
-  return true;
+// UserData implementation
+template<class UserDataImpl>
+UserDataInterface *
+UserData<UserDataImpl>::clone() const {
+  return new UserDataImpl(static_cast<const UserDataImpl&>(*this));
 }
 
 
-bool
-Vertex::addSuccessor(Vertex * succ, int weight) {
-  if (succ == this)
-    return false;
-
-  for (auto it = succ_begin(), end = succ_end(); it != end; ++it) {
-    if (*it == succ)
-      return false;
-  }
-
-  addSuccessorUnsafe(succ, weight);
-
-  return true;
-}
-
-
-bool
-Vertex::removePredecessor(Vertex * pred) {
-  auto weightIt = predecessorWeights.begin();
-  for (auto predIt = pred_begin(), end = pred_end(); predIt != end; ++predIt) {
-    if (*predIt == pred) {
-      predecessors.erase(predIt);
-      predecessorWeights.erase(weightIt);
-      predecessorCount--;
-      return true;
-    }
-
-    ++weightIt;
-  }
-
-  return false;
-}
-
-
-bool
-Vertex::removeSuccessor(Vertex * succ) {
-  auto weightIt = successorWeights.begin();
-  for (auto succIt = succ_begin(), end = succ_end(); succIt != end; ++succIt) {
-    if (*succIt == succ) {
-      successors.erase(succIt);
-      successorWeights.erase(weightIt);
-      successorCount--;
-      return true;
-    }
-
-    ++weightIt;
-  }
-
-  return false;
-}
-
+// User data management
 
 void
-Vertex::clearPredecessors() {
-  predecessors.clear();
-  predecessorWeights.clear();
-  predecessorCount = 0;
-}
-
-
-void
-Vertex::clearSuccessors() {
-  successors.clear();
-  successorWeights.clear();
-  successorCount = 0;
-}
-
-
-// Access
-
-Vertex *
-Vertex::getPredecessor(int idx) const {
-  return predecessors.at(idx);
-}
-
-
-Vertex *
-Vertex::getSuccessor(int idx) const {
-  return successors.at(idx);
-}
-
-
-int
-Vertex::getPredecessorCount() const {
-  return predecessorCount;
-}
-
-
-int
-Vertex::getSuccessorCount() const {
-  return successorCount;
-}
-
-
-int
-Vertex::getPredecessorWeight(Vertex * pred) const {
-  auto weightIt = predecessorWeights.begin();
-  for (auto predIt = pred_begin(), end = pred_end(); predIt != end; ++predIt) {
-    if (*predIt == pred)
-      return *weightIt;
-
-    ++weightIt;
-  }
-
-  return -1;
-}
-
-
-int
-Vertex::getSuccessorWeight(Vertex * succ) const {
-  auto weightIt = successorWeights.begin();
-  for (auto succIt = succ_begin(), end = succ_end(); succIt != end; ++succIt) {
-    if (*succIt == succ)
-      return *weightIt;
-
-    ++weightIt;
-  }
-
-  return -1;
-}
-
-
-int
-Vertex::getPredecessorWeight(int idx) const {
-  if (getPredecessorCount() <= idx)
-    return -1;
-
-  return predecessorWeights[idx];
-}
-
-
-int
-Vertex::getSuccessorWeight(int idx) const {
-  if (getSuccessorCount() <= idx)
-    return -1;
-
-  return successorWeights[idx];
-}
-
-
-// Iterators
-
-Vertex::const_iterator
-Vertex::pred_begin() const {
-  return predecessors.begin();
-}
-
-
-Vertex::const_iterator
-Vertex::pred_end() const {
-  return predecessors.end();
-}
-
-
-Vertex::const_iterator
-Vertex::succ_begin() const {
-  return successors.begin();
-}
-
-
-Vertex::const_iterator
-Vertex::succ_end() const {
-  return successors.end();
-}
-
-
-Vertex::iterator
-Vertex::pred_begin() {
-  return predecessors.begin();
-}
-
-
-Vertex::iterator
-Vertex::pred_end() {
-  return predecessors.end();
-}
-
-
-Vertex::iterator
-Vertex::succ_begin() {
-  return successors.begin();
-}
-
-
-Vertex::iterator
-Vertex::succ_end() {
-  return successors.end();
-}
-
-
-// User data management (local)
-
-void
-Vertex::setUserData(UserDataInterface * newData) {
+VertexImpl::setUserData(UserDataInterface * newData) {
   if (userData != NULL)
     delete userData;
 
@@ -230,30 +29,28 @@ Vertex::setUserData(UserDataInterface * newData) {
 
 
 UserDataInterface *
-Vertex::getUserData() const {
+VertexImpl::getUserData() const {
   return userData;
 }
 
-
-/* Private member functions */
 
 // Indexing
 
 #ifdef ENABLE_TLS
 void
-Vertex::setDFSId(uint64_t newId) {
+VertexImpl::setDFSId(uint64_t newId) {
   DFSId.at(id) = newId;
 }
 
 
 uint64_t
-Vertex::getDFSId() const {
+VertexImpl::getDFSId() const {
   return DFSId.at(id);
 }
 
 
 void
-Vertex::checkDFSId(size_t size) {
+VertexImpl::checkDFSId(size_t size) {
   if (DFSId.size() < size)
     DFSId.resize(size);
 }
@@ -261,17 +58,25 @@ Vertex::checkDFSId(size_t size) {
 #else // ENABLE_TLS
 
 void
-Vertex::setDFSId(int idx, uint64_t newId) {
-  DFSId[idx] = newId;
+VertexImpl::setDFSId(int index, uint64_t newId) {
+  DFSId[index] = newId;
 }
 
 
 uint64_t
-Vertex::getDFSId(int idx) const {
-  return DFSId[idx];
+VertexImpl::getDFSId(int index) const {
+  return DFSId[index];
 }
 #endif // ENABLE_TLS
 
+
+pair<int, int>
+VertexImpl::getOrders() const {
+  return pair<int, int>(orderLabel, revOrderLabel);
+}
+
+
+// Graph traversal
 
 /* Compute the next Vertex to be visited in a DFS traversal of the graph
  * from the current Vertex instance. This allows for an iterative traversal and
@@ -279,10 +84,10 @@ Vertex::getDFSId(int idx) const {
  * result pair gives the potential next vertice in the DFS traversal and the
  * boolean telling if its the real next vertice or if it's an intermediary one.
  */
-pair<bool, Vertex *>
-Vertex::getNextDFS(Vertex * origin, bool postOrder, bool reverse) {
+pair<bool, VertexImpl *>
+VertexImpl::getNextDFS(VertexImpl * origin, bool postOrder, bool reverse) {
   bool isTarget = false;
-  Vertex * target = NULL;
+  VertexImpl * target = NULL;
 
   if (inVisits == 0) {
     // This is part of the first visit to this Vertex
@@ -290,7 +95,7 @@ Vertex::getNextDFS(Vertex * origin, bool postOrder, bool reverse) {
     if (firstVisit == NULL) {
       // Register the origin as the source of the DFS traversal
       if (origin == this) {
-        firstVisit = (Vertex *) 0x1;
+        firstVisit = (VertexImpl *) 0x1;
       } else {
         firstVisit = origin;
       }
@@ -348,23 +153,268 @@ Vertex::getNextDFS(Vertex * origin, bool postOrder, bool reverse) {
     firstVisit = NULL;
   }
 
-  return pair<bool, Vertex *>(isTarget, target);
+  return pair<bool, VertexImpl *>(isTarget, target);
 }
 
 
 // Modificators
 
 void
-Vertex::addPredecessorUnsafe(Vertex * pred, int weight) {
-  predecessors.push_back(pred);
+VertexImpl::setWeight(int newWeight) {
+  weight = newWeight;
+}
+
+
+bool
+VertexImpl::addPredecessor(Vertex * predecessor, int weight) {
+  if (predecessor == this)
+    return false;
+
+  for (auto it = predBegin(), end = predEnd(); it != end; ++it) {
+    if ((Vertex *) *it == predecessor)
+      return false;
+  }
+
+  addPredecessorUnsafe(dynamic_cast<VertexImpl *>(predecessor), weight);
+  return true;
+}
+
+
+bool
+VertexImpl::addSuccessor(Vertex * successor, int weight) {
+  if (successor == this)
+    return false;
+
+  for (auto it = succBegin(), end = succEnd(); it != end; ++it) {
+    if ((Vertex *) *it == successor)
+      return false;
+  }
+
+  addSuccessorUnsafe(dynamic_cast<VertexImpl *>(successor), weight);
+
+  return true;
+}
+
+
+bool
+VertexImpl::removePredecessor(Vertex * predecessor) {
+  auto weightIt = predecessorWeights.begin();
+  for (auto predIt = predBegin(), end = predEnd(); predIt != end; ++predIt) {
+    if ((Vertex *) *predIt == predecessor) {
+      predecessors.erase(predIt);
+      predecessorWeights.erase(weightIt);
+      predecessorCount--;
+      return true;
+    }
+
+    ++weightIt;
+  }
+
+  return false;
+}
+
+
+bool
+VertexImpl::removeSuccessor(Vertex * successor) {
+  auto weightIt = successorWeights.begin();
+  for (auto succIt = succBegin(), end = succEnd(); succIt != end; ++succIt) {
+    if ((Vertex *) *succIt == successor) {
+      successors.erase(succIt);
+      successorWeights.erase(weightIt);
+      successorCount--;
+      return true;
+    }
+
+    ++weightIt;
+  }
+
+  return false;
+}
+
+
+void
+VertexImpl::clearPredecessors() {
+  predecessors.clear();
+  predecessorWeights.clear();
+  predecessorCount = 0;
+}
+
+
+void
+VertexImpl::clearSuccessors() {
+  successors.clear();
+  successorWeights.clear();
+  successorCount = 0;
+}
+
+
+void
+VertexImpl::addPredecessorUnsafe(VertexImpl * predecessor, int weight) {
+  predecessors.push_back(predecessor);
   predecessorWeights.push_back(weight);
   predecessorCount++;
 }
 
 
 void
-Vertex::addSuccessorUnsafe(Vertex * succ, int weight) {
-  successors.push_back(succ);
+VertexImpl::addSuccessorUnsafe(VertexImpl * successor, int weight) {
+  successors.push_back(successor);
   successorWeights.push_back(weight);
   successorCount++;
+}
+
+
+void
+VertexImpl::setOrders(int forward, int backward) {
+  if (forward != -1)
+    orderLabel = forward;
+  
+  if (backward != -1)
+    revOrderLabel = backward;
+}
+
+
+// Access
+
+int
+VertexImpl::getId() const {
+  return id;
+}
+
+
+int
+VertexImpl::getWeight() const {
+  return weight;
+}
+
+
+Vertex *
+VertexImpl::getPredecessor(int index) const {
+  return predecessors.at(index);
+}
+
+
+Vertex *
+VertexImpl::getSuccessor(int index) const {
+  return successors.at(index);
+}
+
+
+int
+VertexImpl::getPredecessorCount() const {
+  return predecessorCount;
+}
+
+
+int
+VertexImpl::getSuccessorCount() const {
+  return successorCount;
+}
+
+
+int
+VertexImpl::getPredecessorWeight(const Vertex * predecessor) const {
+  auto weightIt = predecessorWeights.begin();
+  for (auto predIt = predBegin(), end = predEnd(); predIt != end; ++predIt) {
+    if ((Vertex *) *predIt == predecessor)
+      return *weightIt;
+
+    ++weightIt;
+  }
+
+  return -1;
+}
+
+
+int
+VertexImpl::getSuccessorWeight(const Vertex * successor) const {
+  auto weightIt = successorWeights.begin();
+  for (auto succIt = succBegin(), end = succEnd(); succIt != end; ++succIt) {
+    if ((Vertex *) *succIt == successor)
+      return *weightIt;
+
+    ++weightIt;
+  }
+
+  return -1;
+}
+
+
+int
+VertexImpl::getPredecessorWeight(int index) const {
+  if (getPredecessorCount() <= index)
+    return -1;
+
+  return predecessorWeights[index];
+}
+
+
+int
+VertexImpl::getSuccessorWeight(int index) const {
+  if (getSuccessorCount() <= index)
+    return -1;
+
+  return successorWeights[index];
+}
+
+
+VertexImpl *
+VertexImpl::getPredecessorI(int index) const {
+  return predecessors[index];
+}
+
+
+VertexImpl *
+VertexImpl::getSuccessorI(int index) const {
+  return successors[index];
+}
+
+
+// Iterators
+
+VertexImpl::const_iterator
+VertexImpl::predBegin() const {
+  return predecessors.begin();
+}
+
+
+VertexImpl::const_iterator
+VertexImpl::predEnd() const {
+  return predecessors.end();
+}
+
+
+VertexImpl::const_iterator
+VertexImpl::succBegin() const {
+  return successors.begin();
+}
+
+
+VertexImpl::const_iterator
+VertexImpl::succEnd() const {
+  return successors.end();
+}
+
+
+VertexImpl::iterator
+VertexImpl::predBegin() {
+  return predecessors.begin();
+}
+
+
+VertexImpl::iterator
+VertexImpl::predEnd() {
+  return predecessors.end();
+}
+
+
+VertexImpl::iterator
+VertexImpl::succBegin() {
+  return successors.begin();
+}
+
+
+VertexImpl::iterator
+VertexImpl::succEnd() {
+  return successors.end();
 }

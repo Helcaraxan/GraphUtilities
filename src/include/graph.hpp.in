@@ -1,260 +1,99 @@
-#ifndef GRAPH_HPP
-#define GRAPH_HPP
+#ifndef GRAPH_UTILITIES_GRAPH
+#define GRAPH_UTILITIES_GRAPH
 
 #include <map>
-#include <set>
-#include <list>
-#include <mutex>
-#include <queue>
-#include <stack>
-#include <atomic>
-#include <thread>
-#include <vector>
-#include <condition_variable>
 
-#include <papi.h>
-#include <tbb/concurrent_queue.h>
-
-#include "graph-utilities/defs.hpp"
 #include "graph-utilities/vertex.hpp"
 #include "graph-utilities/queries.hpp"
-#include "graph-utilities/semaphore.hpp"
 #include "graph-utilities/metis-extra.hpp"
 
 using namespace std;
 
 
-
 // Graph class
 
 class Graph {
-friend void queryWorker(Graph * graph, int id);
-
 // Local types
 public:
-  typedef vector<set<Vertex *> *> PartitionSet;
   typedef enum {
     PreOrder,
     PostOrder
   } TraversalMethod;
 
 
-// Data members
-protected:
-  // Reachability data
-  bool indexed = false;
-  IndexMethod indexMethod = UndefinedIndexMethod;
-
-  // General data
-  bool condensed = false;
-  bool enabled = false;
-  unsigned int vertexCount = 0;
-  unsigned int edgeCount = 0;
-  vector<Vertex *> vertices;
-  vector<Vertex *> sources;
-  vector<Vertex *> sinks;
-
-  // Global timestamp to distinguish between condensation DFSs
-  uint64_t globalTimestamp;
-
-private:
-  /* Reachability data */
-  // Indexing
-  mutex indexMutex;
-
-  // Condensing
-  vector<set<Vertex *> *> sccSets;
-
-  // Queries
-  mutex methodMutex;
-  tbb::concurrent_queue<Query *> jobQueue;
-  atomic<SearchMethod> searchMethod{UndefinedSearchMethod};
-
-  // Results
-  tbb::concurrent_queue<Query *> resultQueue;
-
-  // Reordering vectors
-  vector<Vertex *> successorQueue;
-  vector<Vertex *> predecessorQueue;
-
-  /* Partitioning data */
-  // General
-  int partitionCount = 0;
-  atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
-
-  /* General data */
-  // Multi-threading
-  int threadCount = 0;
-  int activeThreads = 0;
-  bool noQueries = false;
-  bool threadShutdown = false;
-  mutex queryWaitMutex;
-  mutex globalWaitMutex;
-  condition_variable queryWaitCondition;
-  condition_variable globalWaitCondition;
-  vector<thread *> queryThreads;
-
-#ifdef ENABLE_STATISTICS
-  /* Statistics data */
-  // Counters
-  uintmax_t queryCount = 0;
-  uintmax_t positiveQueryCount = 0;
-  uintmax_t negativeQueryCount = 0;
-  uintmax_t shortNegativeQueryCount = 0;
-
-  // DFS overhead statistics
-  mutex statisticsMutex;
-  double positiveQueryOverhead = 0.0L;
-  double negativeQueryOverhead = 0.0L;
-#endif // ENABLE_STATISTICS
-
-#ifdef ENABLE_BENCHMARKS
-  /* Benchmark data */
-  // Counters
-  long long queryNumber{0};
-  long long cyclesSpentIndexing{0};
-  long long cyclesSpentQuerying{0};
-
-  // Multi-threading
-  mutex benchmarkMutex;
-#endif // ENABLE_BENCHMARKS
-
-
 // Function members
 public:
-  // Constructors & Destructor
-  Graph(int numberOfThreads = 2) {
-    threadCount = (numberOfThreads > 2) ? numberOfThreads : 2;
-  }
+  // Constructor & Destructor
+  Graph(void) = default;
+  virtual ~Graph(void) = default;
 
-  ~Graph() {
-    disableGraph();
+  // Remove copy & move constructors
+  Graph(const Graph&) = delete;
+  Graph(Graph&&) = delete;
+  Graph& operator=(const Graph&) = delete;
+  Graph& operator=(Graph&&) = delete;
 
-    for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
-      if (*it != NULL)
-        delete *it;
-  }
+  // Serialization methods
+  virtual void printToFile(const char * fileName, bool weights = false) = 0;
 
-  // Parser functions
-  static Graph * createFromDotFile(const char * fileName,
-      bool noDoubleEdges = false);
-  static Graph * createFromGraFile(const char * fileName,
-      bool noDoubleEdges = false);
+  // Vertex and edge manipulation methods
+  virtual Vertex * addVertex(int weight = 0) = 0;
+  virtual void removeVertex(Vertex * vertex) = 0;
+  virtual bool addEdge(Vertex * source, Vertex * target, int weight = 0) = 0;
+  virtual bool removeEdge(Vertex * source, Vertex * target) = 0;
 
-  // Serialization
-  void printToFile(fstream &printStream, bool withWeights = false);
+  // Vertex index methods
+  virtual IndexMethod getIndexMethod(void) const = 0;
+  virtual void setIndexMethod(IndexMethod newMethod) = 0;
 
-  // Modificators
-  Vertex * addVertex();
-  void removeVertex(Vertex * v);
-  Vertex * mergeVertices(set<Vertex *> &s);
-  bool addEdge(Vertex * s, Vertex * t, int weight = 1);
-  bool removeEdge(Vertex * s, Vertex * t);
-  void setIndexMethod(IndexMethod newMethod);
-  bool condenseGraph(bool dummy = false, const char * dumpFile = NULL);
+  // Graph traversal methods
+  virtual Vertex * getNextDFS(bool postOrder, bool reverse) = 0;
 
-  // Access
-  graph_t * getMetisGraph(void);
-  unsigned int getEdgeCount(void) const;
-  unsigned int getVertexCount(void) const;
-  Vertex * getVertexFromId(int id) const;
-  IndexMethod getIndexMethod(void) const;
-  Vertex * getNextDFS(bool postOrder, bool reverse);
+  // Graph manipulation methods
+  virtual Vertex * mergeVertices(const Vertex::Set &vertexSet) = 0;
+  virtual bool isCondensed(void) const = 0;
+  virtual bool isDAG(void) = 0;
+  virtual void condenseToDAG(const char * correspondanceFile = NULL) = 0;
+  virtual const Vertex::PartitionArray& getSCCs(void) = 0;
 
-  // Checks
-  void verifyVertexIds(void) const;
+  // Query management
+  virtual void enableQueries(void) = 0;
+  virtual void disableQueries(void) = 0;
+  virtual void pushQuery(Query * query) = 0;
+  virtual Query * pullResult(void)  = 0;
 
-  // Reachability queries
-  void pushQuery(Query * query);
-  Query * pullResult(void);
-  void endOfQueries(void);
+  // General queries
+  virtual graph_t * getMetisGraph(void) = 0;
+  virtual Vertex * getVertex(int id) const = 0;
+  virtual unsigned int getVertexCount(void) const = 0;
+  virtual unsigned int getEdgeCount(void) const = 0;
 
-  // Partitioning queries
-  int getPartitionCount(void);
-  PartitionSet * getPartitionSet(int count);
+  // Partition-related methods
+  virtual int getPartitionCount(void) const = 0;
+  virtual const Vertex::PartitionArray * getPartitionSet(int count) const = 0;
 
   // Graph coarsening
-  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
-      map<int, int> &vertexMap);
+  virtual Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
+      map<int, int> &vertexMap) = 0;
 
   // Statistics
-  bool statisticsAreEnabled(void);
-  uintmax_t getQueryCount(void);
-  uintmax_t getPositiveQueryCount(void);
-  uintmax_t getNegativeQueryCount(void);
-  uintmax_t getShortNegativeQueryCount(void);
-  double getPositiveQueryOverhead(void);
-  double getNegativeQueryOverhead(void);
-  void printStatistics(ostream &os);
+  virtual bool getStatisticsEnabled(void) = 0;
+  virtual void printStatistics(ostream &stream) = 0;
 
   // Benchmarking
-  bool benchmarksAreEnabled(void);
-  long long getQueryNumber(void);
-  long long getCyclesSpentIndexing(void);
-  long long getCyclesSpentQuerying(void);
-  void printBenchmarks(ostream &os);
-
-private:
-  // Indexing
-  void labelVertices(bool reverse);
-  void indexGraph(void);
-
-  // Graph maintenance
-  void discoverExtremities(void);
-
-  // Multi-threading
-  void startWorker(void);
-  void stopWorker(void);
-  void startGlobalOperation(void);
-  void stopGlobalOperation(void);
-  void enableGraph(void);
-  void disableGraph(void);
-
-  // Maintenance
-  Vertex * addVertexUnsafe(int threadCount);
-  bool addEdgeUnsafe(Vertex * source, Vertex * target, int weight = 1);
-
-  // Internal condense function
-  int sccVertexVisit(Vertex * target, int label, vector<pair<int, int>> &labels,
-      stack<Vertex *> &unclassified, stack<Vertex *> &undetermined);
-
-  // Internal reachability query functions
-#ifdef ENABLE_TLS
-  void processReachabilityQuery(Query * query);
-  void areConnectedDFS(ReachabilityQuery * query);
-  void areConnectedBBFS(ReachabilityQuery * query);
-  void areConnectedNoLabels(ReachabilityQuery * query);
-#else //  ENABLE_TLS
-  void processReachabilityQuery(int threadId, Query * query);
-  void areConnectedDFS(ReachabilityQuery * query, int threadId);
-  void areConnectedBBFS(ReachabilityQuery * query, int threadId);
-  void areConnectedNoLabels(ReachabilityQuery * query, int threadId);
-#endif //  ENABLE_TLS
-  SearchMethod getMethod(void);
-  void setMethod(SearchMethod method);
-
-  // Internal partitioning query functions
-#ifdef ENABLE_TLS
-  void processPartitionQuery(Query * query);
-#else // ENABLE_TLS
-  void processPartitionQuery(int threadId, Query * query);
-#endif // ENABLE_TLS
-
-  // Internal coarsening functions
-  bool addToReadySet(Vertex * curr,
-      set<Vertex *> &readySet, set<Vertex *> &processedSet);
-  Graph * coarsenGreedy(int factor, map<int, int> &vertexMap);
-
-#ifdef ENABLE_STATISTICS
-  // Internal statistic maintenance
-  void registerQueryStatistics(ReachabilityQuery * query);
-#endif // ENABLE_STATISTICS
+  virtual bool getBenchmarksEnabled(void) = 0;
+  virtual void printBenchmarks(ostream &stream) = 0;
 };
 
 
-// The global slave function that performs queries
+// Generator function (necessary as Graph has no constructor)
+Graph * createEmptyGraph(void);
 
-void queryWorker(Graph * graph, int threadId);
+
+// Parser functions
+
+Graph * parseDotFile(const char * fileName, bool noDoubleEdges = false);
+Graph * parseGraFile(const char * fileName, bool noDoubleEdges = false);
 
 
-#endif // GRAPH_HPP
+#endif // GRAPH_UTILITIES_GRAPH

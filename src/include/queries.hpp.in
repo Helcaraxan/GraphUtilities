@@ -1,12 +1,11 @@
-#ifndef QUERIES_HPP
-#define QUERIES_HPP
+#ifndef GRAPH_UTILITIES_QUERIES
+#define GRAPH_UTILITIES_QUERIES
 
 #include <mutex>
 #include <atomic>
 #include <vector>
 #include <condition_variable>
 
-#include "graph-utilities/defs.hpp"
 #include "graph-utilities/vertex.hpp"
 
 using namespace std;
@@ -53,138 +52,58 @@ typedef enum {
 } CoarsenMethod;
 
 
+// The Query class
+
+class Query {
+// Function members
+public:
+  // Constructor & Destructor
+  Query(void) = default;
+  virtual ~Query(void) = default;
+
+  // Remove copy & move constructors
+  Query(const Query&) = delete;
+  Query(Query&&) = delete;
+  Query& operator=(const Query&) = delete;
+  Query& operator=(Query&&) = delete;
+};
+
+
 
 // The Reachability variant of the Query class
 
-class ReachabilityQuery {
-friend class Graph;
-
-// Local types
-private:
-  typedef struct {
-    mutex guard;
-    vector<pair<ReachabilityQuery *, uint64_t> > results;
-    condition_variable signal;
-  } InternalQueue;
-
-// Data members
-private:
-  atomic<Vertex *> source;
-  atomic<Vertex *> target;
-  atomic<bool> answer{false};
-  atomic<bool> error{false};
-  atomic<bool> cancel{false};
-  atomic<InternalQueue *> internal{NULL};
-  atomic<SearchMethod> method{UndefinedSearchMethod};
-
-#ifdef ENABLE_STATISTICS
-  vector<Vertex *> path;
-  atomic<uintmax_t> searchedNodes{0};
-#endif // ENABLE_STATISTICS
-
-
+class ReachabilityQuery : public Query {
 // Function members
 public:
-  ReachabilityQuery(Vertex * u, Vertex * v,
-      SearchMethod searchMethod = UndefinedSearchMethod) {
-    source.store(u, memory_order_release);
-    target.store(v, memory_order_release);
-    method.store(searchMethod, memory_order_release);
-  }
+  // Access
+  virtual Vertex * getSource(void) const = 0;
+  virtual Vertex * getTarget(void) const = 0;
+  virtual bool getAnswer(void) const = 0;
+  virtual bool getError(void) const = 0;
+  virtual SearchMethod getMethod(void) const = 0;
 
-  ~ReachabilityQuery(void) {
-#ifdef ENABLE_STATISTICS
-    path.clear();
-#endif // ENABLE_STATISTICS
-  }
-
-  Vertex * getSource(void) const;
-  Vertex * getTarget(void) const;
-  bool getAnswer(void) const;
-  bool getError(void) const;
-  SearchMethod getMethod(void) const;
-
-
-private:
-  void setAnswer(bool value);
-  void setError(bool value);
-  void setCancel(bool value);
-  void setInternal(InternalQueue * value);
-  void setMethod(SearchMethod value);
-  bool getCancel(void) const;
-  InternalQueue * getInternal(void) const;
+  // Modifications
+  virtual void setSource(Vertex * sourceVertex) = 0;
+  virtual void setTarget(Vertex * targetVertex) = 0;
+  virtual void setMethod(SearchMethod value) = 0;
 };
 
+
+ReachabilityQuery * createRQuery(void);
 
 
 // The Partition variant of the Query class
 
-class PartitionQuery {
-friend class Graph;
-
-// Data members
-private:
-
-
+class PartitionQuery : public Query {
 // Function members
 public:
-  PartitionQuery() {
-  }
+  PartitionQuery(void) = default;
+  virtual ~PartitionQuery(void) = default;
 };
 
 
-
-// The Query class
-
-class Query {
-// Local types
-public:
-  union QueryUnion {
-    ReachabilityQuery * reachability;
-    PartitionQuery * partition;
-
-    QueryUnion(ReachabilityQuery * q) :
-      reachability(q)
-    {}
-
-    QueryUnion(PartitionQuery * q) :
-      partition(q)
-    {}
-  };
+PartitionQuery * createPQuery(void);
 
 
-// Data members
-public:
-  const QueryType type;
-  const QueryUnion query;
 
-
-// Function members
-public:
-  Query(ReachabilityQuery * q) :
-    type(Reachability),
-    query(q)
-  {}
-
-  Query(PartitionQuery * q) :
-    type(Partition),
-    query(q)
-  {}
-
-  ~Query(void) {
-    switch (type) {
-      case Reachability:
-        delete query.reachability;
-        break;
-
-      case Partition:
-        delete query.partition;
-        break;
-
-      default:
-        break;
-    }
-  }
-};
-
-#endif // QUERIES_HPP
+#endif // GRAPH_UTILITIES_QUERIES

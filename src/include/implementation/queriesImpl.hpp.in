@@ -1,0 +1,112 @@
+#ifndef QUERIES_IMPL_HPP
+#define QUERIES_IMPL_HPP
+
+#include "graph-utilities/queries.hpp"
+
+#include "graph-utilities/implementation/defs.hpp"
+#include "graph-utilities/implementation/vertexImpl.hpp"
+
+using namespace std;
+
+
+// ReachabilityQuery Implementation class
+
+class ReachabilityQueryImpl : public ReachabilityQuery {
+// Local types
+public:
+  typedef struct {
+    mutex guard;
+    vector<pair<ReachabilityQueryImpl *, uint64_t> > results;
+    condition_variable signal;
+  } InternalQueue;
+
+
+// Data members
+private:
+  VertexImpl * source = NULL;
+  VertexImpl * target = NULL;
+  InternalQueue * internal = NULL;
+  atomic<bool> answer{false};
+  atomic<bool> error{false};
+  atomic<bool> cancel{false};
+  atomic<SearchMethod> method{UndefinedSearchMethod};
+
+#if defined(ENABLE_STATISTICS)
+  VertexImpl::Array path;
+  atomic<uintmax_t> searchedNodes{0};
+#endif // ENABLE_STATISTICS
+
+
+// Function members
+public:
+  ReachabilityQueryImpl(void) = default;
+  ReachabilityQueryImpl(VertexImpl * sourceVertex, VertexImpl * targetVertex,
+      SearchMethod searchMethod = UndefinedSearchMethod) :
+    source(sourceVertex),
+    target(targetVertex)
+  {
+    method.store(searchMethod, memory_order_release);
+  }
+
+  virtual ~ReachabilityQueryImpl(void) {
+#if defined(ENABLE_STATISTICS)
+    path.clear();
+#endif // ENABLE_STATISTICS
+  }
+
+  /* Interface methods */
+  // Access
+  Vertex * getSource(void) const;
+  Vertex * getTarget(void) const;
+  bool getAnswer(void) const;
+  bool getError(void) const;
+  SearchMethod getMethod(void) const;
+
+  // Modifications
+  void setSource(Vertex * sourceVertex);
+  void setTarget(Vertex * targetVertex);
+  void setMethod(SearchMethod value);
+
+  /* Implementation methods */
+  // Access
+  VertexImpl * getSourceI(void) const;
+  VertexImpl * getTargetI(void) const;
+  bool getCancel(void) const;
+  InternalQueue * getInternal(void) const;
+#if defined(ENABLE_STATISTICS)
+  uintmax_t getSearchedNodes(void);
+  VertexImpl::Array& getPath(void);
+#endif // ENABLE_STATISTICS
+
+  // Modifications
+  void setAnswer(bool value);
+  void setError(bool value);
+  void setCancel(bool value);
+  void setInternal(InternalQueue * value);
+#if defined(ENABLE_STATISTICS)
+  void addSearchedNodes(void);
+#endif // ENABLE_STATISTICS
+
+};
+
+
+// PartitionQuery Implementation class
+
+class PartitionQueryImpl : public PartitionQuery {
+// Friends
+friend class GraphImpl;
+
+
+// Data members
+private:
+  // None currently
+
+
+// Function members
+public:
+  PartitionQueryImpl(void) {}
+
+  virtual ~PartitionQueryImpl(void) {}
+};
+
+#endif // QUERIES_IMPL_HPP

@@ -1,14 +1,19 @@
-#include "graph-utilities/defs.hpp"
-#include "graph-utilities/graph.hpp"
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
+#include "graph-utilities/implementation/queriesImpl.hpp"
 
 using namespace std;
 
 
 // Multi-thread management
 
+int
+GraphImpl::getThreadCount() const {
+  return threadCount;
+}
+
+
 void
-Graph::startWorker() {
+GraphImpl::startWorker() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex);
 
   if (noQueries)
@@ -19,7 +24,7 @@ Graph::startWorker() {
 
 
 void
-Graph::stopWorker() {
+GraphImpl::stopWorker() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex, defer_lock);
   unique_lock<mutex> globalWaitLock(globalWaitMutex, defer_lock);
 
@@ -36,7 +41,7 @@ Graph::stopWorker() {
 
 
 void
-Graph::startGlobalOperation() {
+GraphImpl::startGlobalOperation() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex, defer_lock);
   unique_lock<mutex> globalWaitLock(globalWaitMutex, defer_lock);
 
@@ -50,18 +55,18 @@ Graph::startGlobalOperation() {
 
   globalWaitLock.unlock();
 
-#ifdef ENABLE_TLS
-  Vertex::checkDFSId(vertices.size());
+#if defined(ENABLE_TLS)
+  VertexImpl::checkDFSId(vertices.size());
 #endif // ENABLE_TLS
 }
 
 
 void
-Graph::stopGlobalOperation() {
+GraphImpl::stopGlobalOperation() {
   unique_lock<mutex> queryWaitLock(queryWaitMutex);
 
-#ifdef ENABLE_TLS
-  Vertex::checkDFSId(vertices.size());
+#if defined(ENABLE_TLS)
+  VertexImpl::checkDFSId(vertices.size());
 #endif // ENABLE_TLS
 
   noQueries = false;
@@ -70,42 +75,10 @@ Graph::stopGlobalOperation() {
 }
 
 
-void
-Graph::enableGraph() {
-  startGlobalOperation();
-
-  if (!enabled) {
-    for (int i = 0; i < threadCount; i++)
-      queryThreads.push_back(new thread(queryWorker, this, i));
-
-    enabled = true;
-  }
-
-  stopGlobalOperation();
-}
-
-
-void
-Graph::disableGraph() {
-  if (threadCount > 0) {
-    endOfQueries();
-
-    while (!queryThreads.empty()) {
-      queryThreads.back()->join();
-
-      delete queryThreads.back();
-      queryThreads.pop_back();
-    }
-
-    threadCount = 0;
-  }
-}
-
-
 // Worker thread main function
 
 void
-queryWorker(Graph * graph, int threadId) {
+queryWorker(GraphImpl * graph, int threadId) {
   Query * query = NULL;
 
   while (true) {
@@ -118,25 +91,21 @@ queryWorker(Graph * graph, int threadId) {
     graph->startWorker();
 
     while (true) {
-      switch (query->type) {
-#ifdef ENABLE_TLS
-        case Reachability:
-          graph->processReachabilityQuery(query);
-          break;
+      PartitionQueryImpl * pQuery = dynamic_cast<PartitionQueryImpl *>(query);
+      ReachabilityQueryImpl * rQuery =
+        dynamic_cast<ReachabilityQueryImpl *>(query);
 
-        case Partition:
-          graph->processPartitionQuery(query);
-          break;
+#if defined(ENABLE_TLS)
+      if (pQuery)
+        graph->processPartitionQuery(pQuery);
+      else if (rQuery)
+        graph->processReachabilityQuery(rQuery);
 #else // ENABLE_TLS
-        case Reachability:
-          graph->processReachabilityQuery(threadId, query);
-          break;
-
-        case Partition:
-          graph->processPartitionQuery(threadId, query);
-          break;
+      if (pQuery)
+        graph->processPartitionQuery(pQuery, threadId);
+      else if (rQuery)
+        graph->processReachabilityQuery(rQuery, threadId);
 #endif // ENABLE_TLS
-      }
 
       if (!graph->jobQueue.try_pop(query))
         break;

@@ -1,5 +1,5 @@
-#ifndef METIS_EXTRA_HPP
-#define METIS_EXTRA_HPP
+#ifndef GRAPH_UTILITIES_METIS
+#define GRAPH_UTILITIES_METIS
 
 #include <mtmetis.h>
 
@@ -47,4 +47,4 @@ Tree * hier_partition(mtmetis_vtx_t nvtxs, mtmetis_vtx_t* ids, mtmetis_adj_t* xa
    encoded on 64 bits */
 CompactTree build_compact_tree(graph_t* graph);
 
-#endif // METIS_EXTRA_HPP
+#endif // GRAPH_UTILITIES_METIS
