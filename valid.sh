@@ -58,24 +58,24 @@ runSubBuild "default" ""
 
 
 # --------------------------
-# Sub-build n°2 : BENCHMARKS
+# Sub-build n°2 : STATISTICS
+# --------------------------
+
+runSubBuild "benchmarks" "-DENABLE_STATISTICS=ON"
+
+
+# --------------------------
+# Sub-build n°3 : BENCHMARKS
 # --------------------------
 
 runSubBuild "benchmarks" "-DENABLE_BENCHMARKS=ON"
 
 
 # -------------------
-# Sub-build n°3 : TLS
+# Sub-build n°4 : no-TLS
 # -------------------
 
-runSubBuild "tls" "-DENABLE_TLS=ON"
-
-
-# --------------------------------
-# Sub-build n°4 : TLS / BENCHMARKS
-# --------------------------------
-
-runSubBuild "tls_benchmarks" "-DENABLE_TLS=ON -DENABLE_BENCHMARKS=ON"
+runSubBuild "tls" "-DENABLE_TLS=OFF"
 
 
 

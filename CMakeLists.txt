@@ -20,11 +20,11 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 # Define some compile options passed onto the code by #define's
 option(ENABLE_STATISTICS
-	"Gather statistics from each query about the algorithm's effectiveness" ON)
+	"Gather statistics from each query about the algorithm's effectiveness" OFF)
 option(ENABLE_BENCHMARKS
 	"Perform benchmark measures on indexing and queries" OFF)
 option(ENABLE_TLS
-	"Use thread local storage for DFS identification" OFF)
+	"Use thread local storage for DFS identification" ON)
 option(ENABLE_COARSEN_STATISTICS
 	"Gather statistics from graph coarsening operations" OFF)
 
@@ -33,8 +33,8 @@ if (NOT AUTO_THRESHOLD)
 endif(NOT AUTO_THRESHOLD)
 
 # Set the compile options depending on the build-type
-set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -pthread -g3 -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -pthread -g -O3")
+set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -Werror -pthread -g3 -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -Werror -pthread -O3")
 
 
 # Create a target for removing the files installed by the 'install' target
