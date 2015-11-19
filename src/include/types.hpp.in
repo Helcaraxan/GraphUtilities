@@ -2,6 +2,13 @@
 #define GRPAH_UTILITIES_TYPES
 
 
+/*!
+ * \file types.hpp
+ *
+ * \brief Types used by the GraphUtilities library.
+ */
+
+
 ///////////////////////
 // Enumeration types //
 ///////////////////////
