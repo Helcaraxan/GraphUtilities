@@ -15,7 +15,7 @@ GraphImpl::pushQuery(Query * query) {
 
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
 
-  if (queryThreads.size() == 0)
+  if (!query || threadShutdown || (queryThreads.size() == 0))
     return false;
 
   // Verify that the graph has been indexed
@@ -124,11 +124,13 @@ GraphImpl::pushQuery(Query * query) {
 
 
 Query *
-GraphImpl::pullResult() {
+GraphImpl::pullQuery(bool block) {
   Query * result = NULL;
 
-  while (!resultQueue.try_pop(result)) {}
-    // Do nothing
+  if (block)
+    while (!resultQueue.try_pop(result)) { if (threadShutdown) break; }
+  else
+    resultQueue.try_pop(result);
 
   return result;
 }
@@ -136,36 +138,26 @@ GraphImpl::pullResult() {
 
 void
 GraphImpl::enableQueries() {
-  startGlobalOperation();
-
   threadShutdown = false;
 
   for (int i = 0; i < threadCount; i++)
     queryThreads.push_back(new thread(queryWorker, this, i));
-
-  stopGlobalOperation();
 }
 
 
 void
 GraphImpl::disableQueries() {
-  startGlobalOperation();
-
   threadShutdown = true;
 
   for (int i = 0; i < threadCount; i++)
     jobQueue.push(NULL);
 
-  while (threadCount > 0) {
+  while (!queryThreads.empty()) {
     queryThreads.back()->join();
 
     delete queryThreads.back();
     queryThreads.pop_back();
-
-    threadCount--;
   }
-
-  stopGlobalOperation();
 }
 
 

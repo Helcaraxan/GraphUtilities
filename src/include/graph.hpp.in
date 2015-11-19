@@ -337,8 +337,8 @@ public:
   /*!
    * \brief Disable the execution of queries on the graph.
    *
-   * This stops any worker threads that are running thereby cancelling all
-   * queries that are currently being processed or awaiting processing.
+   * This method prevents from further queries to be pushed to the graph. After
+   * processing the already enqueued queries all worker threads are killed.
    *
    * \sa enableQueries()
    */
@@ -373,15 +373,20 @@ public:
   /*!
    * \brief Retrieves a processed query from the graph.
    *
-   * Looks in a non-blocking fashion for a query for which processing was
-   * finished.
+   * Looks for a query for which processing was finished in a blocking or
+   * non-blocking fashion. When used in blocking fashion and no queries are done
+   * in combination with another thread having called the disableQueries()
+   * method a NULL value is returned to forgo deadlock.
+   *
+   * \param block Boolean indicating if the pull should be done in a blocking
+   * fashion.
    *
    * \return Pointer to a Query for which processing was finished. Returns \b
-   * NULL if no finished query was available.
+   * NULL if no finished query was available in non-blocking mode.
    *
    * \sa pushQuery()
    */
-  virtual Query * pullResult(void)  = 0;
+  virtual Query * pullQuery(bool block = false)  = 0;
 
 
   /////////////////////

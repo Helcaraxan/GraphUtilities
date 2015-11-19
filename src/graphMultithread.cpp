@@ -90,12 +90,16 @@ queryWorker(GraphImpl * graph, int threadId) {
     while (!graph->jobQueue.try_pop(query)) {}
       // Do nothing
 
-    if (graph->threadShutdown)
+    if (!query)
       return;
 
     graph->startWorker();
 
     while (true) {
+      if (!query) {
+        graph->stopWorker();
+        return;
+      }
 
 #if defined(ENABLE_TLS)
       if ((cQuery = dynamic_cast<CoarsenQueryImpl *>(query)))

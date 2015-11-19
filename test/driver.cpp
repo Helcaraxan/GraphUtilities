@@ -1,4 +1,5 @@
 #include <map>
+#include <atomic>
 #include <chrono>
 #include <random>
 #include <string>
@@ -30,8 +31,6 @@ static int dryFlag = 0;
 static int uniqueFlag = 0;
 static int verifyFlag = 0;
 static int queryNumber = 100000;
-static bool poison = false;
-static semaphore openQueries;
 static tbb::concurrent_hash_map<Query *, bool> queryMap;
 
 
@@ -97,6 +96,9 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
   ReachabilityQuery * query = NULL;
   tbb::concurrent_hash_map<Query *, bool>::accessor queryAccess;
 
+  if (queryNumber == 0)
+    return;
+
   if (*testFile != '\0')
     testStream.open(testFile, ios_base::in);
 
@@ -129,7 +131,6 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
           pair<Query *, bool>(query, (res == 0 ? false : true)));
       queryAccess.release();
       graph->pushQuery(query);
-      openQueries.post();
     }
 
     testStream.close();
@@ -159,12 +160,8 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
       queryMap.insert(queryAccess, pair<Query *, bool>(query, false));
       queryAccess.release();
       graph->pushQuery(query);
-      openQueries.post();
     }
   }
-
-  poison = true;
-  openQueries.post();
 }
 
 
@@ -177,18 +174,19 @@ resultAnalysis(Graph * graph, const char * queryFile) {
   ReachabilityQuery * rQuery = NULL;
   tbb::concurrent_hash_map<Query *, bool>::const_accessor queryAccess;
 
+  if (queryNumber == 0)
+    return;
+
   configureProgressBar(&barTitle, 0);
 
   if (*queryFile != '\0')
     queryStream.open(queryFile, ios_base::out);
 
   while (true) {
-    openQueries.wait();
+    query = graph->pullQuery(true);
 
-    if (poison && (resultCounter == queryNumber))
+    if (!query)
       break;
-
-    query = graph->pullResult();
 
     rQuery = dynamic_cast<ReachabilityQuery *>(query);
     if (!rQuery) {
@@ -366,6 +364,9 @@ main(int argc, char * argv[]) {
   // Set the indexing method as specified / default
   graph->setIndexMethod(indexMethod);
 
+  // Start worker threads on the graph
+  graph->enableQueries();
+
   // When necessary create a coarsened graph and dump it
   if (coarsenFactor > 1) {
     map<int, int> vertexMap;
@@ -442,8 +443,9 @@ main(int argc, char * argv[]) {
 
   // Wait for the queries to be issued and treated
   pushThread.join();
-  pullThread.join();
   graph->disableQueries();
+  pullThread.join();
+
   // Prepare output stream for statistics and benchmarks
   ostream * output = &cout;
   if (outputFile.size() > 0)

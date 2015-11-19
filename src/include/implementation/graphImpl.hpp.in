@@ -76,7 +76,7 @@ private:
   int threadCount = 0;
   int activeThreads = 0;
   bool noQueries = false;
-  bool threadShutdown = false;
+  bool threadShutdown = true;
   mutex queryWaitMutex;
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;
@@ -147,7 +147,7 @@ public:
   void disableQueries(void);
   void setThreadCount(int count);
   bool pushQuery(Query * query);
-  Query * pullResult(void) ;
+  Query * pullQuery(bool block = false);
 
   // General queries
   graph_t * getMetisGraph(void);
