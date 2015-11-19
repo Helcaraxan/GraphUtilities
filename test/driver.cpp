@@ -362,31 +362,46 @@ main(int argc, char * argv[]) {
     printHelpMessage();
     exit(EXIT_FAILURE);
   }
-  
+
   // Set the indexing method as specified / default
   graph->setIndexMethod(indexMethod);
 
   // When necessary create a coarsened graph and dump it
   if (coarsenFactor > 1) {
     map<int, int> vertexMap;
-    Graph * coarseGraph = graph->coarsen(coarsenMethod, coarsenFactor,
-        coarsenSecondaryFactor, vertexMap);
+    Query * query = NULL;
+    CoarsenQuery * cQuery = createCQuery();
+    cQuery->setFactor(coarsenFactor);
+    cQuery->setSecondaryFactor(coarsenSecondaryFactor);
+    cQuery->setMethod(coarsenMethod);
+
+    graph->pushQuery(cQuery);
+
+    query = graph->pullQuery(true);
+
+    if (!query) {
+      cerr << "ERROR: Coarsen query dissapeared into the void!\n";
+      exit(EXIT_FAILURE);
+    }
 
     if (coarseFile.size() > 0) {
       fstream coarseMapStream;
       string mapFile = coarseFile + ".map";
 
-      coarseGraph->printToFile(coarseFile.c_str(), true);
+      cQuery->getAnswer()->printToFile(coarseFile.c_str(), true);
       coarseMapStream.open(mapFile.c_str(), ios_base::out);
 
       coarseMapStream << "General to coarsened graph index mapping";
+
+      map<int, int>& vertexMap = cQuery->getMap();
       for (auto it = vertexMap.begin(), end = vertexMap.end(); it != end; ++it)
         coarseMapStream << "\n" << it->first << " : " << it->second;
-      
+
       coarseMapStream.close();
     }
 
-    delete coarseGraph;
+    delete cQuery->getAnswer();
+    delete cQuery;
     delete graph;
 
     exit(EXIT_SUCCESS);
@@ -416,8 +431,10 @@ main(int argc, char * argv[]) {
   }
 
   // Exit here in case of a 'dry' run
-  if (dryFlag)
+  if (dryFlag) {
+    delete graph;
     exit(EXIT_SUCCESS);
+  }
 
   // Process the queries with two threads
   thread pushThread(queryGenerator, graph, testFile.c_str(), searchMethod);
@@ -427,7 +444,6 @@ main(int argc, char * argv[]) {
   pushThread.join();
   pullThread.join();
   graph->disableQueries();
-	
   // Prepare output stream for statistics and benchmarks
   ostream * output = &cout;
   if (outputFile.size() > 0)

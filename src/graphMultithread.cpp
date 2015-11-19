@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "graph-utilities/implementation/graphImpl.hpp"
 #include "graph-utilities/implementation/queriesImpl.hpp"
 
@@ -80,6 +82,9 @@ GraphImpl::stopGlobalOperation() {
 void
 queryWorker(GraphImpl * graph, int threadId) {
   Query * query = NULL;
+  CoarsenQueryImpl * cQuery = NULL;
+  PartitionQueryImpl * pQuery = NULL;
+  ReachabilityQueryImpl * rQuery = NULL;
 
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}
@@ -91,21 +96,25 @@ queryWorker(GraphImpl * graph, int threadId) {
     graph->startWorker();
 
     while (true) {
-      PartitionQueryImpl * pQuery = dynamic_cast<PartitionQueryImpl *>(query);
-      ReachabilityQueryImpl * rQuery =
-        dynamic_cast<ReachabilityQueryImpl *>(query);
 
 #if defined(ENABLE_TLS)
-      if (pQuery)
+      if ((cQuery = dynamic_cast<CoarsenQueryImpl *>(query)))
+        graph->processCoarsenQuery(cQuery);
+      else if ((pQuery = dynamic_cast<PartitionQueryImpl *>(query)))
         graph->processPartitionQuery(pQuery);
-      else if (rQuery)
+      else if ((rQuery = dynamic_cast<ReachabilityQueryImpl *>(query)))
         graph->processReachabilityQuery(rQuery);
 #else // ENABLE_TLS
-      if (pQuery)
+      if ((cQuery = dynamic_cast<CoarsenQueryImpl *>(query)))
+        graph->processCoarsenQuery(cQuery, threadId);
+      else if ((pQuery = dynamic_cast<PartitionQueryImpl *>(query)))
         graph->processPartitionQuery(pQuery, threadId);
-      else if (rQuery)
+      else if ((rQuery = dynamic_cast<ReachabilityQueryImpl *>(query)))
         graph->processReachabilityQuery(rQuery, threadId);
 #endif // ENABLE_TLS
+      else
+        cerr << "WARNING: Received a Query of unknown type for processing. It "
+          << "was discarded.\n";
 
       if (!graph->jobQueue.try_pop(query))
         break;

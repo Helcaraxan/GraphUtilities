@@ -1,0 +1,81 @@
+#ifndef GRAPH_UTILITIES_TYPES
+#define GRPAH_UTILITIES_TYPES
+
+
+///////////////////////
+// Enumeration types //
+///////////////////////
+
+/*!
+ * \brief Available methods for indexing nodes of a graph.
+ *
+ * Defines the existing methods for indexing nodes of a graph:
+ * \li \b ShortIndexing Performs one forward and one backward post-order
+ * labeling
+ * \li \b SuccessorOrder Sorts the successors of each node during a first
+ * forward post-order labeling before performing a second backward post-order
+ * labeling
+ * \li \b Standard Reorders predecessors of each node during a first forward
+ * post-order labeling by the order of their visits and does the same for
+ * successors during a second backward post-order labeling.
+ * \li \b LabelOrder After performing a \b Standard labeling each node has its
+ * predecessors and successors ordered by their labels.
+ *
+ * \sa Graph::setIndexMethod() and Graph::getIndexMethod()
+ */
+typedef enum {
+  ShortIndexing = 0x00,
+  SuccessorOrder = 0x02,
+  Standard = 0x03,
+  LabelOrder = 0x07,
+  UndefinedIndexMethod = 0x10
+} IndexMethod;
+
+
+/*!
+ * \brief Available methods for path searching during reachability queries.
+ *
+ * Defines the existing methods for searching paths within a graph:
+ * \li \b DFS Performs a Depth-First-Search from the source node on the subgraph
+ * defined by the pre-indexed node labels
+ * \li \b BBFS Performs a Bidirectional-Breadth-First-Search from the source and
+ * target nodes on the subgraph defined by the pre-indexed node labels
+ * \li \b NoLabels Performs a Depth-First-Search from the source node on the
+ * whole graph thereby disregarding any existing pre-indexed node labels
+ *
+ * \sa createRQuery()
+ */
+typedef enum {
+  DFS,
+  BBFS,
+  NoLabels,
+  UndefinedSearchMethod
+} SearchMethod;
+
+
+/*!
+ * \brief Available methods for partioning a graph.
+ *
+ * Currently partioning is still under development so no methods are listed.
+ *
+ * \sa createPQuery()
+ */
+typedef enum {
+  UndefinedPartitionMethod
+} PartitionMethod;
+
+
+/*!
+ * \brief Available methods for coarsening a graph.
+ *
+ * Currently only \b Greedy coarsening is available. Other methods are under
+ * development.
+ *
+ * \sa createCQuery()
+ */
+typedef enum {
+  Greedy,
+  UndefinedCoarsenMethod
+} CoarsenMethod;
+
+#endif // GRAPH_UTILITIES_TYPES

@@ -1,12 +1,69 @@
 #ifndef QUERIES_IMPL_HPP
 #define QUERIES_IMPL_HPP
 
+// Forward declaration
+class CoarsenQueryImpl;
+class PartitionQueryImpl;
+class ReachabilityQueryImpl;
+
+
 #include "graph-utilities/queries.hpp"
 
 #include "graph-utilities/implementation/defs.hpp"
-#include "graph-utilities/implementation/vertexImpl.hpp"
+#include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
+
+
+// CoarsenQuery Implementation class
+
+class CoarsenQueryImpl : public CoarsenQuery {
+// Data members
+private:
+  bool error = false;
+  int factor = 1;
+  int secondaryFactor = 1;
+  CoarsenMethod method = Greedy;
+  map<int, int> vertexMap;
+  GraphImpl * coarsenedGraph = NULL;
+
+
+// Function members
+public:
+  // Constructors & Destructors
+  /* Interface functions */
+  // Access
+  bool getError(void) const;
+  int getFactor(void) const;
+  int getSecondaryFactor(void) const;
+  Graph * getAnswer(void);
+  CoarsenMethod getMethod(void) const;
+  map<int, int>& getMap(void);
+
+  // Modifications
+  void setFactor(int newFactor);
+  void setSecondaryFactor(int newFactor);
+  void setMethod(CoarsenMethod newMethod);
+
+  /* Implementation methods */
+  // Modifications
+  void setAnswer(GraphImpl * newGraph);
+};
+
+
+// PartitionQuery Implementation class
+
+class PartitionQueryImpl : public PartitionQuery {
+// Data members
+private:
+  bool error = false;
+
+
+// Function members
+public:
+  /* Interface functions */
+  bool getError(void) const;
+};
 
 
 // ReachabilityQuery Implementation class
@@ -48,7 +105,7 @@ public:
     method.store(searchMethod, memory_order_release);
   }
 
-  virtual ~ReachabilityQueryImpl(void) {
+  ~ReachabilityQueryImpl(void) {
 #if defined(ENABLE_STATISTICS)
     path.clear();
 #endif // ENABLE_STATISTICS
@@ -56,10 +113,10 @@ public:
 
   /* Interface methods */
   // Access
+  bool getError(void) const;
   Vertex * getSource(void) const;
   Vertex * getTarget(void) const;
   bool getAnswer(void) const;
-  bool getError(void) const;
   SearchMethod getMethod(void) const;
 
   // Modifications
@@ -87,26 +144,6 @@ public:
   void addSearchedNodes(void);
 #endif // ENABLE_STATISTICS
 
-};
-
-
-// PartitionQuery Implementation class
-
-class PartitionQueryImpl : public PartitionQuery {
-// Friends
-friend class GraphImpl;
-
-
-// Data members
-private:
-  // None currently
-
-
-// Function members
-public:
-  PartitionQueryImpl(void) {}
-
-  virtual ~PartitionQueryImpl(void) {}
 };
 
 #endif // QUERIES_IMPL_HPP

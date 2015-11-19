@@ -3,6 +3,90 @@
 using namespace std;
 
 
+/* CoarsenQueryImpl Interface implementation */
+bool
+CoarsenQueryImpl::getError() const {
+  return error;
+}
+
+
+int
+CoarsenQueryImpl::getFactor() const {
+  return factor;
+}
+
+
+int
+CoarsenQueryImpl::getSecondaryFactor() const {
+  return secondaryFactor;
+}
+
+
+Graph *
+CoarsenQueryImpl::getAnswer() {
+  return coarsenedGraph;
+}
+
+
+CoarsenMethod
+CoarsenQueryImpl::getMethod() const {
+  return method;
+}
+
+
+map<int, int>&
+CoarsenQueryImpl::getMap() {
+  return vertexMap;
+}
+
+
+// Modifications
+void
+CoarsenQueryImpl::setFactor(int newFactor) {
+  factor = newFactor;
+}
+
+
+void
+CoarsenQueryImpl::setSecondaryFactor(int newFactor) {
+  secondaryFactor = newFactor;
+}
+
+
+void
+CoarsenQueryImpl::setMethod(CoarsenMethod newMethod) {
+  method = newMethod;
+}
+
+
+CoarsenQuery *
+createCQuery() {
+  return new CoarsenQueryImpl();
+}
+
+
+/* CoarsenQueryImpl implementations */
+// Modifications
+void
+CoarsenQueryImpl::setAnswer(GraphImpl * newGraph) {
+  coarsenedGraph = newGraph;
+}
+
+
+/* PartitionQueryImpl Interface implementation */
+// Access
+bool
+PartitionQueryImpl::getError() const {
+  return error;
+}
+
+
+PartitionQuery *
+createPQuery() {
+  return new PartitionQueryImpl();
+}
+
+
 /* ReachabilityQuery Interface implementations */
 // Access
 
@@ -144,8 +228,3 @@ ReachabilityQueryImpl::addSearchedNodes() {
 #endif // ENABLE_STATISTICS
 
 
-/* PartitionQueryImpl Interface implementation */
-PartitionQuery *
-createPQuery() {
-  return new PartitionQueryImpl();
-}

@@ -1,109 +1,347 @@
 #ifndef GRAPH_UTILITIES_QUERIES
 #define GRAPH_UTILITIES_QUERIES
 
+#include <map>
 #include <mutex>
 #include <atomic>
 #include <vector>
 #include <condition_variable>
 
-#include "graph-utilities/vertex.hpp"
+#include "graph-utilities/types.hpp"
 
 using namespace std;
 
 
-// Enumeration types
+// Forward declaration
+class Graph;
+class Vertex;
 
-/* The IndexMethod values obey the following rules:
- * 0x01 (first bit) Indicates if predecessors are rescheduled on traversal
- * 0x02 (second bit) Indicates if successors are rescheduled on traversal
- * 0x04 (third bit) Indicates if successors and predecessors are ordered with their labels
+
+/*!
+ * \file queries.hpp
+ * \brief Header for the Query API.
  */
-typedef enum {
-  ShortIndexing = 0x00,
-  SuccessorOrder = 0x02,
-  Standard = 0x03,
-  LabelOrder = 0x07,
-  UndefinedIndexMethod = 0x10
-} IndexMethod;
 
 
-typedef enum {
-  DFS,
-  BBFS,
-  NoLabels,
-  UndefinedSearchMethod
-} SearchMethod;
+/////////////////////
+// The Query class //
+/////////////////////
 
-
-typedef enum {
-  UndefinedPartitionMethod
-} PartitionMethod;
-
-
-typedef enum {
-  Reachability,
-  Partition
-} QueryType;
-
-
-typedef enum {
-  Greedy,
-  UndefinedCoarsenMethod
-} CoarsenMethod;
-
-
-// The Query class
-
+/*!
+ * \brief Top-type class for queries.
+ *
+ * Used in the Graph API to dimish it's complexity and provide a unique
+ * interface for all queries.
+ *
+ * \sa Graph::pushQuery() and Graph::pullQuery()
+ */
 class Query {
 // Function members
 public:
-  // Constructor & Destructor
+  ////////////////////////////////
+  // Constructors & Destructors //
+  ////////////////////////////////
+
   Query(void) = default;
   virtual ~Query(void) = default;
 
-  // Remove copy & move constructors
   Query(const Query&) = delete;
   Query(Query&&) = delete;
   Query& operator=(const Query&) = delete;
   Query& operator=(Query&&) = delete;
+
+  ////////////
+  // Access //
+  ////////////
+
+  /*!
+   * \brief Get the error flag associated with this query.
+   *
+   * Retrieve the value of the error flag of this query. It can be set for
+   * various reasons.
+   */
+  virtual bool getError(void) const = 0;
 };
 
 
+//////////////////////////////
+// The PartitionQuery class //
+//////////////////////////////
 
-// The Reachability variant of the Query class
-
-class ReachabilityQuery : public Query {
+/*!
+ * \brief Representation class for partition queries on a graph.
+ *
+ * This class enforces an interface for implementations of this library. It
+ * describes a minimal API for high-level manipulations.
+ */
+class CoarsenQuery : public Query {
 // Function members
 public:
-  // Access
-  virtual Vertex * getSource(void) const = 0;
-  virtual Vertex * getTarget(void) const = 0;
-  virtual bool getAnswer(void) const = 0;
-  virtual bool getError(void) const = 0;
-  virtual SearchMethod getMethod(void) const = 0;
+  ////////////
+  // Access //
+  ////////////
 
-  // Modifications
-  virtual void setSource(Vertex * sourceVertex) = 0;
-  virtual void setTarget(Vertex * targetVertex) = 0;
-  virtual void setMethod(SearchMethod value) = 0;
+  /*!
+   * \brief Get the coarsen factor for this coarsen query.
+   *
+   * Retrieve the primary factor that is currently associated with this coarsen
+   * query.
+   *
+   * \return Value of the primary factor.
+   *
+   * \sa getSecondaryFactor()
+   */
+  virtual int getFactor(void) const = 0;
+
+  /*!
+   * \brief Get the secondary coarsen factor for this coarsen query.
+   *
+   * Retrieve the secondary factor that is currently associated with this
+   * coarsen query.
+   *
+   * \return Value of the secondary factor.
+   *
+   * \sa getFactor()
+   */
+  virtual int getSecondaryFactor(void) const = 0;
+
+  /*!
+   * \brief Get the answer associated with this coarsen query.
+   *
+   * Retrieve the answer given to this coarsen query. The result is of
+   * course invalid if the query has not yet been processed.
+   *
+   * \return Graph representing a coarsened version of the graph on which the
+   * query was performed. If the query was not yet processed or an error occured
+   * the returned value is NULL.
+   *
+   * \sa Graph::pushQuery() and Graph::pullQuery()
+   */
+  virtual Graph * getAnswer(void) = 0;
+
+  /*!
+   * \brief Get the CoarsenMethod specified for this coarsen query.
+   *
+   * Retrieve the CoarsenMethod that is registered for this coarsen query and
+   * that should be used when processing the query.
+   *
+   * \return The currently registered CoarsenMethod registered for this query.
+   * \sa setMethod()
+   */
+  virtual CoarsenMethod getMethod(void) const = 0;
+
+  /*!
+   * \brief Get the correspondance map between nodes for this coarsen query.
+   *
+   * Retrieve the map containing the correspondance between nodes in the
+   * original graph and the coarsened one.
+   *
+   * \return Reference to the map of index correspondances.
+   */
+  virtual map<int, int>& getMap(void) = 0;
+
+
+  ///////////////////
+  // Modifications //
+  ///////////////////
+
+  /*!
+   * \brief Set the coarsen factor for this coarsen query.
+   *
+   * Modify the primary factor that is currently associated with this coarsen
+   * query.
+   *
+   * \param newFactor The new primary factor to set.
+   */
+  virtual void setFactor(int newFactor) = 0;
+
+  /*!
+   * \brief Set the secondary coarsen factor for this coarsen query.
+   *
+   * Modify the secondary factor that is currently associated with this coarsen
+   * query.
+   *
+   * \param newFactor The new secondary factor to set.
+   */
+  virtual void setSecondaryFactor(int newFactor) = 0;
+
+  /*!
+   * \brief Set the CoarsenMethod specified for this coarsen query.
+   *
+   * Modify the CoarsenMethod that is registered for this coarsen query and that
+   * should be used when processing the query.
+   *
+   * \param newMethod The new CoarsenMethod to register.
+   *
+   * \sa getMethod()
+   */
+  virtual void setMethod(CoarsenMethod newMethod) = 0;
 };
 
 
-ReachabilityQuery * createRQuery(void);
+/*!
+ * \fn CoarsenQuery * createCQuery(void)
+ *
+ * \brief CoarsenQuery instance generator
+ *
+ * Creates an instance of the CoarsenQuery class with the currently underlying
+ * implementation.
+ *
+ * \return Pointer to a new CoarsenQuery instance.
+ */
+CoarsenQuery * createCQuery(void);
 
 
-// The Partition variant of the Query class
+//////////////////////////////
+// The PartitionQuery class //
+//////////////////////////////
 
+/*!
+ * \brief Representation class for partition queries on a graph.
+ *
+ * This class enforces an interface for implementations of this library. It
+ * describes a minimal API for high-level manipulations.
+ */
 class PartitionQuery : public Query {
 // Function members
 public:
+  /*!
+   * \brief Default constructor for a PartitionQuery instance.
+   */
   PartitionQuery(void) = default;
+
+  /*!
+   * \brief Default destructor for a PartitionQuery instance.
+   */
   virtual ~PartitionQuery(void) = default;
 };
 
 
+/*!
+ * \fn PartitionQuery * createPQuery(void)
+ *
+ * \brief PartitionQuery instance generator
+ *
+ * Creates an instance of the PartitionQuery class with the currently underlying
+ * implementation.
+ *
+ * \return Pointer to a new PartitionQuery instance.
+ */
 PartitionQuery * createPQuery(void);
 
+
+/////////////////////////////////
+// The ReachabilityQuery class //
+/////////////////////////////////
+
+/*!
+ * \brief Representation class for reachability queries on a graph.
+ *
+ * This class enforces an interface for implementations of this library. It
+ * describes a minimal API for high-level manipulations.
+ */
+class ReachabilityQuery : public Query {
+// Function members
+public:
+  ////////////
+  // Access //
+  ////////////
+
+  /*!
+   * \brief Get the source node of a reachability query.
+   *
+   * Retrieve the source node that is currently associated with this
+   * reachability query.
+   *
+   * \return Pointer to the Vertex representing the source node of the query.
+   *
+   * \sa getTarget()
+   */
+  virtual Vertex * getSource(void) const = 0;
+
+  /*!
+   * \brief Get the target node of a reachability query.
+   *
+   * Retrieve the target node that is currently associated with this
+   * reachability
+   * query.
+   *
+   * \return Pointer to the Vertex representing the target node of the query.
+   *
+   * \sa getSource()
+   */
+  virtual Vertex * getTarget(void) const = 0;
+
+  /*!
+   * \brief Get the answer associated with this reachability query.
+   *
+   * Retrieve the answer given to this reachability query. The result is of
+   * course invalid if the query has not yet been processed.
+   *
+   * \return Boolean indicating if there exists a path from the source node to
+   * the target node associated with this query.
+   *
+   * \sa Graph::pushQuery() and Graph::pullQuery()
+   */
+  virtual bool getAnswer(void) const = 0;
+
+  /*!
+   * \brief Get the SearchMethod specified for this reachability query.
+   *
+   * Retrieve the SearchMethod that is registered for this reachability query
+   * and that should be used when processing the query.
+   *
+   * \return The currently registered SearchMethod for this query.
+   *
+   * \sa setMethod()
+   */
+  virtual SearchMethod getMethod(void) const = 0;
+
+  ///////////////////
+  // Modifications //
+  ///////////////////
+
+  /*!
+   * \brief Set the source node for this reachability query.
+   *
+   * Modify the node that is used as source for this reachability query.
+   *
+   * \sa setTarget()
+   */
+  virtual void setSource(Vertex * sourceVertex) = 0;
+
+  /*!
+   * \brief Set the target node for this reachability query.
+   *
+   * Modify the node that is used as target for this reachability query.
+   *
+   * \sa setSource()
+   */
+  virtual void setTarget(Vertex * targetVertex) = 0;
+
+  /*!
+   * \brief Set the SearhMethod that should be used for this reachability query.
+   *
+   * Register a new SearchMethod to this reachability query that should be used
+   * when processing this query.
+   *
+   * \sa getMethod()
+   */
+  virtual void setMethod(SearchMethod value) = 0;
+};
+
+
+/*!
+ * \fn ReachabilityQuery * createRQuery(void)
+ *
+ * \brief ReachabiliyQuery instance generator
+ *
+ * Creates an instance of the ReachabilityQuery class with the currently
+ * underlying implementation.
+ *
+ * \return Pointer to a new ReachabilityQuery instance.
+ */
+ReachabilityQuery * createRQuery(void);
 
 
 #endif // GRAPH_UTILITIES_QUERIES

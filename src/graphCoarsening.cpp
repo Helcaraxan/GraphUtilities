@@ -9,18 +9,19 @@ using namespace std;
 
 // Coarsening queries
 
-Graph *
-GraphImpl::coarsen(CoarsenMethod method, int factor, int secondaryFactor,
-    map<int, int> &vertexMap) {
-  GraphImpl * coarsenedGraph = NULL;
-
+void
+#if defined(ENABLE_TLS)
+GraphImpl::processCoarsenQuery(CoarsenQueryImpl * query) {
+#else // ENABLe_TLS
+GraphImpl::processCoarsenQuery(CoarsenQueryImpl * query, int threadId) {
+#endif // ENABLE_TLS
   indexGraph();
 
   startGlobalOperation();
 
-  switch (method) {
+  switch (query->getMethod()) {
     case Greedy:
-      coarsenedGraph = coarsenGreedy(factor, vertexMap);
+      query->setAnswer(coarsenGreedy(query));
       break;
 
     case UndefinedCoarsenMethod:
@@ -29,8 +30,6 @@ GraphImpl::coarsen(CoarsenMethod method, int factor, int secondaryFactor,
   }
 
   stopGlobalOperation();
-
-  return coarsenedGraph;
 }
 
 
@@ -67,7 +66,7 @@ GraphImpl::addToReadySet(VertexImpl * curr, VertexImpl::Set &readySet,
 
 
 GraphImpl *
-GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
+GraphImpl::coarsenGreedy(CoarsenQueryImpl * query) {
   int progressCount = 0;
   string barTitle = "Greedy coarsening ";
   VertexImpl * curr = NULL;
@@ -135,7 +134,7 @@ GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 #endif // ENABLE_COARSEN_STATISTICS
       }
 
-      if (vertexGroup.size() >= (unsigned int) factor)
+      if (vertexGroup.size() >= (unsigned int) query->getFactor())
         break;
     }
 
@@ -149,7 +148,7 @@ GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
     newVertex = coarseGraph->addVertexUnsafe(0);
     for (auto it = vertexGroup.begin(), end = vertexGroup.end();
         it != end; ++it) {
-      vertexMap[(*it)->getId()] = newVertex->getId();
+      query->getMap()[(*it)->getId()] = newVertex->getId();
       newWeight += (*it)->getWeight();
 
       for (auto predIt = (*it)->predBegin(), predEnd = (*it)->predEnd();
@@ -158,7 +157,7 @@ GraphImpl::coarsenGreedy(int factor, map<int, int> &vertexMap) {
 
         if (!vertexGroup.count(*predIt)) {
           VertexImpl * localPred =
-            coarseGraph->vertices[vertexMap[(*predIt)->getId()]];
+            coarseGraph->vertices[query->getMap()[(*predIt)->getId()]];
 
           if (predecessorSet.find(localPred) != predecessorSet.end())
             continue;

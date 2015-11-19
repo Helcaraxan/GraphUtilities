@@ -10,6 +10,11 @@
 
 #include <tbb/concurrent_queue.h>
 
+
+// Forward declaration
+class GraphImpl;
+
+
 #include "graph-utilities/graph.hpp"
 
 #include "graph-utilities/implementation/defs.hpp"
@@ -154,10 +159,6 @@ public:
   int getPartitionCount(void) const;
   const Vertex::PartitionArray& getPartitionSet(void) const;
 
-  // Graph coarsening
-  Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
-      map<int, int> &vertexMap);
-
   // Statistics
   bool getStatisticsEnabled(void);
   void printStatistics(ostream &stream);
@@ -165,7 +166,7 @@ public:
   // Benchmarking
   bool getBenchmarksEnabled(void);
   void printBenchmarks(ostream &stream);
-  
+
 
   /* Implementation methods */
   // Indexing
@@ -216,10 +217,29 @@ public:
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
 
-  // Internal coarsening functions
+  // Graph coarsening
+  //
+  /*!
+   * \brief Perform a coarsening on the graph.
+   *
+   * Creates a new graph that is a coarsened version of the current graph.
+   *
+   * \param method Algorithmic method used to perform the coarsening.
+   * \param factor To be defined.
+   * \param secondaryFactor To be defined.
+   * \param vertexMap Reference to a map where the correspondance between nodes
+   * of the original graph and the coarsened version is recorded.
+   *
+   * \return Pointer to a new Graph instance containing the coarsened graph.
+   */
+#if defined(ENABLE_TLS)
+  void processCoarsenQuery(CoarsenQueryImpl * query);
+#else // ENABLE_TLS
+  void processCoarsenQuery(CoarsenQueryImpl * query, int threadId);
+#endif // ENABLE_TLS
   bool addToReadySet(VertexImpl * curr, VertexImpl::Set &readySet,
       VertexImpl::Set &processedSet);
-  GraphImpl * coarsenGreedy(int factor, map<int, int> &vertexMap);
+  GraphImpl * coarsenGreedy(CoarsenQueryImpl * query);
 
 #if defined(ENABLE_STATISTICS)
   // Internal statistics methods

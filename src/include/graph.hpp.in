@@ -444,27 +444,6 @@ public:
   virtual const Vertex::PartitionArray& getPartitionSet(void) const = 0;
 
 
-  //////////////////////
-  // Graph coarsening //
-  //////////////////////
-
-  /*!
-   * \brief Perform a coarsening on the graph.
-   *
-   * Creates a new graph that is a coarsened version of the current graph.
-   *
-   * \param method Algorithmic method used to perform the coarsening.
-   * \param factor To be defined.
-   * \param secondaryFactor To be defined.
-   * \param vertexMap Reference to a map where the correspondance between nodes
-   * of the original graph and the coarsened version is recorded.
-   *
-   * \return Pointer to a new Graph instance containing the coarsened graph.
-   */
-  virtual Graph * coarsen(CoarsenMethod method, int factor, int secondaryFactor,
-      map<int, int> &vertexMap) = 0;
-
-
   ////////////////
   // Statistics //
   ////////////////
@@ -488,6 +467,7 @@ public:
    * \param stream Output stream to which to dump the statistics.
    */
   virtual void printStatistics(ostream &stream) = 0;
+
 
   //////////////////
   // Benchmarking //
@@ -517,18 +497,20 @@ public:
 
 /*!
  * \fn Graph * createEmptyGraph(void)
+ *
  * \brief Graph instance generator.
  *
  * Creates an instance of the Graph class with the currently underlying
  * implementation.
  *
- * \return Pointer to an empty graph.
+ * \return Pointer to an new Graph instance.
  */
 Graph * createEmptyGraph(void);
 
 
 /*!
  * \fn Graph * parseDotFile(const char * fileName, bool noDoubleEdges = false)
+ *
  * \brief Parse a Dot file and instantiate a graph.
  *
  * Parses the specified file in Dot format and instantiates a graph with the
@@ -544,6 +526,7 @@ Graph * parseDotFile(const char * fileName, bool noDoubleEdges = false);
 
 /*!
  * \fn Graph * parseGraFile(const char * fileName, bool noDoubleEdges = false)
+ *
  * \brief Parse a Gra file and instantiate a graph.
  *
  * Parses the specified file in Gra format (adjacency lists) and instantiates a

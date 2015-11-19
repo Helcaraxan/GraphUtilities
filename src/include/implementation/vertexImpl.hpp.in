@@ -5,6 +5,11 @@
 #include <cstdint>
 #include <cstring>
 
+
+// Forward declaration
+class VertexImpl;
+
+
 #include "graph-utilities/graph.hpp"
 
 #include "graph-utilities/implementation/defs.hpp"
