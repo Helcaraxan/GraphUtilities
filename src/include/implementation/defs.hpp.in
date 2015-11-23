@@ -1,14 +1,68 @@
 #ifndef DEFS_HPP
 #define DEFS_HPP
 
-// Let cmake choose which options are enabled
+
+/*!
+ * \file implementation/defs.hpp
+ *
+ * \brief Constants defined at compiler time for the whole library.
+ */
+
+
+/*!
+ * \def ENABLE_STATISTICS
+ *
+ * \brief Macro that, if defined, enables support for statistics on queries.
+ */
 #cmakedefine ENABLE_STATISTICS
+
+/*!
+ * \def ENABLE_BENCHMARKS
+ *
+ * \brief Macro that, if defined, enables support for benchmarks on queries.
+ */
 #cmakedefine ENABLE_BENCHMARKS
+
+/*!
+ * \def ENABLE_TLS
+ * 
+ * \brief Macro that, if defined, enables the use of Thread-Local-Storage.
+ *
+ * The use of this option may greatly improve cache-related performances when
+ * using multiple worker threads to process queries.
+ */
 #cmakedefine ENABLE_TLS
+
+/*!
+ * \def ENABLE_COARSEN_STATISTICS
+ *
+ * \brief Macro that, if defined, enables the support for coarsening statistics.
+ */
 #cmakedefine ENABLE_COARSEN_STATISTICS
 
-// Let cmake choose the maximum number of parallel queries
+/*!
+ * \def AUTO_THRESHOLD
+ *
+ * \brief Numerical macro that defines the number necessary query-match wins to
+ * set a search-method.
+ *
+ * When no search-method was set for reachability queries on the graph the first
+ * queries are actually run with every available method in a competition. The
+ * first search-method to achieve AUTO_THRESHOLD wins in these competitions is
+ * set as the search-method to use for all further queries.
+ */
 #define AUTO_THRESHOLD ${AUTO_THRESHOLD}
+
+/*!
+ * \def MAX_THREADS
+ *
+ * \brief Numerical macro that defines the maximum number of worker threads that
+ * the currently installed version of the library supports.
+ *
+ * This constant is only used when ENABLE_TLS is not defined. In the case
+ * ENABLE_TLS is defined there is no limit imposed on the number of parallel
+ * worker threads.
+ */
 #define MAX_THREADS ${MAX_THREADS}
 
 #endif // DEFS_HPP
