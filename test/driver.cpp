@@ -14,7 +14,6 @@
 
 #include "graph-utilities/graph.hpp"
 #include "graph-utilities/implementation/support.hpp"
-#include "graph-utilities/implementation/semaphore.hpp"
 
 using namespace std;
 
