@@ -41,6 +41,12 @@ endif(NOT MAX_THREADS)
 set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -Werror -pthread -g3 -O0")
 set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -Werror -pthread -O3")
 
+# Create a target to build the documentation with Doxygen
+add_custom_target(documentation
+	COMMAND mkdir -p ${PROJECT_BINARY_DIR}/doc/public
+	COMMAND doxygen ${PROJECT_SOURCE_DIR}/Doxyfile
+	WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+	)
 
 # Create a target for removing the files installed by the 'install' target
 add_custom_target(uninstall
