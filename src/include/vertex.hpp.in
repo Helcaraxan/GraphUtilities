@@ -169,7 +169,7 @@ public:
    *
    * Sets a new weight attribute for this node.
    *
-   * \param int The new weight of the node.
+   * \param newWeight The new weight of the node.
    */
   virtual void setWeight(int newWeight) = 0;
 

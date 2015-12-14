@@ -456,8 +456,10 @@ public:
    * checked for it's validity (i.e it contains all nodes of the graph exactly
    * one time and all graph edges are forward).
    *
-   * \param Vector with the id's of the graph's vertices in their scheduling.
-   * \param Size of the memory-size for which we want to evaluate the IO-cost.
+   * \param scheduling Vector with the id's of the graph's vertices in their
+   * scheduling.
+   * \param memorySize Size of the memory-size for which we want to evaluate the
+   * IO-cost.
    *
    * \return The IO-cost of the scheduling for the specified memory-size.
    */
