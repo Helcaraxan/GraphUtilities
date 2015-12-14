@@ -38,8 +38,8 @@ endif(NOT MAX_THREADS)
 
 
 # Set the compile options depending on the build-type
-set(CMAKE_CXX_FLAGS_DEBUG "-std=c++14 -pedantic -Wall -Werror -pthread -g3 -O0")
-set(CMAKE_CXX_FLAGS_RELEASE "-std=c++14 -pedantic -Wall -Werror -pthread -O3")
+set(CMAKE_CXX_FLAGS_DEBUG "-std=c++11 -pedantic -Wall -Werror -pthread -g3 -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "-std=c++11 -pedantic -Wall -Werror -pthread -O3")
 
 # Create a target to build the documentation with Doxygen
 add_custom_target(documentation
