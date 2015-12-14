@@ -448,6 +448,21 @@ public:
    */
   virtual const Vertex::PartitionArray& getPartitionSet(void) const = 0;
 
+  /*!
+   * \brief Compute the IO-cost of the specified scheduling and memory-size.
+   *
+   * Uses the given scheduling of nodes of the graph to compute the IO-cost with
+   * respect to the given target memory-size. The specified scheduling is
+   * checked for it's validity (i.e it contains all nodes of the graph exactly
+   * one time and all graph edges are forward).
+   *
+   * \param Vector with the id's of the graph's vertices in their scheduling.
+   * \param Size of the memory-size for which we want to evaluate the IO-cost.
+   *
+   * \return The IO-cost of the scheduling for the specified memory-size.
+   */
+  virtual int getSchedulingCost(vector<int>& scheduling,
+      int memorySize) const = 0;
 
   ////////////////
   // Statistics //

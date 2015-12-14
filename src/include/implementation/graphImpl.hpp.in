@@ -24,6 +24,39 @@ class GraphImpl;
 using namespace std;
 
 
+// Local helper class
+
+class PartitionNode {
+// Data members
+public:
+  int id = -1;
+  int maxLive = 0;
+  PartitionNode * first = NULL;
+  PartitionNode * second = NULL;
+
+
+// Function members
+public:
+  // Constructors & destructors
+  PartitionNode(void) = delete;
+  PartitionNode(const PartitionNode&) = delete;
+  PartitionNode(PartitionNode&&) = delete;
+  PartitionNode& operator=(const PartitionNode&) = delete;
+  PartitionNode& operator=(PartitionNode&&) = delete;
+
+  PartitionNode(int node) : id(node) {}
+  PartitionNode(PartitionNode * f, PartitionNode * s) : first(f), second(s) {}
+
+  ~PartitionNode(void) {
+    if (first)
+      delete first;
+
+    if (second)
+      delete second;
+  }
+};
+
+
 // Graph Implementation class
 
 class GraphImpl : public Graph {
@@ -158,6 +191,7 @@ public:
   // Partition-related methods
   int getPartitionCount(void) const;
   const Vertex::PartitionArray& getPartitionSet(void) const;
+  int getSchedulingCost(vector<int>& scheduling, int memorySize) const;
 
   // Statistics
   bool getStatisticsEnabled(void);
@@ -216,6 +250,7 @@ public:
 #else // ENABLE_TLS
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
+  bool checkSchedulingValidity(vector<int>& scheduling) const;
 
   // Graph coarsening
   //
