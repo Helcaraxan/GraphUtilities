@@ -263,3 +263,9 @@ GraphImpl::addEdgeUnsafe(VertexImpl * source, VertexImpl * target, int weight) {
   edgeCount++;
   return true;
 }
+
+
+Graph *
+createEmptyGraph(void) {
+  return new GraphImpl();
+}
