@@ -110,6 +110,8 @@ public:
   bool removeSuccessor(Vertex * successor);
   void clearPredecessors(void);
   void clearSuccessors(void);
+  void setPredecessorWeight(const Vertex * predecessor, int weight);
+  void setSuccessorWeight(const Vertex * successor, int weight);
 
   // User data management
   void setUserData(UserDataInterface * newData);
@@ -136,6 +138,8 @@ public:
   // Access
   VertexImpl * getPredecessorI(int index) const;
   VertexImpl * getSuccessorI(int index) const;
+  bool hasPredecessor(const VertexImpl * predecessor) const;
+  bool hasSuccessor(const VertexImpl * Successor) const;
   
   // Modifications
   void setOrders(int forward = -1, int backward = -1);

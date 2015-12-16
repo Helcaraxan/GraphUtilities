@@ -192,14 +192,38 @@ GraphImpl::getVertex(int id) const {
 
 
 unsigned int
+GraphImpl::getVertexCount() const {
+  return vertexCount;
+}
+
+
+unsigned int
 GraphImpl::getEdgeCount() const {
   return edgeCount;
 }
 
 
-unsigned int
-GraphImpl::getVertexCount() const {
-  return vertexCount;
+bool
+GraphImpl::hasEdge(int source, int target) const {
+  VertexImpl * src = vertices[source];
+  VertexImpl * tgt = vertices[target];
+
+  if (src && tgt)
+    return src->hasSuccessor(tgt);
+
+  return false;
+}
+
+
+bool
+GraphImpl::hasEdge(const Vertex * source, const Vertex * target) const {
+  VertexImpl * src = vertices[source->getId()];
+  VertexImpl * tgt = vertices[target->getId()];
+
+  if (src && tgt)
+    return src->hasSuccessor(tgt);
+
+  return false;
 }
 
 

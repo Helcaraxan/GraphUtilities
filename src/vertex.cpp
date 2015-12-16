@@ -264,6 +264,36 @@ VertexImpl::clearSuccessors() {
 
 
 void
+VertexImpl::setPredecessorWeight(const Vertex * predecessor, int weight) {
+  auto weightIt = predecessorWeights.begin();
+  for (auto it = predecessors.begin(), end = predecessors.end();
+      it != end; ++it) {
+    if (*it == predecessor) {
+      *weightIt = weight;
+      break;
+    }
+
+    weightIt++;
+  }
+}
+
+
+void
+VertexImpl::setSuccessorWeight(const Vertex * successor, int weight) {
+  auto weightIt = successorWeights.begin();
+  for (auto it = successors.begin(), end = successors.end();
+      it != end; ++it) {
+    if (*it == successor) {
+      *weightIt = weight;
+      break;
+    }
+
+    weightIt++;
+  }
+}
+
+
+void
 VertexImpl::addPredecessorUnsafe(VertexImpl * predecessor, int weight) {
   predecessors.push_back(predecessor);
   predecessorWeights.push_back(weight);
@@ -382,6 +412,30 @@ VertexImpl::getPredecessorI(int index) const {
 VertexImpl *
 VertexImpl::getSuccessorI(int index) const {
   return successors[index];
+}
+
+
+bool
+VertexImpl::hasPredecessor(const VertexImpl * predecessor) const {
+  for (auto it = predecessors.begin(), end = predecessors.end();
+      it != end; ++it) {
+    if (*it == predecessor)
+      return true;
+  }
+
+  return false;
+}
+
+
+bool
+VertexImpl::hasSuccessor(const VertexImpl * successor) const {
+  for (auto it = successors.begin(), end = successors.end();
+      it != end; ++it) {
+    if (*it == successor)
+      return true;
+  }
+
+  return false;
 }
 
 

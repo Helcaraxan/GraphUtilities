@@ -187,6 +187,8 @@ public:
   Vertex * getVertex(int id) const;
   unsigned int getVertexCount(void) const;
   unsigned int getEdgeCount(void) const;
+  bool hasEdge(int source, int target) const;
+  bool hasEdge(const Vertex * source, const Vertex * target) const;
 
   // Partition-related methods
   int getPartitionCount(void) const;

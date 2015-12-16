@@ -255,6 +255,32 @@ public:
    */
   virtual void clearSuccessors(void) = 0;
 
+  /*!
+   * \brief Change the weight of an edge to a predecessor.
+   *
+   * Modify the weight that is registered with the specified predecessor. It the
+   * given Vertex is not a predecessor then nothing is done.
+   *
+   * \param predecessor Pointer to the predecessor Vertex.
+   * \param weight New weight of the edge.
+   *
+   * \sa setSuccessorWeight(), getPredecessorWeight(), getSuccessorWeight()
+   */
+  virtual void setPredecessorWeight(const Vertex * predecessor, int weight) = 0;
+
+  /*!
+   * \brief Change the weight of an edge to successor.
+   *
+   * Modify the weight that is registered with the specified successor. It the
+   * given Vertex is not a successor then nothing is done.
+   *
+   * \param predecessor Pointer to the successor Vertex.
+   * \param weight New weight of the edge.
+   *
+   * \sa setPredecessorWeight(), getPredecessorWeight(), getSuccessorWeight()
+   */
+  virtual void setSuccessorWeight(const Vertex * successor, int weight) = 0;
+
 
   ////////////////////
   // Access methods //

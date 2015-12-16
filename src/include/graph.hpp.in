@@ -422,6 +422,32 @@ public:
    */
   virtual unsigned int getEdgeCount(void) const = 0;
 
+  /*!
+   * \brief Tell if an edge exists between vertices.
+   *
+   * Tells if there exists from the specified source Vertex to the specified
+   * target Vertex.
+   *
+   * \param source Index of the source Vertex of the edge.
+   * \param target Index of the target Vertex of the edge.
+   *
+   * \return Boolean indicating the existance of the edge.
+   */
+  virtual bool hasEdge(int source, int target) const = 0;
+
+  /*!
+   * \brief Tell if an edge exists between vertices.
+   *
+   * Tells if there exists from the specified source Vertex to the specified
+   * target Vertex.
+   *
+   * \param source Pointer to the source Vertex of the edge.
+   * \param target Pointer to the target Vertex of the edge.
+   *
+   * \return Boolean indicating the existance of the edge.
+   */
+  virtual bool hasEdge(const Vertex * source, const Vertex * target) const = 0;
+
 
   ///////////////////////////////
   // Partition-related methods //
