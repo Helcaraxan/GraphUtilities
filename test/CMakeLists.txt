@@ -1,8 +1,8 @@
 include_directories("${PROJECT_BINARY_DIR}/include")
 
 link_directories(
+	"${PROJECT_SOURCE_DIR}/lib"
 	"${PROJECT_BINARY_DIR}/src"
-	"${PROJECT_BINARY_DIR}/lib"
 	)
 
 

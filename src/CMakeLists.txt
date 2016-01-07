@@ -1,6 +1,6 @@
 include_directories("${PROJECT_BINARY_DIR}/include")
 
-link_directories("${PROJECT_BINARY_DIR}/lib")
+link_directories("${PROJECT_SOURCE_DIR}/lib" "${PROJECT_BINARY_DIR}/lib")
 
 
 # Generate the public header files according to the previously defined options
@@ -34,7 +34,7 @@ add_library(
 	)
 
 target_link_libraries(GraphUtilities
-	mtmetis
+	patoh
 	tbb
 	m
 	z

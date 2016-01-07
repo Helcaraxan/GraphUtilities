@@ -35,15 +35,15 @@ sccVertexVisit(GraphImpl * graph, VertexImpl * target, int label,
 
   if (target == undetermined.top()) {
     int sccId = sccSets.size();
-    sccSets.push_back(new Vertex::Set);
+    sccSets.push_back(new Vertex::IdSet);
 
     while (unclassified.top() != target) {
-      sccSets.back()->insert(unclassified.top());
+      sccSets.back()->insert(unclassified.top()->getId());
       labels[unclassified.top()->getId()].second = sccId;
       unclassified.pop();
     }
 
-    sccSets.back()->insert(unclassified.top());
+    sccSets.back()->insert(unclassified.top()->getId());
     labels[unclassified.top()->getId()].second = sccId;
     unclassified.pop();
 
@@ -102,17 +102,25 @@ checkDAG(GraphImpl * graph, bool condense, const char * correspondanceFile) {
   for (auto it = sccSets.begin(), end = sccSets.end(); it != end; ++it) {
     if ((*it)->size() > 1) {
       if (condense) {
-        if (correspondanceFile != NULL) {
-          outStream << graph->getVertexCount() << ":";
-          for (auto setIt = (*it)->begin(), setEnd = (*it)->end();
-              setIt != setEnd; ++setIt)
-            outStream << " " << (*setIt)->getId(); 
+        Vertex::Set mergeSet;
 
-          outStream << "\n";
+        if (correspondanceFile != NULL)
+          outStream << graph->getVertexCount() << ":";
+
+        for (auto setIt = (*it)->begin(), setEnd = (*it)->end();
+            setIt != setEnd; ++setIt) {
+          mergeSet.insert(graph->getVertex(*setIt));
+
+          if (correspondanceFile != NULL)
+            outStream << " " << *setIt;
         }
 
+        if (correspondanceFile != NULL)
+          outStream << "\n";
+
         result = false;
-        graph->mergeVertices(**it);
+        
+        graph->mergeVertices(mergeSet);
       } else {
         return false;
       }
@@ -164,36 +172,4 @@ GraphImpl::condenseToDAG(const char * correspondanceFile) {
     checkDAG(this, true, correspondanceFile);
   
   condensed = true;
-}
-
-
-// Access
-
-graph_t *
-GraphImpl::getMetisGraph() {
-  int adjIdx = 0;
-  graph_t * metisGraph = new graph_t;
-
-  metisGraph->nvtxs = getVertexCount();
-  metisGraph->xadj = new mtmetis_adj_t[metisGraph->nvtxs];
-  metisGraph->adjncy = new mtmetis_vtx_t[getEdgeCount()];
-
-  metisGraph->xadj[0] = adjIdx;
-
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if (*it == NULL)
-      continue;
-
-    for (auto it2 = (*it)->predBegin(), end2 = (*it)->predEnd();
-        it2 != end2; ++it2)
-      metisGraph->adjncy[adjIdx++] = (*it)->getId();
-
-    for (auto it2 = (*it)->succBegin(), end2 = (*it)->succEnd();
-        it2 != end2; ++it2)
-      metisGraph->adjncy[adjIdx++] = (*it)->getId();
-
-    metisGraph->xadj[(*it)->getId() + 1] = adjIdx;
-  }
-
-  return metisGraph;
 }

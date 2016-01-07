@@ -28,7 +28,8 @@ public:
   typedef set<VertexImpl *> Set;
   typedef stack<VertexImpl *> Stack;
   typedef vector<VertexImpl *> Array;
-  typedef vector<Set *> PartitionArray;
+  typedef set<int> IdSet;
+  typedef vector<IdSet *> PartitionArray;
 
 
 // Data members

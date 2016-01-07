@@ -5,7 +5,6 @@
 
 #include "graph-utilities/vertex.hpp"
 #include "graph-utilities/queries.hpp"
-#include "graph-utilities/metis-extra.hpp"
 
 using namespace std;
 
@@ -454,25 +453,28 @@ public:
   ///////////////////////////////
 
   /*!
-   * \brief Get the number of partitions of the graph.
+   * \brief Get the number of levels in the hierarchical partitioning of the
+   * graph.
    *
-   * Give the number of partitions currently references in the graph. The
-   * default value is one and it can be modified by issueing a partition query
-   * to the graph.
+   * Give the number of levels currently referenced in the hierarchical
+   * partitioning of the graph. The default value is zero and it can be modified
+   * by issueing a partition query to the graph.
    *
    * \return The number of partitions registered in the graph.
    */
-  virtual int getPartitionCount(void) const = 0;
+  virtual int getPartitionLevels(void) const = 0;
 
   /*!
-   * \brief Get the partitions in the graph.
+   * \brief Get the hierarchical partitions of the graph.
    *
-   * Reference the set of partitions that are currently registered to the graph.
-   * This set is modified by issueing partition queries to the graph.
+   * Get a reference to the vector of partition sets that are currently
+   * registered to the graph. The content of the vector is modified by a
+   * issueing partition queries to the graph. The partition set at index I of
+   * the referenced vector contains partition sets of size
    *
-   * \return Reference to the set of partitions currently registred.
+   * \return Reference to the vector of partition sets currently registered.
    */
-  virtual const Vertex::PartitionArray& getPartitionSet(void) const = 0;
+  virtual const vector<Vertex::PartitionArray *>& getPartitions(void) const = 0;
 
   /*!
    * \brief Compute the IO-cost of the specified scheduling and memory-size.

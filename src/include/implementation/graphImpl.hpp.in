@@ -24,6 +24,16 @@ class GraphImpl;
 using namespace std;
 
 
+// Hypergraph structure for interfacing with the PaToH library
+
+typedef struct {
+  int nvtxs, nhedges;
+  int *eptr, *eind;
+  map<int, int> forwardMap;
+  vector<int> backwardMap;
+} HGraph;
+
+
 // Local helper class
 
 class PartitionNode {
@@ -102,8 +112,8 @@ private:
   VertexImpl::Array predecessorQueue;
 
   // Partitioning data
-  int partitionCount = 0;
-  atomic<PartitionMethod> partitionMethod{UndefinedPartitionMethod};
+  PartitionMethod partitionMethod{UndefinedPartitionMethod};
+  vector<Vertex::PartitionArray *> partitions;
 
   // Multi-threading
   int threadCount = 0;
@@ -183,7 +193,6 @@ public:
   Query * pullQuery(bool block = false);
 
   // General queries
-  graph_t * getMetisGraph(void);
   Vertex * getVertex(int id) const;
   unsigned int getVertexCount(void) const;
   unsigned int getEdgeCount(void) const;
@@ -191,8 +200,8 @@ public:
   bool hasEdge(const Vertex * source, const Vertex * target) const;
 
   // Partition-related methods
-  int getPartitionCount(void) const;
-  const Vertex::PartitionArray& getPartitionSet(void) const;
+  int getPartitionLevels(void) const;
+  const vector<Vertex::PartitionArray *>& getPartitions(void) const;
   int getSchedulingCost(vector<int>& scheduling, int memorySize) const;
 
   // Statistics
@@ -226,6 +235,7 @@ public:
   // Maintenance
   VertexImpl * addVertexUnsafe(int weight = 1);
   bool addEdgeUnsafe(VertexImpl * source, VertexImpl * target, int weight = 1);
+  GraphImpl * getSubGraph(Vertex::IdSet& idSet, vector<int>& idMap) const;
 
   // General queries
   VertexImpl::Array& getSourceVertices(void);
@@ -252,6 +262,9 @@ public:
 #else // ENABLE_TLS
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
+  HGraph * getHGraph(Vertex::IdSet& idSet) const;
+  void convBisect(Vertex::IdSet& idSet, int level);
+  void partitionConvex(void);
   bool checkSchedulingValidity(vector<int>& scheduling) const;
 
   // Graph coarsening

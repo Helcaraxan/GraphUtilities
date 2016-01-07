@@ -289,6 +289,42 @@ GraphImpl::addEdgeUnsafe(VertexImpl * source, VertexImpl * target, int weight) {
 }
 
 
+GraphImpl *
+GraphImpl::getSubGraph(Vertex::IdSet& idSet, vector<int>& idMap) const {
+  int id = 0;
+  map<int, int> backMap;
+  GraphImpl * subGraph = new GraphImpl();
+
+  idMap.clear();
+  idMap.resize(idSet.size());
+
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    subGraph->addVertexUnsafe(getVertex(*it)->getWeight());
+    backMap[*it] = id;
+    idMap[id++] = *it;
+  }
+
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    int sId = backMap[*it];
+    Vertex * curr = getVertex(*it);
+
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      Vertex * succ = curr->getSuccessor(i);
+      
+      auto succMap = backMap.find(succ->getId());
+      if (succMap != backMap.end()) {
+        VertexImpl * source = subGraph->vertices[sId];
+        VertexImpl * target = subGraph->vertices[succMap->second];
+
+        subGraph->addEdgeUnsafe(source, target, curr->getSuccessorWeight(i));
+      }
+    }
+  }
+
+  return subGraph;
+}
+
+
 Graph *
 createEmptyGraph(void) {
   return new GraphImpl();

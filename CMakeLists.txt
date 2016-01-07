@@ -57,7 +57,6 @@ add_custom_target(uninstall
 
 
 # Include the code for building the library
-add_subdirectory(tools)
 add_subdirectory(src)
 
 # Include the code for building the driver and testing

@@ -107,9 +107,14 @@ public:
   typedef stack<Vertex *> Stack;
 
   /*!
+   * \brief STL alias for Vertex ID sets
+   */
+  typedef set<int> IdSet;
+
+  /*!
    * \brief STL alias for vectors of Vertex sets
    */
-  typedef vector<Set *> PartitionArray;
+  typedef vector<IdSet *> PartitionArray;
 
 
 // Function members
