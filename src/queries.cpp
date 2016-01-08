@@ -81,6 +81,19 @@ PartitionQueryImpl::getError() const {
 }
 
 
+PartitionMethod
+PartitionQueryImpl::getMethod() const {
+  return method;
+}
+
+
+// Modifications
+void
+PartitionQueryImpl::setMethod(PartitionMethod newMethod) {
+  method = newMethod;
+}
+
+
 PartitionQuery *
 createPQuery() {
   return new PartitionQueryImpl();

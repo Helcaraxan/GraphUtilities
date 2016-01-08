@@ -205,15 +205,36 @@ CoarsenQuery * createCQuery(void);
 class PartitionQuery : public Query {
 // Function members
 public:
-  /*!
-   * \brief Default constructor for a PartitionQuery instance.
-   */
-  PartitionQuery(void) = default;
+  ////////////
+  // Access //
+  ////////////
 
   /*!
-   * \brief Default destructor for a PartitionQuery instance.
+   * \brief Get the PartitionMethod specified for this partition query.
+   *
+   * Retrieve the PartitionMethod that is registered for this partition query
+   * and that should be used when processing the query.
+   *
+   * \return The currently registered PartitionMethod registered for this query.
+   * \sa setMethod()
    */
-  virtual ~PartitionQuery(void) = default;
+  virtual PartitionMethod getMethod(void) const = 0;
+
+  ///////////////////
+  // Modifications //
+  ///////////////////
+
+  /*!
+   * \brief Set the PartitionMethod specified for this partition query.
+   *
+   * Modify the PartitionMethod that is registered for this partition query and
+   * that should be used when processing the query.
+   *
+   * \param newMethod The new PartitionMethod to register.
+   *
+   * \sa getMethod()
+   */
+  virtual void setMethod(PartitionMethod newMethod) = 0;
 };
 
 

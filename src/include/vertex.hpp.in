@@ -279,7 +279,7 @@ public:
    * Modify the weight that is registered with the specified successor. It the
    * given Vertex is not a successor then nothing is done.
    *
-   * \param predecessor Pointer to the successor Vertex.
+   * \param successor Pointer to the successor Vertex.
    * \param weight New weight of the edge.
    *
    * \sa setPredecessorWeight(), getPredecessorWeight(), getSuccessorWeight()

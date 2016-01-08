@@ -118,6 +118,33 @@ assignPartitions(PartitionNode * node, int memorySize,
 }
 
 
+static int
+findUnion(int id, vector<int>& unions) {
+  while (id != unions[id])
+    id = unions[id];
+
+  return id;
+}
+
+
+static void
+mergeUnion(int i, int j, vector<int>& unions, vector<int>& sizes) {
+  i = findUnion(i, unions);
+  j = findUnion(j, unions);
+
+  if (i == j)
+    return;
+  
+  if (sizes[i] < sizes[j]) {
+    unions[i] = j;
+    sizes[j] += sizes[i];
+  } else {
+    unions[j] = i;
+    sizes[i] += sizes[j];
+  }
+}
+
+
 // Partitioning queries
 
 int
@@ -242,8 +269,13 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
   vector<int> convPart;
   HGraph * hyperGraph = NULL;
 
-  if (idSet.size() <= 1)
+  // Bail out if the source set is of size 1
+  if (idSet.size() <= 1) {
     return;
+  } else {
+    while ((int) partitions.size() <= level)
+      partitions.push_back(new Vertex::PartitionArray());
+  }
 
   nbPred.resize(idSet.size(), 0);
   nbSucc.resize(idSet.size(), 0);
@@ -387,8 +419,77 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
     }
   }
 
-  while ((int) partitions.size() <= level)
-    partitions.push_back(new Vertex::PartitionArray());
+  partitions[level]->push_back(setA);
+  partitions[level]->push_back(setB);
+}
+
+
+void
+GraphImpl::maxDistBisect(Vertex::IdSet& idSet, vector<int>& sourceMax,
+    vector<int>& sinkMax, int level) {
+  // Bail out if the source set is of size 1
+  if (idSet.size() == 1) {
+    return;
+  } else {
+    while ((int) partitions.size() <= level)
+      partitions.push_back(new Vertex::PartitionArray());
+  }
+
+  /* First check for connectiviy in the graph through union-find */
+  vector<int> unions(*idSet.end() + 1, -1);
+  vector<int> sizes(*idSet.end() + 1, 1);
+
+  // Initialize
+  int id = 0;
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it)
+    unions[*it] = id++;
+
+  // Perform merging
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    Vertex * curr = getVertex(*it);
+
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      int succ = curr->getSuccessor(i)->getId();
+
+      if (idSet.count(succ))
+        mergeUnion(*it, succ, unions, sizes);
+    }
+  }
+
+  // If the graph is not connected perform trivial multisection
+  int target = findUnion(*idSet.begin(), unions);
+  if (sizes[target] < (int) idSet.size()) {
+    map<int, Vertex::IdSet *> subSets;
+
+    for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+      target = findUnion(*it, unions);
+
+      if (!subSets.count(target)) {
+        Vertex::IdSet * newSet = new Vertex::IdSet();
+
+        subSets[target] = newSet;
+        partitions[level]->push_back(newSet);
+      }
+
+      subSets[target]->insert(*it);
+    }
+
+    return;
+  }
+
+  /* Perform max-distance based bisection for a connected graph */
+  Vertex::IdSet * setA = new Vertex::IdSet();
+  Vertex::IdSet * setB = new Vertex::IdSet();
+
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    if (sourceMax[*it] < sinkMax[*it]) {
+      setA->insert(*it);
+      sinkMax[*it] = sinkMax[*it] / 2;
+    } else {
+      setB->insert(*it);
+      sourceMax[*it] = sourceMax[*it] / 2 + sourceMax[*it] % 2;
+    }
+  }
 
   partitions[level]->push_back(setA);
   partitions[level]->push_back(setB);
@@ -420,6 +521,81 @@ GraphImpl::partitionConvex(void) {
   }
 }
 
+
+void
+GraphImpl::partitionMaxDistance(void) {
+  vector<int> sourceMax;
+  vector<int> sinkMax;
+
+  // Erase existing partitions
+  partitions.clear();
+
+  Vertex::IdSet * topSet = new Vertex::IdSet();
+
+  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
+    if (*it)
+      topSet->insert((*it)->getId());
+  }
+
+  partitions.push_back(new Vertex::PartitionArray);
+  partitions[0]->push_back(topSet);
+
+  sourceMax.resize(vertices.size() + 1, -1);
+  sinkMax.resize(vertices.size() + 1, -1);
+
+  /* Perform the initial computations of the max-distances */
+  stack<Vertex *> todo;
+
+  // Construct an artificial root node for all sources and sinks
+  VertexImpl root(vertices.size());
+  for (auto it = sources.begin(), end = sources.end(); it != end; ++it)
+    root.addSuccessor(*it);
+
+  for (auto it = sinks.begin(), end = sinks.end(); it != end; ++it)
+    root.addPredecessor(*it);
+
+  // Perform a forward DFS for sourceMax
+  todo.push(&root);
+  while (!todo.empty()) {
+    Vertex * curr = todo.top();
+    todo.pop();
+
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      Vertex * succ = curr->getSuccessor(i);
+      
+      if (sourceMax[succ->getId()] < sourceMax[curr->getId()] + 1) {
+        sourceMax[succ->getId()] = sourceMax[curr->getId()] + 1;
+        todo.push(succ);
+      }
+    }
+  }
+
+  // Perform a backward DFS for sinkMax
+  todo.push(&root);
+  while (!todo.empty()) {
+    Vertex * curr = todo.top();
+    todo.pop();
+
+    for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+      Vertex * pred = curr->getPredecessor(i);
+      
+      if (sinkMax[pred->getId()] < sinkMax[pred->getId()] + 1) {
+        sinkMax[pred->getId()] = sinkMax[pred->getId()] + 1;
+        todo.push(pred);
+      }
+    }
+  }
+
+  /* Perform the real hierarchical partitioning */
+  int level = 0;
+  while (level < (int) partitions.size()) {
+    for (auto it = partitions[level]->begin(), end = partitions[level]->end();
+        it != end; ++it)
+      maxDistBisect(**it, sourceMax, sinkMax, level + 1);
+
+    level++;
+  }
+}
 
 bool
 GraphImpl::checkSchedulingValidity(vector<int>& scheduling) const {

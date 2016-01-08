@@ -57,12 +57,18 @@ class PartitionQueryImpl : public PartitionQuery {
 // Data members
 private:
   bool error = false;
+  PartitionMethod method = Convexify;
 
 
 // Function members
 public:
   /* Interface functions */
+  // Access
   bool getError(void) const;
+  PartitionMethod getMethod(void) const;
+
+  // Modifications
+  void setMethod(PartitionMethod newMethod);
 };
 
 

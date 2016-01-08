@@ -68,7 +68,8 @@ typedef enum {
  * \sa createPQuery()
  */
 typedef enum {
-  Hierarchical,
+  Convexify,
+  MaxDistance,
   UndefinedPartitionMethod
 } PartitionMethod;
 

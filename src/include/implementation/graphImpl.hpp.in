@@ -264,11 +264,13 @@ public:
 #endif // ENABLE_TLS
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
   void convBisect(Vertex::IdSet& idSet, int level);
+  void maxDistBisect(Vertex::IdSet& idSet, vector<int>& sourceMax, vector<int>&
+      sinkMax, int level);
   void partitionConvex(void);
+  void partitionMaxDistance(void);
   bool checkSchedulingValidity(vector<int>& scheduling) const;
 
   // Graph coarsening
-  //
   /*!
    * \brief Perform a coarsening on the graph.
    *
