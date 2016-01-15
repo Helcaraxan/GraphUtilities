@@ -445,4 +445,220 @@ public:
 };
 
 
+/////////////////////////
+// PartitionNode class //
+/////////////////////////
+//
+/*!
+ * \brief Representation of a Node in a the tree that forms a Graph Partition.
+ *
+ * This class represents a single Node in a hierarchical Partition of a Graph.
+ */
+class PartitionNode {
+// Function members
+public:
+  ////////////////////////////////
+  // Constructors & Destructors //
+  ////////////////////////////////
+
+  /*!
+   * \brief Default constructor for a Graph instance.
+   */
+  PartitionNode(void) = default;
+
+  /*!
+   * \brief Default destructor for a PartitionNode instance.
+   */
+  virtual ~PartitionNode(void) = default;
+
+  /*!
+   * \brief Deleted copy constructor.
+   *
+   * Specific implementations of this library may not support default copying of
+   * PartitionNode instances.
+   */
+  PartitionNode(const PartitionNode&) = delete;
+
+  /*!
+   * \brief Deleted move constructor.
+   *
+   * Specific implementations of this library may not support default moving of
+   * PartitionNode instances.
+   */
+  PartitionNode(PartitionNode&&) = delete;
+
+  /*!
+   * \brief Deleted copy assignment operator.
+   *
+   * Specific implementations of this library may not support default copying of
+   * PartitionNode instances.
+   */
+  PartitionNode& operator=(const PartitionNode&) = delete;
+
+  /*!
+   * \brief Deleted move assignment operator.
+   *
+   * Specific implementations of this library may not support default moving of
+   * PartitionNode instances.
+   */
+  PartitionNode& operator=(PartitionNode&&) = delete;
+
+
+  ////////////////////
+  // Access methods //
+  ////////////////////
+
+  /*!
+   * \brief Retrieve pointer to the parent of this PartitionNode.
+   *
+   * Retrieve a pointer to the parent PartitionNode instance of which this
+   * instance is a child.
+   *
+   * \return Pointer to the parent PartitionNode.
+   */
+  virtual const PartitionNode * getParent(void) const = 0;
+
+  /*!
+   * \brief Get the number of children of this PartitionNode.
+   *
+   * Retrieve the number of PartitionNode instances that are children to this
+   * PartitionNode instance.
+   *
+   * \return The number of children of this PartitionNode instance
+   *
+   * \sa getChild()
+   */
+  virtual int getChildCount(void) const = 0;
+
+  /*!
+   * \brief Retrieve pointer to a child PartitionNode.
+   *
+   * Get a pointer to the child PartitionNode instance at the specified index.
+   * The index must be strictly inferior to the result of getChildCount().
+   *
+   * \param idx Index of the child PartitionNode to retrieve.
+   *
+   * \return Pointer to the child PartitionNode instance at the specified index.
+   *
+   * \sa getChildCount()
+   */
+  virtual const PartitionNode * getChild(int idx) const = 0;
+};
+
+
+/////////////////////
+// Partition class //
+/////////////////////
+
+/*!
+ * \brief Reprensentation class for a Graph Partition.
+ *
+ * This class represents a hierarchical Partition of a Graph under the form of a
+ * tree.
+ */
+class Partition {
+// Function members
+public:
+  ////////////////////////////////
+  // Constructors & Destructors //
+  ////////////////////////////////
+
+  /*!
+   * \brief Default constructor for a Graph instance.
+   */
+  Partition(void) = default;
+
+  /*!
+   * \brief Default destructor for a Partition instance.
+   */
+  virtual ~Partition(void) = default;
+
+  /*!
+   * \brief Deleted copy constructor.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Partition instances.
+   */
+  Partition(const Partition&) = delete;
+
+  /*!
+   * \brief Deleted move constructor.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Partition instances.
+   */
+  Partition(Partition&&) = delete;
+
+  /*!
+   * \brief Deleted copy assignment operator.
+   *
+   * Specific implementations of this library may not support default copying of
+   * Partition instances.
+   */
+  Partition& operator=(const Partition&) = delete;
+
+  /*!
+   * \brief Deleted move assignment operator.
+   *
+   * Specific implementations of this library may not support default moving of
+   * Partition instances.
+   */
+  Partition& operator=(Partition&&) = delete;
+
+
+  ////////////////////
+  // Access methods //
+  ////////////////////
+
+  /*!
+   * \brief Retrieve the vertices represented by a PartitionNode.
+   *
+   * Fill the specified IdSet with the IDs of the vertices present in the
+   * partition represented by the given PartitionNode instance.
+   *
+   * \param node Pointer to the PartitionNode for which we seek the represented
+   * vertices.
+   * \param idSet Reference to the IdSet that is to be filled. It will be
+   * cleared first.
+   */
+  virtual void represents(const PartitionNode * node,
+      Vertex::IdSet& idSet) const = 0;
+
+  /*!
+   * \brief Retrieve a pointer to the root PartitionNode.
+   *
+   * Retrieve a pointer to the root of the tree representing this hierarchical
+   * Partition.
+   *
+   * \return Pointer to the root PartitionNode for this Partition.
+   */
+  virtual const PartitionNode * getRoot(void) const = 0;
+
+  /*!
+   * \brief Retrieve a pointer to the PartitionNode representing a Vertex.
+   *
+   * Retrieve a pointer of the PartitionNode instance that corresponds to the
+   * leaf associated with the specified Vertex id in this hierarchical
+   * Partition.
+   *
+   * \param idx ID of the Vertex for which to retrieve the leaf.
+   *
+   * \return Pointer to the PartitionNode representing the specified Vertex.
+   */
+  virtual const PartitionNode * getLeaf(int idx) const = 0;
+
+  /*!
+   * \brief Retrieve the smallest common PartitionNode of two vertices
+   *
+   * Retrieve a pointer to the PartitionNode instance that is the first common
+   * parent in the Partition tree for the two specified Vertex IDs.
+   *
+   * \param idA ID of the first Vertex.
+   * \param idB ID of the second Vertex.
+   *
+   * \return Pointer to the first common PartitionNode instance.
+   */
+  virtual const PartitionNode * getSubTree(int idA, int idB) const = 0;
+};
+
 #endif // GRAPH_UTILITIES_VERTEX

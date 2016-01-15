@@ -42,6 +42,12 @@ CoarsenQueryImpl::getMap() {
 
 // Modifications
 void
+CoarsenQueryImpl::setError(bool value) {
+  error = value;
+}
+
+
+void
 CoarsenQueryImpl::setFactor(int newFactor) {
   factor = newFactor;
 }
@@ -66,6 +72,7 @@ createCQuery() {
 
 
 /* CoarsenQueryImpl implementations */
+
 // Modifications
 void
 CoarsenQueryImpl::setAnswer(GraphImpl * newGraph) {
@@ -73,8 +80,9 @@ CoarsenQueryImpl::setAnswer(GraphImpl * newGraph) {
 }
 
 
-/* PartitionQueryImpl Interface implementation */
+/* PartitionQuery Interface implementations */
 // Access
+
 bool
 PartitionQueryImpl::getError() const {
   return error;
@@ -87,10 +95,32 @@ PartitionQueryImpl::getMethod() const {
 }
 
 
+const Partition *
+PartitionQueryImpl::getPartition() const {
+  return partition;
+}
+
+
 // Modifications
+
 void
 PartitionQueryImpl::setMethod(PartitionMethod newMethod) {
   method = newMethod;
+}
+
+
+/* PartitionQueryImpl implementations */
+// Modifications
+
+void
+PartitionQueryImpl::setError(bool value) {
+  error = value;
+}
+
+
+void
+PartitionQueryImpl::setPartition(PartitionImpl * part) {
+  partition = part;
 }
 
 
@@ -209,14 +239,14 @@ ReachabilityQueryImpl::getSearchedNodes() {
 // Modifications
 
 void
-ReachabilityQueryImpl::setAnswer(bool value) {
-  answer.store(value, memory_order_release);
+ReachabilityQueryImpl::setError(bool value) {
+  error.store(value, memory_order_release);
 }
 
 
 void
-ReachabilityQueryImpl::setError(bool value) {
-  error.store(value, memory_order_release);
+ReachabilityQueryImpl::setAnswer(bool value) {
+  answer.store(value, memory_order_release);
 }
 
 

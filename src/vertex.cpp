@@ -487,3 +487,85 @@ VertexImpl::iterator
 VertexImpl::succEnd() {
   return successors.end();
 }
+
+
+/* PartionNode Interface implementation */
+// Access methods
+
+const PartitionNode *
+PartitionNodeImpl::getParent() const {
+  return parent;
+}
+
+
+int
+PartitionNodeImpl::getChildCount() const {
+  return children.size();
+}
+
+
+const PartitionNode *
+PartitionNodeImpl::getChild(int idx) const {
+  return children[idx];
+}
+
+
+/* Partion Interface implementation */
+// Access methods
+
+void
+PartitionImpl::represents(const PartitionNode * node,
+    Vertex::IdSet& idSet) const {
+  const PartitionNodeImpl * iNode =
+    dynamic_cast<const PartitionNodeImpl *>(node);
+
+  if (!iNode)
+    return;
+
+  idSet.insert(iNode->id);
+  IaP<PartitionNodeImpl> ptr = representants[iNode->id];
+
+  while (ptr.isInteger()) {
+    idSet.insert(ptr);
+    ptr = representants[ptr];
+  }
+}
+
+
+const PartitionNode *
+PartitionImpl::getRoot() const {
+  return root;
+}
+
+
+const PartitionNode *
+PartitionImpl::getLeaf(int idx) const {
+  IaP<PartitionNodeImpl> ptr = representants[idx];
+
+  while (ptr.isInteger())
+    ptr = representants[ptr];
+
+  return ptr;
+}
+
+
+const PartitionNode *
+PartitionImpl::getSubTree(int idA, int idB) const {
+  set<const PartitionNode *> candidates;
+
+  const PartitionNode * curr = getLeaf(idA);
+  while (curr) {
+    candidates.insert(curr);
+    curr = curr->getParent();
+  }
+
+  curr = getLeaf(idB);
+  while (curr) {
+    if (candidates.count(curr))
+      break;
+    else
+      curr = curr->getParent();
+  }
+
+  return curr;
+}

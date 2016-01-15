@@ -62,7 +62,7 @@ GraphImpl::removeVertex(Vertex * vertex) {
 
 Vertex *
 GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
-  VertexImpl * target = addVertexUnsafe(threadCount);
+  VertexImpl * target;
   VertexImpl::Set internalSet;
   UserDataInterface * mergedData = NULL;
   startGlobalOperation();
@@ -70,6 +70,13 @@ GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
   int targetWeight = 0;
   map<VertexImpl *, int> predWeightMap;
   map<VertexImpl *, int> succWeightMap;
+
+  if (vertexSet.size() == 0)
+    return NULL;
+  else if (vertexSet.size() == 1)
+    return *vertexSet.begin();
+
+  target = addVertexUnsafe(threadCount);
 
   for (auto setIt = vertexSet.begin(), setEnd = vertexSet.end();
       setIt != setEnd; ++setIt)

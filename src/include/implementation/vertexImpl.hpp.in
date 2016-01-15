@@ -159,4 +159,121 @@ public:
 };
 
 
+// Integer-As-Pointer class
+
+template<typename T>
+class IaP {
+// Data members
+private:
+  T * content;
+
+public:
+  IaP<T>(T * c) {
+    content = c;
+  }
+
+  IaP<T>(int i) {
+    content = reinterpret_cast<T *>((((intptr_t) i) << 1) | 0x1);
+  }
+
+  IaP<T>& operator=(const IaP<T>& c) {
+    content = c.content;
+    return *this;
+  }
+
+  IaP<T>& operator=(const T *& c) {
+    content = c;
+    return *this;
+  }
+
+  IaP<T>& operator=(int i) {
+    content = reinterpret_cast<T *>((((intptr_t) i) << 1) | 0x1);
+    return *this;
+  }
+
+  operator int() {
+    if (((intptr_t) content) & 0x1)
+      return (int) (((intptr_t) content) >> 1);
+    else
+      return 0;
+  }
+  
+  operator T *() {
+    if (((intptr_t) content) & 0x1)
+      return NULL;
+    else
+      return content;
+  }
+
+  bool isInteger(void) const {
+    return (((intptr_t) content) & 0x1);
+  }
+};
+
+
+// PartitionNode Implementation class
+
+class PartitionNodeImpl : public PartitionNode {
+// Data members
+public:
+  int id = -1;
+  int maxLive = 0;
+  PartitionNodeImpl * parent = nullptr;
+  vector<PartitionNodeImpl *> children;
+
+
+// Function members
+public:
+  // Constructor & Destructor
+  PartitionNodeImpl(PartitionNodeImpl * p = nullptr) {
+    if (p) {
+      parent = p;
+      p->children.push_back(this);
+    }
+  }
+
+  ~PartitionNodeImpl(void) {
+    for (auto it = children.begin(), end = children.end(); it != end; ++it)
+      delete *it;
+  }
+
+
+  /* Interface methods */
+  // Access
+  const PartitionNode * getParent(void) const;
+  int getChildCount(void) const;
+  const PartitionNode * getChild(int idx) const;
+};
+
+
+// Partition Implementation class
+
+class PartitionImpl : public Partition {
+// Data members
+public:
+  PartitionNodeImpl * root = nullptr;
+  vector<IaP<PartitionNodeImpl> > representants;
+
+
+// Function members
+public:
+  // Constructor and destructor
+  PartitionImpl(int size) {
+    representants.resize(size, nullptr);
+    root = new PartitionNodeImpl();
+  }
+
+  ~PartitionImpl(void) {
+      delete root;
+  }
+
+
+  /* Interface methods */
+  // Access
+  void represents(const PartitionNode * node, Vertex::IdSet& idSet) const;
+  const PartitionNode * getRoot(void) const;
+  const PartitionNode * getLeaf(int idx) const;
+  const PartitionNode * getSubTree(int idA, int idB) const;
+};
+
 #endif // VERTEX_IMPL_HPP

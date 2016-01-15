@@ -1,9 +1,23 @@
 #include <iostream>
+#include <algorithm>
 
 #include "graph-utilities/implementation/graphImpl.hpp"
 #include "graph-utilities/implementation/patoh.hpp"
+#include "graph-utilities/implementation/support.hpp"
 
 using namespace std;
+
+
+// File local variables
+static int partCount = 0;
+static vector<int> unions;
+static vector<int> sizes;
+static vector<int> sourceMax;
+static vector<int> sinkMax;
+static queue<PartitionNodeImpl *> workQueue;
+static PartitionImpl * part = NULL;
+static stack<Vertex::IdSet *> subSetA;
+static stack<Vertex::IdSet *> subSetB;
 
 
 // File local functions
@@ -43,83 +57,92 @@ patohBisect(HGraph * hyperGraph) {
 }
 
 
-static PartitionNode *
-computeHierarchicalPartitioning(const GraphImpl * graph,
-    vector<int>& scheduling, int start = -1, int end = -1) {
-  PartitionNode * result = NULL;
-
-  if (start == -1) {
+void
+computeHierarchicalPartition(const GraphImpl * graph, vector<int>& scheduling,
+    int start = -1, int end = -1) {
+  if (part == NULL) {
     start = 0;
     end = scheduling.size() - 1;
+
+    part = new PartitionImpl(scheduling.size());
+    part->root->id = 0;
+    for (int i = 0, e = scheduling.size(); i < e; i++)
+      part->representants[i] = i + 1;
+
+    part->representants[end] = part->root;
   }
 
+  IaP<PartitionNodeImpl> ptr = part->representants[start];
+  while (ptr.isInteger())
+    ptr = part->representants[ptr];
+
+  PartitionNodeImpl * parent = ptr;
   if (start == end) {
-    result = new PartitionNode(scheduling[start]);
-    result->maxLive = 1;
+    PartitionNodeImpl * node = new PartitionNodeImpl(parent);
+
+    node->id = start;
+    node->maxLive = 0;
+    part->representants[start] = node;
+    parent->id = -1;
   } else {
     int IOcost = 0;
     int intermediatePos = (start + end) / 2 + (start + end) % 2;
     set<int> targetSet(scheduling.begin() + intermediatePos,
         scheduling.begin() + end);
+    PartitionNodeImpl * first = new PartitionNodeImpl(parent);
+    PartitionNodeImpl * second = new PartitionNodeImpl(parent);
 
-    PartitionNode * first = computeHierarchicalPartitioning(graph, scheduling,
-        start, intermediatePos - 1);
-    PartitionNode * second = computeHierarchicalPartitioning(graph, scheduling,
-        intermediatePos, end);
-    
-    result = new PartitionNode(first, second);
+    parent->id = -1;
+
+    part->representants[start] = first;
+    part->representants[intermediatePos] = second;
+
+    computeHierarchicalPartition(graph, scheduling, start, intermediatePos - 1);
+    computeHierarchicalPartition(graph, scheduling, intermediatePos, end);
 
     // Compute the IO size between the two children
     for (int i = start; i < intermediatePos; i++) {
       Vertex * curr = graph->getVertex(scheduling[i]);
 
       for (int j = 0, e = curr->getSuccessorCount(); j < e; j++) {
-        if (targetSet.count(curr->getSuccessor(j)->getId())) {
-          IOcost++;
-          break;
-        }
+        if (targetSet.count(curr->getSuccessor(j)->getId()))
+          IOcost += curr->getSuccessorWeight(j);
       }
     }
 
     // Compute the maxLive of this partition level as :
     // maxLive = max(maxLive(first), maxLive(second), IO(first, second))
-    result->maxLive = first->maxLive;
-    if (second->maxLive > result->maxLive)
-      result->maxLive = second->maxLive;
+    parent->maxLive = first->maxLive;
+    if (second->maxLive > parent->maxLive)
+      parent->maxLive = second->maxLive;
 
-    if (IOcost > result->maxLive)
-      result->maxLive = IOcost;
+    if (IOcost > parent->maxLive)
+      parent->maxLive = IOcost;
   }
-
-  return result;
 }
 
 
 static int
-assignPartitions(PartitionNode * node, int memorySize,
-    map<int, int>& partitions, int partitionId = 0) {
+assignTiles(PartitionNodeImpl * node, int memorySize, vector<int>& scheduling,
+    map<int, int>& tileMap, int tileId = 0) {
   if (node->id != -1) {
-    partitions[node->id] = partitionId;
+    tileMap[scheduling[node->id]] = tileId;
   } else {
-    partitionId =
-      assignPartitions(node->first, memorySize, partitions, partitionId);
+    for (auto it = node->children.begin(), end = node->children.end();
+        it != end; ++it) {
+      tileId = assignTiles(*it, memorySize, scheduling, tileMap, tileId);
 
-    if (node->maxLive > memorySize)
-      partitionId++;
-
-    partitionId =
-      assignPartitions(node->second, memorySize, partitions, partitionId);
-
-    if (node->maxLive > memorySize)
-      partitionId++;
+      if ((*it)->maxLive > memorySize)
+        tileId++;
+    }
   }
 
-  return partitionId;
+  return tileId;
 }
 
 
 static int
-findUnion(int id, vector<int>& unions) {
+findUnion(int id) {
   while (id != unions[id])
     id = unions[id];
 
@@ -128,9 +151,9 @@ findUnion(int id, vector<int>& unions) {
 
 
 static void
-mergeUnion(int i, int j, vector<int>& unions, vector<int>& sizes) {
-  i = findUnion(i, unions);
-  j = findUnion(j, unions);
+mergeUnion(int i, int j) {
+  i = findUnion(i);
+  j = findUnion(j);
 
   if (i == j)
     return;
@@ -148,42 +171,29 @@ mergeUnion(int i, int j, vector<int>& unions, vector<int>& sizes) {
 // Partitioning queries
 
 int
-GraphImpl::getPartitionLevels() const {
-  return partitions.size();
-}
-
-
-const vector<Vertex::PartitionArray *>&
-GraphImpl::getPartitions() const {
-  return partitions;
-}
-
-
-int
 GraphImpl::getSchedulingCost(vector<int>& scheduling, int memorySize) const {
   int cost = 0;
-  map<int, int> partitions;
-  PartitionNode * partitionRoot = NULL;
+  map<int, int> tileMap;
 
   // First check the validity of the scheduling
   if (!checkSchedulingValidity(scheduling))
     return 0;
 
-  // Construct the default hierarchical partitioning of the scheduling.
-  partitionRoot = computeHierarchicalPartitioning(this, scheduling);
+  // Construct the default hierarchical partition of the scheduling.
+  computeHierarchicalPartition(this, scheduling);
 
-  // Obtain a partition assignement for the specified memory-size
-  assignPartitions(partitionRoot, memorySize, partitions);
+  // Obtain a tile assignement for the specified memory-size
+  assignTiles(part->root, memorySize, scheduling, tileMap);
 
-  // Compute the IO cost for each partition
-  for (auto it = partitions.begin(), end = partitions.end(); it != end; ++it) {
+  // Compute the IO cost for each tile
+  for (auto it = tileMap.begin(), end = tileMap.end(); it != end; ++it) {
     set<int> targetSet;
     Vertex * curr = getVertex(it->first);
 
-    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++)
-      targetSet.insert(curr->getSuccessor(i)->getId());
-
-    cost += targetSet.size();
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      if (tileMap[curr->getSuccessor(i)->getId()] != it->second)
+        cost += curr->getSuccessorWeight(i);
+    }
   }
 
   return cost;
@@ -198,7 +208,21 @@ GraphImpl::processPartitionQuery(PartitionQueryImpl * query) {
 #else // ENABLE_TLS
 GraphImpl::processPartitionQuery(PartitionQueryImpl * query, int threadId) {
 #endif // ENABLE_TLS
-  
+  switch (query->getMethod()) {
+    case Convexify:
+      partitionConvexify(query);
+      break;
+
+    case MaxDistance:
+      partitionMaxDistance(query);
+      break;
+
+    case UndefinedPartitionMethod:
+      query->setError(true);
+      break;
+  }
+
+  resultQueue.push(query);
 }
 
 
@@ -260,38 +284,35 @@ GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
 
 
 void
-GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
+GraphImpl::convBisect(PartitionNodeImpl * parent) {
   int nbCuts[2] = { 0, 0};
   Vertex * curr = NULL;
-  queue<int> ready;
-  vector<int> nbPred;
-  vector<int> nbSucc;
-  vector<int> convPart;
   HGraph * hyperGraph = NULL;
+  Vertex::IdSet idSet;
+  queue<int> ready;
+  vector<int> nbPred(idSet.size(), 0);
+  vector<int> nbSucc(idSet.size(), 0);
+  vector<int> convPart(idSet.size(), 2);
 
-  // Bail out if the source set is of size 1
-  if (idSet.size() <= 1) {
-    return;
-  } else {
-    while ((int) partitions.size() <= level)
-      partitions.push_back(new Vertex::PartitionArray());
+  // Create the target idSet and the associated hyper-graph
+  IaP<PartitionNodeImpl> ptr = parent->id;
+  while (ptr.isInteger()) {
+    idSet.insert(ptr);
+    ptr = part->representants[ptr];
   }
 
-  nbPred.resize(idSet.size(), 0);
-  nbSucc.resize(idSet.size(), 0);
-  convPart.resize(idSet.size(), 2);
   hyperGraph = getHGraph(idSet);
 
   // We determine the best order for the two parts
-  vector<int> * part = patohBisect(hyperGraph);
+  vector<int> * pPart = patohBisect(hyperGraph);
 
   for (auto it = hyperGraph->forwardMap.begin(),
       end = hyperGraph->forwardMap.end(); it != end; ++it) {
-    int pId = (*part)[it->second];
+    int pId = (*pPart)[it->second];
     Vertex * curr = getVertex(it->first);
 
     for(int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-      int tId = (*part)[hyperGraph->forwardMap[curr->getSuccessor(i)->getId()]];
+      int tId = (*pPart)[hyperGraph->forwardMap[curr->getSuccessor(i)->getId()]];
       if (pId != tId)
         nbCuts[pId]++;
     }
@@ -300,19 +321,19 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
   // If there are more cuts from 1 to 0, we switch parts
   if (nbCuts[1] > nbCuts[0]) {
     for (int i = 0, e = idSet.size(); i < e; i++)
-      (*part)[i] = 1 - (*part)[i];
+      (*pPart)[i] = 1 - (*pPart)[i];
   }
   
   for (auto it = hyperGraph->forwardMap.begin(),
       end = hyperGraph->forwardMap.end(); it != end; ++it) {
     curr = getVertex(it->first);
 
-    if (((*part)[it->second] == 0) && (curr->getPredecessorCount() == 0)) {
+    if (((*pPart)[it->second] == 0) && (curr->getPredecessorCount() == 0)) {
       ready.push(it->second);
       convPart[it->second] = 0;
     }
 
-    if (((*part)[it->second] == 1) && (curr->getSuccessorCount() == 0)) {
+    if (((*pPart)[it->second] == 1) && (curr->getSuccessorCount() == 0)) {
       ready.push(it->second);
       convPart[it->second] = 1;
     }
@@ -327,16 +348,16 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
     curr = getVertex(hyperGraph->backwardMap[id]);
     ready.pop();
 
-    nbOk[(*part)[id]]++;
-    if ((*part)[id] == 0) {
+    nbOk[(*pPart)[id]]++;
+    if ((*pPart)[id] == 0) {
       for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
         int target = hyperGraph->forwardMap[curr->getSuccessor(i)->getId()];
 
-        if ((*part)[id] == (*part)[target]) {
+        if ((*pPart)[id] == (*pPart)[target]) {
           nbPred[target]--;
           if ((convPart[target] == 2) && (nbPred[target] == 0)) {
             ready.push(target);
-            convPart[target] = (*part)[target];
+            convPart[target] = (*pPart)[target];
           }
         }
       }
@@ -344,11 +365,11 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
       for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
         int target = hyperGraph->forwardMap[curr->getPredecessor(i)->getId()];
 
-        if ((*part)[id] == (*part)[target]) {
+        if ((*pPart)[id] == (*pPart)[target]) {
           nbSucc[target]--;
           if ((convPart[target] == 2) && (nbSucc[target] == 0)) {
             ready.push(target);
-            convPart[target] = (*part)[target];
+            convPart[target] = (*pPart)[target];
           }
         }
       }
@@ -360,91 +381,125 @@ GraphImpl::convBisect(Vertex::IdSet& idSet, int level) {
     set<int> targetSubIdSet;
     vector<int> idMap;
 
+    IaP<PartitionNodeImpl> ptr = parent;
     for (int i = 0, e = idSet.size(); i < e; i++) {
-      if (convPart[i] == 2)
-        subIdSet.insert(hyperGraph->backwardMap[i]);
+      if (convPart[i] == 2) {
+        int id = hyperGraph->backwardMap[i];
+        part->representants[id] = ptr;
+        parent->id = id;
+        ptr = id;
+      }
     }
 
-    for (int i = 0, e = subIdSet.size(); i < e; i++)
-      targetSubIdSet.insert(i);
+    subSetA.push(new Vertex::IdSet());
+    subSetB.push(new Vertex::IdSet());
 
-    GraphImpl * subGraph = getSubGraph(subIdSet, idMap);
-    subGraph->convBisect(targetSubIdSet, 1);
+    convBisect(parent);
 
     bool invert = false;
-    const vector<Vertex::PartitionArray *>& subPartitions =
-      subGraph->getPartitions();
-    
-    const Vertex::IdSet * subSetA = subPartitions.front()->front();
-    const Vertex::IdSet * subSetB = subPartitions.front()->back();
-
-    for (auto it = subSetA->begin(), end = subSetA->end(); it != end; ++it) {
-      Vertex * curr = subGraph->getVertex(*it);
+    for (auto it = subSetA.top()->begin(), end = subSetA.top()->end();
+        it != end; ++it) {
+      Vertex * curr = getVertex(*it);
 
       for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
-        if (!subSetA->count(curr->getPredecessor(i)->getId())) {
+        if (!subSetA.top()->count(curr->getPredecessor(i)->getId())) {
           invert = true;
           break;
         }
       }
 
-      if (invert) {
-        subSetA = subPartitions.front()->back();
-        subSetB = subPartitions.front()->front();
-
+      if (invert)
         break;
-      }
     }
 
-    for (auto it = subSetA->begin(), end = subSetA->end(); it != end; ++it)
-      convPart[idMap[*it]] = 0;
+    for (auto it = subSetA.top()->begin(), end = subSetA.top()->end();
+        it != end; ++it)
+      convPart[idMap[*it]] = invert ? 1 : 0;
 
-    for (auto it = subSetB->begin(), end = subSetB->end(); it != end; ++it)
-      convPart[idMap[*it]] = 1;
+    for (auto it = subSetB.top()->begin(), end = subSetB.top()->end();
+        it != end; ++it)
+      convPart[idMap[*it]] = invert ? 0 : 1;
 
-    delete subGraph;
+    delete subSetA.top();
+    delete subSetB.top();
+
+    subSetA.pop();
+    subSetB.pop();
   }
 
   // Add the two new partitions to the partioning hierarchy
-  Vertex::IdSet * setA = new Vertex::IdSet();
-  Vertex::IdSet * setB = new Vertex::IdSet();
-  for (int i = 0, e = idSet.size(); i < e; i++) {
-    if (convPart[i] == 0) {
-      setA->insert(hyperGraph->backwardMap[i]);
-    } else if (convPart[i] == 1) { 
-      setB->insert(hyperGraph->backwardMap[i]);
-    } else {
-      cerr << "ERROR: Found a node not in partition after convex-bisection.\n";
-      exit(EXIT_FAILURE);
+  if (!subSetA.empty()) {
+    for (int i = 0, e = idSet.size(); i < e; i++) {
+      if (convPart[i] == 0)
+        subSetA.top()->insert(hyperGraph->backwardMap[i]);
+      else
+        subSetB.top()->insert(hyperGraph->backwardMap[i]);
     }
-  }
+  } else {
+    int memberA = -1;
+    int memberB = -1;
+    PartitionNodeImpl * childA = new PartitionNodeImpl(parent);
+    PartitionNodeImpl * childB = new PartitionNodeImpl(parent);
 
-  partitions[level]->push_back(setA);
-  partitions[level]->push_back(setB);
+    for (int i = 0, e = idSet.size(); i < e; i++) {
+      int idx = hyperGraph->backwardMap[i];
+
+      if (convPart[i] == 0) {
+        if (memberA == -1)
+          part->representants[idx] = childA;
+        else
+          part->representants[idx] = memberA;
+
+        memberA = idx;
+      } else if (convPart[i] == 1) { 
+        if (memberB == -1)
+          part->representants[idx] = childB;
+        else
+          part->representants[idx] = memberB;
+
+        memberB = idx;
+      } else {
+        cerr << "ERROR: Found node not in partition after convex-bisection.\n";
+        exit(EXIT_FAILURE);
+      }
+    }
+
+    childA->id = memberA;
+    childB->id = memberB;
+    parent->id = -1;
+
+    if (part->representants[memberA].isInteger())
+      workQueue.push(childA);
+    else
+      resultProgressBar(++partCount);
+
+    if (part->representants[memberB].isInteger())
+      workQueue.push(childB);
+    else
+      resultProgressBar(++partCount);
+  }
 }
 
 
 void
-GraphImpl::maxDistBisect(Vertex::IdSet& idSet, vector<int>& sourceMax,
-    vector<int>& sinkMax, int level) {
-  // Bail out if the source set is of size 1
-  if (idSet.size() == 1) {
-    return;
-  } else {
-    while ((int) partitions.size() <= level)
-      partitions.push_back(new Vertex::PartitionArray());
+GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
+    Vertex::IdSet& sinkSet) {
+  /* Create the target set of vertex IDs */
+  Vertex::IdSet idSet;
+  IaP<PartitionNodeImpl> id = parent->id;
+
+  while (id.isInteger()) {
+    idSet.insert(id);
+    id = part->representants[id];
   }
 
-  /* First check for connectiviy in the graph through union-find */
-  vector<int> unions(*idSet.end() + 1, -1);
-  vector<int> sizes(*idSet.end() + 1, 1);
+  /* Check that the current target set for bisection is actually a connected
+   * sub-graph through union-find */
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    unions[*it] = *it;
+    sizes[*it] = 1;
+  }
 
-  // Initialize
-  int id = 0;
-  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it)
-    unions[*it] = id++;
-
-  // Perform merging
   for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
     Vertex * curr = getVertex(*it);
 
@@ -452,149 +507,283 @@ GraphImpl::maxDistBisect(Vertex::IdSet& idSet, vector<int>& sourceMax,
       int succ = curr->getSuccessor(i)->getId();
 
       if (idSet.count(succ))
-        mergeUnion(*it, succ, unions, sizes);
+        mergeUnion(*it, succ);
     }
   }
 
-  // If the graph is not connected perform trivial multisection
-  int target = findUnion(*idSet.begin(), unions);
-  if (sizes[target] < (int) idSet.size()) {
-    map<int, Vertex::IdSet *> subSets;
+  int target = findUnion(*idSet.begin());
+  if (sizes[target] != (int) idSet.size()) {
+    /* If the sub-graph is not connected then perform a trivial multi-section
+     * into the connected components */
+    map<int, PartitionNodeImpl *> subParts;
+    map<int, Vertex::IdSet *> subSources;
+    map<int, Vertex::IdSet *> subSinks;
 
     for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
-      target = findUnion(*it, unions);
+      target = findUnion(*it);
 
-      if (!subSets.count(target)) {
-        Vertex::IdSet * newSet = new Vertex::IdSet();
+      auto mapIt = subParts.find(target);
+      if (mapIt == subParts.end()) {
+        subParts[target] = new PartitionNodeImpl(parent);
+        subSources[target] = new Vertex::IdSet();
+        subSinks[target] = new Vertex::IdSet();
 
-        subSets[target] = newSet;
-        partitions[level]->push_back(newSet);
+        subParts[target]->id = *it;
+        part->representants[*it] = subParts[target];
+      } else {
+        part->representants[*it] = mapIt->second->id;
+        mapIt->second->id = *it;
       }
 
-      subSets[target]->insert(*it);
+      if (sourceSet.count(*it))
+        subSources[target]->insert(*it);
+
+      if (sinkSet.count(*it))
+        subSinks[target]->insert(*it);
     }
 
-    return;
+    for (auto mapIt = subParts.begin(), mapEnd = subParts.end();
+        mapIt != mapEnd; ++mapIt) {
+      if (part->representants[mapIt->second->id].isInteger())
+        maxDistBisect(mapIt->second, *subSources[mapIt->first],
+            *subSinks[mapIt->first]);
+      else
+        resultProgressBar(++partCount);
+
+      delete subSources[mapIt->first];
+      delete subSinks[mapIt->first];
+    }
+
+    parent->id = -1;
+  } else {
+    /* If the sub-graph is connected then perform a bisection based on the
+     * sourceMax and sinkMax values of each node */
+    stack<Vertex *> todo;
+    Vertex::IdSet subSources;
+    Vertex::IdSet subSinks;
+
+    // First reset the sourceMax and sinkMax values for the target set
+    for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+      sourceMax[*it] = 0;
+      sinkMax[*it] = 0;
+    }
+
+    // Perform a DFS to recompute the sourceMax values
+    for (auto it = sourceSet.begin(), end = sourceSet.end(); it != end; ++it)
+      todo.push(getVertex(*it));
+
+    while (!todo.empty()) {
+      Vertex * curr = todo.top();
+      todo.pop();
+
+      for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+        Vertex * succ = curr->getSuccessor(i);
+
+        if (idSet.count(succ->getId())) {
+          if (sourceMax[succ->getId()] < sourceMax[curr->getId()] + 1) {
+            sourceMax[succ->getId()] = sourceMax[curr->getId()] + 1;
+            todo.push(succ);
+          }
+        }
+      }
+    }
+
+    // Perform a DFS to recompute the sinkMax values and select potential new
+    // sources and sinks
+    for (auto it = sinkSet.begin(), end = sinkSet.end(); it != end; ++it)
+      todo.push(getVertex(*it));
+
+    while (!todo.empty()) {
+      Vertex * curr = todo.top();
+      todo.pop();
+
+      for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+        Vertex * pred = curr->getPredecessor(i);
+
+        if (idSet.count(pred->getId())) {
+          if (sinkMax[pred->getId()] < sinkMax[curr->getId()] + 1) {
+            sinkMax[pred->getId()] = sinkMax[pred->getId()] + 1;
+            todo.push(pred);
+          }
+
+          if ((sourceMax[curr->getId()] >= sinkMax[curr->getId()]) &&
+              (sourceMax[pred->getId()] < sinkMax[pred->getId()])) {
+            subSources.insert(curr->getId());
+            subSinks.insert(pred->getId());
+          }
+        }
+      }
+    }
+
+    // Eliminate false positives from the potential new sources and sinks
+    auto setIt = subSources.begin(), setEnd = subSources.end();
+    while (setIt != setEnd) {
+      if (sourceMax[*setIt] < sinkMax[*setIt]) {
+        setIt = subSources.erase(setIt);
+      } else {
+        bool erased = false;
+        Vertex * curr = getVertex(*setIt);
+
+        for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+          Vertex * pred = curr->getPredecessor(i);
+
+          if (idSet.count(pred->getId())) {
+            if (sourceMax[pred->getId()] >= sinkMax[pred->getId()]) {
+              setIt = subSources.erase(setIt);
+              erased = true;
+              break;
+            }
+          }
+        }
+
+        if (!erased)
+          setIt++;
+      }
+    }
+
+    setIt = subSinks.begin();
+    setEnd = subSinks.end();
+    while (setIt != setEnd) {
+      if (sourceMax[*setIt] >= sinkMax[*setIt]) {
+        setIt = subSinks.erase(setIt);
+      } else {
+        bool erased = false;
+        Vertex * curr = getVertex(*setIt);
+
+        for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+          Vertex * succ = curr->getSuccessor(i);
+
+          if (idSet.count(succ->getId())) {
+            if (sourceMax[succ->getId()] < sinkMax[succ->getId()]) {
+              setIt = subSinks.erase(setIt);
+              erased = true;
+              break;
+            }
+          }
+        }
+
+        if (!erased)
+          setIt++;
+      }
+    }
+    
+    // Divide the target set into two partitions
+    PartitionNodeImpl * subPartA = new PartitionNodeImpl(parent);
+    PartitionNodeImpl * subPartB = new PartitionNodeImpl(parent);
+    IaP<PartitionNodeImpl> ptrA = subPartA;
+    IaP<PartitionNodeImpl> ptrB = subPartB;
+
+    for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+      if (sourceMax[*it] < sinkMax[*it]) {
+        part->representants[*it] = ptrA;
+        subPartA->id = *it;
+        ptrA = *it;
+      } else {
+        part->representants[*it] = ptrB;
+        subPartB->id = *it;
+        ptrB = *it;
+      }
+    }
+
+    // Recurse on the two new partitions if they are not atomic
+    if (part->representants[subPartA->id].isInteger())
+      maxDistBisect(subPartA, sourceSet, subSinks);
+    else
+      resultProgressBar(++partCount);
+
+    sourceSet.clear();
+    subSinks.clear();
+
+    if (part->representants[subPartB->id].isInteger())
+      maxDistBisect(subPartB, subSources, sinkSet);
+    else
+      resultProgressBar(++partCount);
+
+    parent->id = -1;
   }
+}
 
-  /* Perform max-distance based bisection for a connected graph */
-  Vertex::IdSet * setA = new Vertex::IdSet();
-  Vertex::IdSet * setB = new Vertex::IdSet();
 
-  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
-    if (sourceMax[*it] < sinkMax[*it]) {
-      setA->insert(*it);
-      sinkMax[*it] = sinkMax[*it] / 2;
+void
+GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
+  IaP<PartitionNodeImpl> ptr = 0;
+  string barTitle = "Partitioning ";
+
+  partCount = 0;
+  configureProgressBar(&barTitle, vertices.size());
+  resultProgressBar(partCount);
+
+  // Construct the target Partition instance
+  part = new PartitionImpl(vertices.size());
+  ptr = part->root;
+  for (int i = 0, e = vertices.size(); i < e; i++) {
+    if (vertices[i]) {
+      part->representants[i] = ptr;
+      part->root->id = i;
+      ptr = i;
     } else {
-      setB->insert(*it);
-      sourceMax[*it] = sourceMax[*it] / 2 + sourceMax[*it] % 2;
+      part->representants[i] = -1;
     }
   }
 
-  partitions[level]->push_back(setA);
-  partitions[level]->push_back(setB);
+  workQueue.push(part->root);
+  while (!workQueue.empty()) {
+    PartitionNodeImpl * parent = workQueue.front();
+    workQueue.pop();
+
+    convBisect(parent);
+  }
+
+  query->setPartition(part);
+  part = NULL;
 }
 
 
 void
-GraphImpl::partitionConvex(void) {
-  // Erase existing partitions
-  partitions.clear();
+GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
+  Vertex::IdSet sourceSet;
+  Vertex::IdSet sinkSet;
+  IaP<PartitionNodeImpl> ptr = 0;
+  string barTitle = "Partitioning ";
 
-  Vertex::IdSet * topSet = new Vertex::IdSet();
+  partCount = 0;
+  configureProgressBar(&barTitle, vertices.size());
+  resultProgressBar(partCount);
 
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if (*it)
-      topSet->insert((*it)->getId());
+  // Construct the target Partition instance
+  part = new PartitionImpl(vertices.size());
+  ptr = part->root;
+  for (int i = 0, e = vertices.size(); i < e; i++) {
+    if (vertices[i]) {
+      part->representants[i] = ptr;
+      part->root->id = i;
+      ptr = i;
+    } else {
+      part->representants[i] = -1;
+    }
   }
 
-  partitions.push_back(new Vertex::PartitionArray);
-  partitions[0]->push_back(topSet);
-
-  int level = 0;
-  while (level < (int) partitions.size()) {
-    for (auto it = partitions[level]->begin(), end = partitions[level]->end();
-        it != end; ++it)
-      convBisect(**it, level + 1);
-
-    level++;
-  }
-}
-
-
-void
-GraphImpl::partitionMaxDistance(void) {
-  vector<int> sourceMax;
-  vector<int> sinkMax;
-
-  // Erase existing partitions
-  partitions.clear();
-
-  Vertex::IdSet * topSet = new Vertex::IdSet();
-
-  for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if (*it)
-      topSet->insert((*it)->getId());
-  }
-
-  partitions.push_back(new Vertex::PartitionArray);
-  partitions[0]->push_back(topSet);
-
-  sourceMax.resize(vertices.size() + 1, -1);
-  sinkMax.resize(vertices.size() + 1, -1);
-
-  /* Perform the initial computations of the max-distances */
-  stack<Vertex *> todo;
-
-  // Construct an artificial root node for all sources and sinks
-  VertexImpl root(vertices.size());
+  // Construct the root souce and sink sets
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it)
-    root.addSuccessor(*it);
+    sourceSet.insert((*it)->getId());
 
   for (auto it = sinks.begin(), end = sinks.end(); it != end; ++it)
-    root.addPredecessor(*it);
+    sinkSet.insert((*it)->getId());
 
-  // Perform a forward DFS for sourceMax
-  todo.push(&root);
-  while (!todo.empty()) {
-    Vertex * curr = todo.top();
-    todo.pop();
+  // Adjust the size of union-find and sourceMax/sinkMax vectors
+  sizes.resize(vertices.size());
+  unions.resize(vertices.size());
+  sourceMax.resize(vertices.size());
+  sinkMax.resize(vertices.size());
 
-    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-      Vertex * succ = curr->getSuccessor(i);
-      
-      if (sourceMax[succ->getId()] < sourceMax[curr->getId()] + 1) {
-        sourceMax[succ->getId()] = sourceMax[curr->getId()] + 1;
-        todo.push(succ);
-      }
-    }
-  }
+  // Recursively bisect the graph
+  maxDistBisect(part->root, sourceSet, sinkSet);
 
-  // Perform a backward DFS for sinkMax
-  todo.push(&root);
-  while (!todo.empty()) {
-    Vertex * curr = todo.top();
-    todo.pop();
+  cout << "\n";
 
-    for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
-      Vertex * pred = curr->getPredecessor(i);
-      
-      if (sinkMax[pred->getId()] < sinkMax[pred->getId()] + 1) {
-        sinkMax[pred->getId()] = sinkMax[pred->getId()] + 1;
-        todo.push(pred);
-      }
-    }
-  }
-
-  /* Perform the real hierarchical partitioning */
-  int level = 0;
-  while (level < (int) partitions.size()) {
-    for (auto it = partitions[level]->begin(), end = partitions[level]->end();
-        it != end; ++it)
-      maxDistBisect(**it, sourceMax, sinkMax, level + 1);
-
-    level++;
-  }
+  // Associate the new partition with the query that requested it
+  query->setPartition(part);
+  part = NULL;
 }
 
 bool

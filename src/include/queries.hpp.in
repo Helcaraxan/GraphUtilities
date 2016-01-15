@@ -15,6 +15,7 @@ using namespace std;
 // Forward declaration
 class Graph;
 class Vertex;
+class Partition;
 
 
 /*!
@@ -65,11 +66,11 @@ public:
 
 
 //////////////////////////////
-// The PartitionQuery class //
+// The CoarsenQuery class //
 //////////////////////////////
 
 /*!
- * \brief Representation class for partition queries on a graph.
+ * \brief Representation class for coarsen queries on a graph.
  *
  * This class enforces an interface for implementations of this library. It
  * describes a minimal API for high-level manipulations.
@@ -219,6 +220,18 @@ public:
    * \sa setMethod()
    */
   virtual PartitionMethod getMethod(void) const = 0;
+
+  /*!
+   * \brief Retrieve pointer to the Partition obtained through this query.
+   *
+   * Retrieve a pointer to the Partition instance that was computed for this
+   * query.
+   *
+   * \return Pointer to the obtained Partition. NULL if the query was not yet
+   * processed.
+   */
+  virtual const Partition * getPartition(void) const = 0;
+
 
   ///////////////////
   // Modifications //

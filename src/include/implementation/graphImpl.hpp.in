@@ -34,39 +34,6 @@ typedef struct {
 } HGraph;
 
 
-// Local helper class
-
-class PartitionNode {
-// Data members
-public:
-  int id = -1;
-  int maxLive = 0;
-  PartitionNode * first = NULL;
-  PartitionNode * second = NULL;
-
-
-// Function members
-public:
-  // Constructors & destructors
-  PartitionNode(void) = delete;
-  PartitionNode(const PartitionNode&) = delete;
-  PartitionNode(PartitionNode&&) = delete;
-  PartitionNode& operator=(const PartitionNode&) = delete;
-  PartitionNode& operator=(PartitionNode&&) = delete;
-
-  PartitionNode(int node) : id(node) {}
-  PartitionNode(PartitionNode * f, PartitionNode * s) : first(f), second(s) {}
-
-  ~PartitionNode(void) {
-    if (first)
-      delete first;
-
-    if (second)
-      delete second;
-  }
-};
-
-
 // Graph Implementation class
 
 class GraphImpl : public Graph {
@@ -200,8 +167,6 @@ public:
   bool hasEdge(const Vertex * source, const Vertex * target) const;
 
   // Partition-related methods
-  int getPartitionLevels(void) const;
-  const vector<Vertex::PartitionArray *>& getPartitions(void) const;
   int getSchedulingCost(vector<int>& scheduling, int memorySize) const;
 
   // Statistics
@@ -263,11 +228,11 @@ public:
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
-  void convBisect(Vertex::IdSet& idSet, int level);
-  void maxDistBisect(Vertex::IdSet& idSet, vector<int>& sourceMax, vector<int>&
-      sinkMax, int level);
-  void partitionConvex(void);
-  void partitionMaxDistance(void);
+  void convBisect(PartitionNodeImpl * parent);
+  void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
+      Vertex::IdSet&sinkSet);
+  void partitionConvexify(PartitionQueryImpl * query);
+  void partitionMaxDistance(PartitionQueryImpl * query);
   bool checkSchedulingValidity(vector<int>& scheduling) const;
 
   // Graph coarsening

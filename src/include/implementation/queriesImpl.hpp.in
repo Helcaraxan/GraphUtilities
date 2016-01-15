@@ -41,6 +41,7 @@ public:
   map<int, int>& getMap(void);
 
   // Modifications
+  void setError(bool value);
   void setFactor(int newFactor);
   void setSecondaryFactor(int newFactor);
   void setMethod(CoarsenMethod newMethod);
@@ -57,6 +58,7 @@ class PartitionQueryImpl : public PartitionQuery {
 // Data members
 private:
   bool error = false;
+  PartitionImpl * partition = NULL;
   PartitionMethod method = Convexify;
 
 
@@ -66,9 +68,15 @@ public:
   // Access
   bool getError(void) const;
   PartitionMethod getMethod(void) const;
+  const Partition * getPartition(void) const;
 
   // Modifications
   void setMethod(PartitionMethod newMethod);
+
+  /* Implementation methods */
+  // Modifications
+  void setError(bool value);
+  void setPartition(PartitionImpl * part);
 };
 
 
@@ -142,8 +150,8 @@ public:
 #endif // ENABLE_STATISTICS
 
   // Modifications
-  void setAnswer(bool value);
   void setError(bool value);
+  void setAnswer(bool value);
   void setCancel(bool value);
   void setInternal(InternalQueue * value);
 #if defined(ENABLE_STATISTICS)
