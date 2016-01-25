@@ -50,8 +50,7 @@ patohBisect(HGraph * hyperGraph) {
   PaToH_Free();
 
   vector<int> * part = new vector<int>(tpart, tpart + hyperGraph->nvtxs);
-  delete tpart;
-  delete hyperGraph;
+  delete[] tpart;
 
   return part;
 }
@@ -230,53 +229,42 @@ HGraph *
 GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
   int vCount = idSet.size();
   int eCount = 0;
-  int ind;
-  int idx;
+  int ind = 0;
+  int idx = 0;
   HGraph * hyperGraph = new HGraph();
 
+  hyperGraph->backwardMap.resize(idSet.size());
   for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
     Vertex * curr = getVertex(*it);
+
+    hyperGraph->forwardMap[*it] = idx;
+    hyperGraph->backwardMap[idx++] = *it;
 
     for (int i = 0, e = curr->getSuccessorCount(); i < e; i++)
       eCount += idSet.count(curr->getSuccessor(i)->getId());
   }
 
   hyperGraph->nvtxs = vCount;
-  hyperGraph->nhedges = eCount;
+  hyperGraph->nhedges = vCount;
 
   hyperGraph->eptr = new int[vCount + 2];
   hyperGraph->eind = new int[vCount + eCount + 2];
 
   hyperGraph->eptr[0] = 0;
 
-  ind = 0;
   idx = 0;
   for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
     Vertex * curr = getVertex(*it);
 
-    hyperGraph->eind[ind++] = idx;
-
-    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++)
-      ind += idSet.count(curr->getSuccessor(i)->getId());
-
-    hyperGraph->eptr[idx + 1] = ind;
-    hyperGraph->forwardMap[*it] = idx;
-    hyperGraph->backwardMap.push_back(*it);
-
-    idx++;
-  }
-
-  ind = 0;
-  idx = 0;
-  for (int i = 0; i < vCount; i++) {
-    int id = hyperGraph->eind[ind++];
-    Vertex * curr = getVertex(hyperGraph->backwardMap[id]);
-
+    hyperGraph->eind[ind++] = hyperGraph->forwardMap[*it];
     for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-      int succId = curr->getSuccessor(i)->getId();
-      if (idSet.count(succId))
-        hyperGraph->eind[ind++] = hyperGraph->forwardMap[succId];
+      int succ = curr->getSuccessor(i)->getId();
+
+      if (idSet.count(succ))
+        hyperGraph->eind[ind++] = hyperGraph->forwardMap[succ];
     }
+
+    hyperGraph->eptr[++idx] = ind;
   }
 
   return hyperGraph;
@@ -290,9 +278,9 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
   HGraph * hyperGraph = NULL;
   Vertex::IdSet idSet;
   queue<int> ready;
-  vector<int> nbPred(idSet.size(), 0);
-  vector<int> nbSucc(idSet.size(), 0);
-  vector<int> convPart(idSet.size(), 2);
+  vector<int> nbPred;
+  vector<int> nbSucc;
+  vector<int> convPart;
 
   // Create the target idSet and the associated hyper-graph
   IaP<PartitionNodeImpl> ptr = parent->id;
@@ -302,6 +290,9 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
   }
 
   hyperGraph = getHGraph(idSet);
+  nbPred.resize(idSet.size(), 0);
+  nbSucc.resize(idSet.size(), 0);
+  convPart.resize(idSet.size(), 2);
 
   // We determine the best order for the two parts
   vector<int> * pPart = patohBisect(hyperGraph);

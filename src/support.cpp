@@ -57,8 +57,8 @@ void resultProgressBar(int progress) {
   if (progress % refreshModulo != 0)
     return;
 
-  intRatio = progress / refreshModulo;
   floatRatio = ((double) progress) / ((double) progressBarFinish);
+  intRatio = floatRatio * (terminalWidth - progressBarTitleWidth);
 
   cout << progressBarTitle;
   cout.width(3);
