@@ -2,6 +2,9 @@ include_directories("${PROJECT_BINARY_DIR}/include")
 
 link_directories("${PROJECT_BINARY_DIR}/lib")
 
+add_library(patoh STATIC IMPORTED)
+set_target_properties(patoh PROPERTIES IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/lib/libpatoh.a")
+
 
 # Generate the public header files according to the previously defined options
 file(GLOB PUBLIC_HEADER_LIST ${PROJECT_SOURCE_DIR}/src/include/*.hpp.in)
@@ -34,7 +37,7 @@ add_library(
 	)
 
 target_link_libraries(GraphUtilities
-	${PROJECT_SOURCE_DIR}/lib/libpatoh.a
+	patoh
 	tbb
 	m
 	z
