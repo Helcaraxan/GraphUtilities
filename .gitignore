@@ -1,6 +1,5 @@
 bin/*
 build/*
 include/*
-lib/*
 local-test/*
 *.swp
