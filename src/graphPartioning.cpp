@@ -16,45 +16,9 @@ static vector<int> sourceMax;
 static vector<int> sinkMax;
 static queue<PartitionNodeImpl *> workQueue;
 static PartitionImpl * part = NULL;
-static stack<Vertex::IdSet *> subSetA;
-static stack<Vertex::IdSet *> subSetB;
 
 
 // File local functions
-
-static vector<int> *
-patohBisect(HGraph * hyperGraph) {
-  int cut;
-  int * ones = NULL;
-  int * tpart = NULL;
-  int pweight[2] = { 0, 0};
-  float tweight[2] = { .5, .5};
-
-  PPaToH_Parameters pargs = new PaToH_Parameters;
-  PaToH_Initialize_Parameters(pargs, PATOH_CONPART, PATOH_SUGPARAM_DEFAULT);
-
-  ones = new int[2 * hyperGraph->nhedges];
-  tpart = new int[hyperGraph->nvtxs];
-
-  fill(ones, ones + hyperGraph->nvtxs, 1);
-
-  PaToH_Alloc(pargs, hyperGraph->nvtxs, hyperGraph->nhedges, 1, ones, ones,
-      hyperGraph->eptr, hyperGraph->eind);
-
-  pargs->_k = 2;
-  PaToH_Part(pargs, hyperGraph->nvtxs, hyperGraph->nhedges, 1, 0, ones, ones,
-      hyperGraph->eptr, hyperGraph->eind, tweight, tpart, pweight, &cut);
-
-  delete[] ones;
-  delete pargs;
-  PaToH_Free();
-
-  vector<int> * part = new vector<int>(tpart, tpart + hyperGraph->nvtxs);
-  delete[] tpart;
-
-  return part;
-}
-
 
 void
 computeHierarchicalPartition(const GraphImpl * graph, vector<int>& scheduling,
@@ -227,44 +191,40 @@ GraphImpl::processPartitionQuery(PartitionQueryImpl * query, int threadId) {
 
 HGraph *
 GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
-  int vCount = idSet.size();
-  int eCount = 0;
-  int ind = 0;
   int idx = 0;
   HGraph * hyperGraph = new HGraph();
 
+  hyperGraph->cellCount = idSet.size();
   hyperGraph->backwardMap.resize(idSet.size());
+
   for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
     Vertex * curr = getVertex(*it);
 
     hyperGraph->forwardMap[*it] = idx;
     hyperGraph->backwardMap[idx++] = *it;
 
-    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++)
-      eCount += idSet.count(curr->getSuccessor(i)->getId());
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      if (idSet.count(curr->getSuccessor(i)->getId())) {
+        hyperGraph->netCount++;
+        break;
+      }
+    }
   }
 
-  hyperGraph->nvtxs = vCount;
-  hyperGraph->nhedges = vCount;
+  hyperGraph->xpins.push_back(0);
 
-  hyperGraph->eptr = new int[vCount + 2];
-  hyperGraph->eind = new int[vCount + eCount + 2];
-
-  hyperGraph->eptr[0] = 0;
-
-  idx = 0;
   for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
     Vertex * curr = getVertex(*it);
 
-    hyperGraph->eind[ind++] = hyperGraph->forwardMap[*it];
+    hyperGraph->pins.push_back(hyperGraph->forwardMap[*it]);
     for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
       int succ = curr->getSuccessor(i)->getId();
 
       if (idSet.count(succ))
-        hyperGraph->eind[ind++] = hyperGraph->forwardMap[succ];
+        hyperGraph->pins.push_back(hyperGraph->forwardMap[succ]);
     }
 
-    hyperGraph->eptr[++idx] = ind;
+    hyperGraph->xpins.push_back(hyperGraph->pins.size());
   }
 
   return hyperGraph;
@@ -273,14 +233,13 @@ GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
 
 void
 GraphImpl::convBisect(PartitionNodeImpl * parent) {
-  int nbCuts[2] = { 0, 0};
-  Vertex * curr = NULL;
   HGraph * hyperGraph = NULL;
   Vertex::IdSet idSet;
-  queue<int> ready;
-  vector<int> nbPred;
-  vector<int> nbSucc;
   vector<int> convPart;
+  vector<int> patohPart;
+  vector<int> predCount;
+  vector<int> succCount;
+
 
   // Create the target idSet and the associated hyper-graph
   IaP<PartitionNodeImpl> ptr = parent->id;
@@ -290,185 +249,170 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
   }
 
   hyperGraph = getHGraph(idSet);
-  nbPred.resize(idSet.size(), 0);
-  nbSucc.resize(idSet.size(), 0);
   convPart.resize(idSet.size(), 2);
+  patohPart.resize(idSet.size(), -1);
+  predCount.resize(idSet.size(), 0);
+  succCount.resize(idSet.size(), 0);
 
-  // We determine the best order for the two parts
-  vector<int> * pPart = patohBisect(hyperGraph);
 
-  for (auto it = hyperGraph->forwardMap.begin(),
-      end = hyperGraph->forwardMap.end(); it != end; ++it) {
-    int pId = (*pPart)[it->second];
-    Vertex * curr = getVertex(it->first);
+  // We iterate partitioning untill there are no unsafe vertices left
+  while (!idSet.empty()) {
+    // We assign the current sources and sinks to the two target partitions
+    int partId = 0;
+    queue<int> checkQueue;
 
-    for(int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-      int tId = (*pPart)[hyperGraph->forwardMap[curr->getSuccessor(i)->getId()]];
-      if (pId != tId)
-        nbCuts[pId]++;
-    }
-  }
-
-  // If there are more cuts from 1 to 0, we switch parts
-  if (nbCuts[1] > nbCuts[0]) {
-    for (int i = 0, e = idSet.size(); i < e; i++)
-      (*pPart)[i] = 1 - (*pPart)[i];
-  }
-  
-  for (auto it = hyperGraph->forwardMap.begin(),
-      end = hyperGraph->forwardMap.end(); it != end; ++it) {
-    curr = getVertex(it->first);
-
-    if (((*pPart)[it->second] == 0) && (curr->getPredecessorCount() == 0)) {
-      ready.push(it->second);
-      convPart[it->second] = 0;
-    }
-
-    if (((*pPart)[it->second] == 1) && (curr->getSuccessorCount() == 0)) {
-      ready.push(it->second);
-      convPart[it->second] = 1;
-    }
-
-    nbPred[it->second] = curr->getPredecessorCount();
-    nbSucc[it->second] = curr->getSuccessorCount();
-  }
-
-  int nbOk[2] = {0, 0};
-  while (!ready.empty()) {
-    int id = ready.front();
-    curr = getVertex(hyperGraph->backwardMap[id]);
-    ready.pop();
-
-    nbOk[(*pPart)[id]]++;
-    if ((*pPart)[id] == 0) {
-      for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-        int target = hyperGraph->forwardMap[curr->getSuccessor(i)->getId()];
-
-        if ((*pPart)[id] == (*pPart)[target]) {
-          nbPred[target]--;
-          if ((convPart[target] == 2) && (nbPred[target] == 0)) {
-            ready.push(target);
-            convPart[target] = (*pPart)[target];
-          }
-        }
-      }
-    } else {
-      for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
-        int target = hyperGraph->forwardMap[curr->getPredecessor(i)->getId()];
-
-        if ((*pPart)[id] == (*pPart)[target]) {
-          nbSucc[target]--;
-          if ((convPart[target] == 2) && (nbSucc[target] == 0)) {
-            ready.push(target);
-            convPart[target] = (*pPart)[target];
-          }
-        }
-      }
-    }
-  }
-
-  if ((nbOk[0] + nbOk[1]) < (int) idSet.size()) {
-    set<int> subIdSet;
-    set<int> targetSubIdSet;
-    vector<int> idMap;
-
-    IaP<PartitionNodeImpl> ptr = parent;
-    for (int i = 0, e = idSet.size(); i < e; i++) {
-      if (convPart[i] == 2) {
-        int id = hyperGraph->backwardMap[i];
-        part->representants[id] = ptr;
-        parent->id = id;
-        ptr = id;
-      }
-    }
-
-    subSetA.push(new Vertex::IdSet());
-    subSetB.push(new Vertex::IdSet());
-
-    convBisect(parent);
-
-    bool invert = false;
-    for (auto it = subSetA.top()->begin(), end = subSetA.top()->end();
-        it != end; ++it) {
+    for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+      int source = hyperGraph->forwardMap[*it];
       Vertex * curr = getVertex(*it);
 
+      predCount[source] = 0;
       for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
-        if (!subSetA.top()->count(curr->getPredecessor(i)->getId())) {
-          invert = true;
-          break;
-        }
+        if (idSet.count(curr->getPredecessor(i)->getId()))
+          predCount[source]++;
       }
 
-      if (invert)
-        break;
+      succCount[source] = 0;
+      for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+        if (idSet.count(curr->getSuccessor(i)->getId()))
+          succCount[source]++;
+      }
+
+      if (!succCount[source] && !predCount[source]) {
+        patohPart[source] = partId;
+        convPart[source] = partId;
+        partId = 1 - partId;
+        checkQueue.push(source);
+      } else if (!predCount[source]) {
+        patohPart[source] = 0;
+        convPart[source] = 0;
+        checkQueue.push(source);
+      } else if (!succCount[source]) {
+        patohPart[source] = 1;
+        convPart[source] = 1;
+        checkQueue.push(source);
+      } else {
+        patohPart[source] = -1;
+      }
     }
 
-    for (auto it = subSetA.top()->begin(), end = subSetA.top()->end();
-        it != end; ++it)
-      convPart[idMap[*it]] = invert ? 1 : 0;
+    // Perform the partioning with the prefixed vertex assignements
+    int cut;
+    int partitionWeights[2];
+    vector<int> weights;
 
-    for (auto it = subSetB.top()->begin(), end = subSetB.top()->end();
-        it != end; ++it)
-      convPart[idMap[*it]] = invert ? 0 : 1;
+    if (hyperGraph->cellCount > hyperGraph->netCount)
+      weights.resize(hyperGraph->cellCount, 1);
+    else
+      weights.resize(hyperGraph->netCount, 1);
 
-    delete subSetA.top();
-    delete subSetB.top();
+    PPaToH_Parameters pargs = new PaToH_Parameters;
+    PaToH_Initialize_Parameters(pargs, PATOH_CONPART, PATOH_SUGPARAM_DEFAULT);
+    pargs->_k = 2;
 
-    subSetA.pop();
-    subSetB.pop();
+    PaToH_Alloc(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1,
+        weights.data(), weights.data(), hyperGraph->xpins.data(),
+        hyperGraph->pins.data());
+    
+    PaToH_Part(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1, 1,
+        weights.data(), weights.data(), hyperGraph->xpins.data(),
+        hyperGraph->pins.data(), NULL, patohPart.data(), partitionWeights,
+        &cut);
+
+    PaToH_Free();
+
+    // Check for new safe vertices and update the patohPart vector accordingly
+    while (!checkQueue.empty()) {
+      int id = checkQueue.front();
+      checkQueue.pop();
+
+      // This vertex is safe so remove it from the partition set
+      idSet.erase(hyperGraph->backwardMap[id]);
+
+      Vertex * curr = getVertex(hyperGraph->backwardMap[id]);
+
+      if (convPart[id] == 0) {
+        for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+          int succ = curr->getSuccessor(i)->getId();
+          int target = hyperGraph->forwardMap[succ];
+
+          if (idSet.count(succ)) {
+            predCount[target]--;
+
+            if ((convPart[target] == 2) && (predCount[target] == 0)) {
+              patohPart[target] = 0;
+              convPart[target] = 0;
+              checkQueue.push(target);
+            }
+          }
+        }
+      } else if (convPart[id] == 1) {
+        for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+          int pred = curr->getPredecessor(i)->getId();
+          int target = hyperGraph->forwardMap[pred];
+
+          if (idSet.count(pred)) {
+            succCount[target]--;
+
+            if ((convPart[target] == 2) && (succCount[target] == 0)) {
+              patohPart[target] = 1;
+              convPart[target] = 1;
+              checkQueue.push(target);
+            }
+          }
+        }
+      } else {
+        exit(EXIT_FAILURE);
+      }
+
+    }
   }
 
   // Add the two new partitions to the partioning hierarchy
-  if (!subSetA.empty()) {
-    for (int i = 0, e = idSet.size(); i < e; i++) {
-      if (convPart[i] == 0)
-        subSetA.top()->insert(hyperGraph->backwardMap[i]);
+  int memberA = -1;
+  int memberB = -1;
+  PartitionNodeImpl * childA = new PartitionNodeImpl(parent);
+  PartitionNodeImpl * childB = new PartitionNodeImpl(parent);
+
+  ptr = parent->id;
+  do {
+    int idx = hyperGraph->forwardMap[ptr];
+    IaP<PartitionNodeImpl> newPtr = part->representants[ptr];
+
+    if (convPart[idx] == 0) {
+      if (memberA == -1)
+        part->representants[ptr] = childA;
       else
-        subSetB.top()->insert(hyperGraph->backwardMap[i]);
-    }
-  } else {
-    int memberA = -1;
-    int memberB = -1;
-    PartitionNodeImpl * childA = new PartitionNodeImpl(parent);
-    PartitionNodeImpl * childB = new PartitionNodeImpl(parent);
+        part->representants[ptr] = memberA;
 
-    for (int i = 0, e = idSet.size(); i < e; i++) {
-      int idx = hyperGraph->backwardMap[i];
+      memberA = ptr;
+    } else if (convPart[idx] == 1) { 
+      if (memberB == -1)
+        part->representants[ptr] = childB;
+      else
+        part->representants[ptr] = memberB;
 
-      if (convPart[i] == 0) {
-        if (memberA == -1)
-          part->representants[idx] = childA;
-        else
-          part->representants[idx] = memberA;
-
-        memberA = idx;
-      } else if (convPart[i] == 1) { 
-        if (memberB == -1)
-          part->representants[idx] = childB;
-        else
-          part->representants[idx] = memberB;
-
-        memberB = idx;
-      } else {
-        cerr << "ERROR: Found node not in partition after convex-bisection.\n";
-        exit(EXIT_FAILURE);
-      }
+      memberB = ptr;
+    } else {
+      cerr << "ERROR: Found node not in partition after convex bisection.\n";
+      exit(EXIT_FAILURE);
     }
 
-    childA->id = memberA;
-    childB->id = memberB;
-    parent->id = -1;
+    ptr = newPtr;
+  } while (ptr.isInteger());
 
-    if (part->representants[memberA].isInteger())
-      workQueue.push(childA);
-    else
-      resultProgressBar(++partCount);
+  childA->id = memberA;
+  childB->id = memberB;
+  parent->id = -1;
 
-    if (part->representants[memberB].isInteger())
-      workQueue.push(childB);
-    else
-      resultProgressBar(++partCount);
-  }
+  if (part->representants[memberA].isInteger())
+    workQueue.push(childA);
+  else
+    resultProgressBar(++partCount);
+
+  if (part->representants[memberB].isInteger())
+    workQueue.push(childB);
+  else
+    resultProgressBar(++partCount);
 }
 
 

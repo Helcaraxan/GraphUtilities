@@ -27,8 +27,10 @@ using namespace std;
 // Hypergraph structure for interfacing with the PaToH library
 
 typedef struct {
-  int nvtxs, nhedges;
-  int *eptr, *eind;
+  int cellCount = 0;
+  int netCount = 0;
+  vector<int> xpins;
+  vector<int> pins;
   map<int, int> forwardMap;
   vector<int> backwardMap;
 } HGraph;
