@@ -114,7 +114,7 @@ public:
    *
    * \return Graph representing a coarsened version of the graph on which the
    * query was performed. If the query was not yet processed or an error occured
-   * the returned value is NULL.
+   * the returned value is \b nullptr.
    *
    * \sa Graph::pushQuery() and Graph::pullQuery()
    */
@@ -227,8 +227,8 @@ public:
    * Retrieve a pointer to the Partition instance that was computed for this
    * query.
    *
-   * \return Pointer to the obtained Partition. NULL if the query was not yet
-   * processed.
+   * \return Pointer to the obtained Partition. \b nullptr if the query was not
+   * yet processed.
    */
   virtual const Partition * getPartition(void) const = 0;
 

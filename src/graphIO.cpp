@@ -146,7 +146,7 @@ GraphImpl::printToFile(const char * fileName, bool withWeights) {
   printStream << "graph_for_greach\n" << getVertexCount();
   for (auto nodeIt = vertices.begin(), end = vertices.end();
       nodeIt != end; ++nodeIt) {
-    if (*nodeIt == NULL)
+    if (*nodeIt == nullptr)
       continue;
 
     printStream << "\n" << (*nodeIt)->getId() << ":";

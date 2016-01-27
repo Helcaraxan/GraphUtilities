@@ -69,8 +69,8 @@ GraphImpl *
 GraphImpl::coarsenGreedy(CoarsenQueryImpl * query) {
   int progressCount = 0;
   string barTitle = "Greedy coarsening ";
-  VertexImpl * curr = NULL;
-  VertexImpl * newVertex = NULL;
+  VertexImpl * curr = nullptr;
+  VertexImpl * newVertex = nullptr;
   GraphImpl * coarseGraph = new GraphImpl();
   map<VertexImpl *, int> localMapping;
   VertexImpl::Set readySet;

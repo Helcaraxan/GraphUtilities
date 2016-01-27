@@ -25,7 +25,7 @@ private:
   int secondaryFactor = 1;
   CoarsenMethod method = Greedy;
   map<int, int> vertexMap;
-  GraphImpl * coarsenedGraph = NULL;
+  GraphImpl * coarsenedGraph = nullptr;
 
 
 // Function members
@@ -58,7 +58,7 @@ class PartitionQueryImpl : public PartitionQuery {
 // Data members
 private:
   bool error = false;
-  PartitionImpl * partition = NULL;
+  PartitionImpl * partition = nullptr;
   PartitionMethod method = Convexify;
 
 
@@ -94,9 +94,9 @@ public:
 
 // Data members
 private:
-  VertexImpl * source = NULL;
-  VertexImpl * target = NULL;
-  InternalQueue * internal = NULL;
+  VertexImpl * source = nullptr;
+  VertexImpl * target = nullptr;
+  InternalQueue * internal = nullptr;
   atomic<bool> answer{false};
   atomic<bool> error{false};
   atomic<bool> cancel{false};

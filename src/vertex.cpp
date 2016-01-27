@@ -21,7 +21,7 @@ UserData<UserDataImpl>::clone() const {
 
 void
 VertexImpl::setUserData(UserDataInterface * newData) {
-  if (userData != NULL)
+  if (userData != nullptr)
     delete userData;
 
   userData = newData;
@@ -82,7 +82,7 @@ void
 VertexImpl::resetDFS() {
   inVisits = 0;
   outVisits = 0;
-  firstVisit = NULL;
+  firstVisit = nullptr;
 }
 
 /* Compute the next Vertex to be visited in a DFS traversal of the graph
@@ -96,7 +96,7 @@ VertexImpl::getNextDFS(VertexImpl * origin, Graph::TraversalOrder order,
     Graph::TraversalDirection direction) {
   int visitLimit = 0;
   bool isTarget = false;
-  VertexImpl * target = NULL;
+  VertexImpl * target = nullptr;
 
   if (inVisits == 0) {
     if (direction == Graph::TraversalDirection::Forward)
@@ -105,7 +105,7 @@ VertexImpl::getNextDFS(VertexImpl * origin, Graph::TraversalOrder order,
       visitLimit = predecessorCount;
 
     // This is part of the first visit to this Vertex
-    if (firstVisit == NULL) {
+    if (firstVisit == nullptr) {
       // Register the origin as the source of the DFS traversal
       if (origin == this) {
         firstVisit = (VertexImpl *) 0x1;
@@ -135,7 +135,7 @@ VertexImpl::getNextDFS(VertexImpl * origin, Graph::TraversalOrder order,
           resetDFS();
 
           isTarget = true;
-          target = NULL;
+          target = nullptr;
         } else {
           inVisits = 1;
 

@@ -92,7 +92,7 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
   int i, a, b, res;
   string garbage;
   fstream testStream;
-  ReachabilityQuery * query = NULL;
+  ReachabilityQuery * query = nullptr;
   tbb::concurrent_hash_map<Query *, bool>::accessor queryAccess;
 
   if (queryNumber == 0)
@@ -112,7 +112,7 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
 
     testStream.clear();
     testStream.seekg(0, testStream.beg);
-    configureProgressBar(NULL, queryNumber);
+    configureProgressBar(nullptr, queryNumber);
 
     // Parse the actual queries
     while (testStream.good()) {
@@ -169,8 +169,8 @@ resultAnalysis(Graph * graph, const char * queryFile) {
   int resultCounter = 0;
   string barTitle = "Parsing results ";
   fstream queryStream;
-  Query * query = NULL;
-  ReachabilityQuery * rQuery = NULL;
+  Query * query = nullptr;
+  ReachabilityQuery * rQuery = nullptr;
   tbb::concurrent_hash_map<Query *, bool>::const_accessor queryAccess;
 
   if (queryNumber == 0)
@@ -227,7 +227,7 @@ resultAnalysis(Graph * graph, const char * queryFile) {
 int
 main(int argc, char * argv[]) {
   string inputFile, outputFile, coarseFile, testFile, dumpFile, queryFile;
-	Graph * graph = NULL;
+	Graph * graph = nullptr;
   CoarsenMethod coarsenMethod = Greedy;
   IndexMethod indexMethod = Standard;
   SearchMethod searchMethod = UndefinedSearchMethod;
@@ -237,7 +237,7 @@ main(int argc, char * argv[]) {
 
   // Parse command-line options
   while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts,
-          NULL)) != -1) {
+          nullptr)) != -1) {
     switch (c) {
       case 'i':
         inputFile = optarg;
@@ -369,7 +369,7 @@ main(int argc, char * argv[]) {
   // When necessary create a coarsened graph and dump it
   if (coarsenFactor > 1) {
     map<int, int> vertexMap;
-    Query * query = NULL;
+    Query * query = nullptr;
     CoarsenQuery * cQuery = createCQuery();
     cQuery->setFactor(coarsenFactor);
     cQuery->setSecondaryFactor(coarsenSecondaryFactor);

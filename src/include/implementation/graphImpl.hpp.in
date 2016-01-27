@@ -125,7 +125,7 @@ public:
     disableQueries();
 
     for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it)
-      if (*it != NULL)
+      if (*it != nullptr)
         delete *it;
   }
 
@@ -151,7 +151,7 @@ public:
   Vertex * mergeVertices(const Vertex::Set &vertexSet);
   bool isCondensed(void) const;
   bool isDAG(void);
-  void condenseToDAG(const char * correspondanceFile = NULL);
+  void condenseToDAG(const char * correspondanceFile = nullptr);
   const Vertex::PartitionArray& getSCCs(void);
 
   // Query management
@@ -232,7 +232,7 @@ public:
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
   void computePartitionNodeCosts(PartitionNodeImpl * node,
-    Vertex::IdSet * group = NULL) const;
+    Vertex::IdSet * group = nullptr) const;
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
   void convBisect(PartitionNodeImpl * parent);
   void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,

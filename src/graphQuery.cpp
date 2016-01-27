@@ -125,7 +125,7 @@ GraphImpl::pushQuery(Query * query) {
 
 Query *
 GraphImpl::pullQuery(bool block) {
-  Query * result = NULL;
+  Query * result = nullptr;
 
   if (block)
     while (!resultQueue.try_pop(result)) { if (threadShutdown) break; }
@@ -150,7 +150,7 @@ GraphImpl::disableQueries() {
   threadShutdown = true;
 
   for (int i = 0; i < threadCount; i++)
-    jobQueue.push(NULL);
+    jobQueue.push(nullptr);
 
   while (!queryThreads.empty()) {
     queryThreads.back()->join();

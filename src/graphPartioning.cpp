@@ -15,7 +15,7 @@ static vector<int> sizes;
 static vector<int> sourceMax;
 static vector<int> sinkMax;
 static queue<PartitionNodeImpl *> workQueue;
-static PartitionImpl * part = NULL;
+static PartitionImpl * part = nullptr;
 
 
 // File local functions
@@ -328,7 +328,7 @@ GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
 
 void
 GraphImpl::convBisect(PartitionNodeImpl * parent) {
-  HGraph * hyperGraph = NULL;
+  HGraph * hyperGraph = nullptr;
   Vertex::IdSet idSet;
   vector<int> convPart;
   vector<int> patohPart;
@@ -410,7 +410,7 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
     
     PaToH_Part(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1, 1,
         weights.data(), weights.data(), hyperGraph->xpins.data(),
-        hyperGraph->pins.data(), NULL, patohPart.data(), partitionWeights,
+        hyperGraph->pins.data(), nullptr, patohPart.data(), partitionWeights,
         &cut);
 
     PaToH_Free();
@@ -767,7 +767,7 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
   cout << "\n";
 
   query->setPartition(part);
-  part = NULL;
+  part = nullptr;
 }
 
 
@@ -815,5 +815,5 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
 
   // Associate the new partition with the query that requested it
   query->setPartition(part);
-  part = NULL;
+  part = nullptr;
 }

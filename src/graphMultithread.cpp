@@ -81,10 +81,10 @@ GraphImpl::stopGlobalOperation() {
 
 void
 queryWorker(GraphImpl * graph, int threadId) {
-  Query * query = NULL;
-  CoarsenQueryImpl * cQuery = NULL;
-  PartitionQueryImpl * pQuery = NULL;
-  ReachabilityQueryImpl * rQuery = NULL;
+  Query * query = nullptr;
+  CoarsenQueryImpl * cQuery = nullptr;
+  PartitionQueryImpl * pQuery = nullptr;
+  ReachabilityQueryImpl * rQuery = nullptr;
 
   while (true) {
     while (!graph->jobQueue.try_pop(query)) {}

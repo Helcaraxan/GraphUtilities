@@ -71,7 +71,7 @@ GraphImpl::processReachabilityQuery(ReachabilityQueryImpl * query,
       break;
   }
 
-  if (query->getInternal() == NULL) {
+  if (query->getInternal() == nullptr) {
 #if defined(ENABLE_STATISTICS)
     registerQueryStatistics(query);
 #endif // ENABLE_STATISTICS
@@ -99,7 +99,7 @@ GraphImpl::areConnectedDFS(ReachabilityQueryImpl * query, int threadId) {
   unique_lock<mutex> counterLock(counterMutex, defer_lock);
   cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() != NULL)
+  if (query->getInternal() != nullptr)
     cycleCount = getClock();
 #endif // ENABLE_BENCHMARKS
 
@@ -189,9 +189,9 @@ end:
   cyclesSpentQuerying += cycleCount;
   counterLock.unlock();
 
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
     cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
@@ -215,9 +215,9 @@ cancel:
 #if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
 
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
     cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
@@ -255,7 +255,7 @@ GraphImpl::areConnectedBBFS(ReachabilityQueryImpl * query, int threadId) {
   unique_lock<mutex> counterLock(counterMutex, defer_lock);
   cycleCount = getClock();
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() == NULL)
+  if (query->getInternal() == nullptr)
     cycleCount = getClock();
 #endif // ENABLE_BENCHMARKS
 
@@ -389,9 +389,9 @@ end:
   counterLock.unlock();
 
   // Set the query time
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
     cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 
@@ -414,9 +414,9 @@ end:
 cancel:
 #if defined(ENABLE_BENCHMARKS)
   cycleCount = getClock() - cycleCount;
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
 #else // ENABLE_BENCHMARKS
-  if (query->getInternal() != NULL) {
+  if (query->getInternal() != nullptr) {
     cycleCount = getClock() - cycleCount;
 #endif // ENABLE_BENCHMARKS
 

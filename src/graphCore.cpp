@@ -15,7 +15,7 @@ static map<int, int> remappedVertices;
 
 Vertex *
 GraphImpl::addVertex(int weight) {
-  Vertex * newVertex = NULL;
+  Vertex * newVertex = nullptr;
 
   startGlobalOperation();
 
@@ -55,7 +55,7 @@ GraphImpl::removeVertex(Vertex * vertex) {
 
   vertexCount--;
 
-  vertices[vertex->getId()] = NULL;
+  vertices[vertex->getId()] = nullptr;
   delete vertex;
 }
 
@@ -64,7 +64,7 @@ Vertex *
 GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
   VertexImpl * target;
   VertexImpl::Set internalSet;
-  UserDataInterface * mergedData = NULL;
+  UserDataInterface * mergedData = nullptr;
   startGlobalOperation();
 
   int targetWeight = 0;
@@ -72,7 +72,7 @@ GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
   map<VertexImpl *, int> succWeightMap;
 
   if (vertexSet.size() == 0)
-    return NULL;
+    return nullptr;
   else if (vertexSet.size() == 1)
     return *vertexSet.begin();
 
@@ -114,8 +114,8 @@ GraphImpl::mergeVertices(const Vertex::Set &vertexSet) {
     else
       remappedVertices[(*setIt)->getId()] = target->getId();
 
-    if ((*setIt)->getUserData() != NULL) {
-      if (mergedData == NULL)
+    if ((*setIt)->getUserData() != nullptr) {
+      if (mergedData == nullptr)
         mergedData = (*setIt)->getUserData()->clone();
       else
         mergedData->merge((*setIt)->getUserData());
@@ -260,8 +260,8 @@ GraphImpl::verifyVertexIds() const {
   int count = getVertexCount();
 
   for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if (*it == NULL) {
-      cerr << "Vertex slot n°" << i << " was NULL\n";
+    if (*it == nullptr) {
+      cerr << "Vertex slot n°" << i << " does not exist anymore\n";
     } else if ((*it)->getId() > count) {
       cerr << "Vertex slot n°" << i << " has an abnormal ID ("
         << (*it)->getId() << ")\n";

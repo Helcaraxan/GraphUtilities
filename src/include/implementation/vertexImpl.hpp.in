@@ -41,13 +41,13 @@ private:
   // Indexing
   int inVisits = 0;
   int outVisits = 0;
-  VertexImpl * firstVisit = NULL;
+  VertexImpl * firstVisit = nullptr;
 
   // Reachability data
   int orderLabel = -1;
   int revOrderLabel = -1;
 #if !defined(ENABLE_TLS)
-  uint64_t * DFSId = NULL;
+  uint64_t * DFSId = nullptr;
 #endif // ENABLE_TLS
 
   // Partioning data
@@ -62,17 +62,17 @@ private:
   vector<int> successorWeights;
 
   // User data
-  UserDataInterface * userData = NULL;
+  UserDataInterface * userData = nullptr;
 
 
 // Function members
 public:
   // Constructor and destructor
-  VertexImpl(int i, int w = 1, UserDataInterface * d = NULL) :
+  VertexImpl(int i, int w = 1, UserDataInterface * d = nullptr) :
     id(i),
     weight(w)
   {
-    if (d != NULL)
+    if (d != nullptr)
       userData = d;
 
 #if !defined(ENABLE_TLS)
@@ -81,7 +81,7 @@ public:
   }
 
   ~VertexImpl(void) {
-    if (userData != NULL)
+    if (userData != nullptr)
       delete userData;
 
 #if !defined(ENABLE_TLS)
@@ -200,7 +200,7 @@ public:
   
   operator T *() {
     if (((intptr_t) content) & 0x1)
-      return NULL;
+      return nullptr;
     else
       return content;
   }

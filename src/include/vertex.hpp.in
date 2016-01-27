@@ -437,7 +437,7 @@ public:
    * Retrieve the currently associated user-data set for this node.
    *
    * \return Pointer to the user-data set associated with this node. Possibly
-   * NULL if no data-set was previously specified.
+   * \b nullptr if no data-set was previously specified.
    *
    * \sa setUserData()
    */

@@ -95,7 +95,7 @@ checkDAG(GraphImpl * graph, bool condense, const char * correspondanceFile) {
 
   // When a filename is provided prepare the stream to dump the correspondance
   // between original and merged nodes
-  if (condense && (correspondanceFile != NULL))
+  if (condense && (correspondanceFile != nullptr))
     outStream.open(correspondanceFile, ios_base::out);
 
   // Merge the SCCs that have more than one vertex and dump if necessary
@@ -104,18 +104,18 @@ checkDAG(GraphImpl * graph, bool condense, const char * correspondanceFile) {
       if (condense) {
         Vertex::Set mergeSet;
 
-        if (correspondanceFile != NULL)
+        if (correspondanceFile != nullptr)
           outStream << graph->getVertexCount() << ":";
 
         for (auto setIt = (*it)->begin(), setEnd = (*it)->end();
             setIt != setEnd; ++setIt) {
           mergeSet.insert(graph->getVertex(*setIt));
 
-          if (correspondanceFile != NULL)
+          if (correspondanceFile != nullptr)
             outStream << " " << *setIt;
         }
 
-        if (correspondanceFile != NULL)
+        if (correspondanceFile != nullptr)
           outStream << "\n";
 
         result = false;
@@ -127,7 +127,7 @@ checkDAG(GraphImpl * graph, bool condense, const char * correspondanceFile) {
     }
   }
 
-  if (condense && (correspondanceFile != NULL))
+  if (condense && (correspondanceFile != nullptr))
     outStream.close();
 
   return result;
@@ -162,7 +162,7 @@ GraphImpl::getSCCsI() {
 
 bool
 GraphImpl::isDAG() {
-  return checkDAG(this, false, NULL);
+  return checkDAG(this, false, nullptr);
 }
 
 

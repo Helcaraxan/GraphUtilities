@@ -25,12 +25,12 @@ GraphImpl::getNextDFS(TraversalOrder order, TraversalDirection direction) {
   // Static variables for statefull processing
   static Graph::TraversalOrder orderMemory = PostOrder;
   static Graph::TraversalDirection directionMemory = Forward;
-  static VertexImpl * currentVertex = NULL;
+  static VertexImpl * currentVertex = nullptr;
   static VertexImpl::iterator originIt = sources.begin();
 
   // Local temporary variables
-  VertexImpl * lastVertex = NULL;
-  pair<bool, VertexImpl *> next(false, NULL);
+  VertexImpl * lastVertex = nullptr;
+  pair<bool, VertexImpl *> next(false, nullptr);
 
   // When necessary reset the state
   if ((order != NAOrder) || (direction != NADirection)) {
@@ -55,18 +55,18 @@ GraphImpl::getNextDFS(TraversalOrder order, TraversalDirection direction) {
   while (true) {
     // When at the end reinitialize the static variables and signal the end
     if (directionMemory == Forward) {
-      if ((originIt == sources.end()) && (currentVertex == NULL)) {
+      if ((originIt == sources.end()) && (currentVertex == nullptr)) {
         discoverExtremities();
 
         originIt = sources.begin();
-        return NULL;
+        return nullptr;
       }
     } else if (directionMemory == Backward) {
-      if ((originIt == sinks.end()) && (currentVertex == NULL)) {
+      if ((originIt == sinks.end()) && (currentVertex == nullptr)) {
         discoverExtremities();
 
         originIt = sinks.begin();
-        return NULL;
+        return nullptr;
       }
     }
 
@@ -105,8 +105,8 @@ void
 GraphImpl::labelVertices(TraversalDirection direction) {
   int traversalMethod = 0;
   int currLabel = 0;
-  VertexImpl * nextVertex = NULL;
-  VertexImpl::Array * order = NULL;
+  VertexImpl * nextVertex = nullptr;
+  VertexImpl::Array * order = nullptr;
   
   switch(direction) {
     case Forward: order = &successorQueue; break;
@@ -243,7 +243,7 @@ GraphImpl::discoverExtremities() {
   sinks.clear();
 
   for (auto it = vertices.begin(), end = vertices.end(); it != end; ++it) {
-    if (*it == NULL)
+    if (*it == nullptr)
       continue;
 
     if ((*it)->getPredecessorCount() == 0)

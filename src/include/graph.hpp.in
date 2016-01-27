@@ -232,10 +232,10 @@ public:
    * \param direction Used to specify a new direction to start a new DFS
    * traversal.
    *
-   * \return Pointer to the next Vertex in the current DFS traversal. If \b NULL
-   * is returned then all nodes have been passed through and a new call to this
-   * method will restart a DFS traversal with the same order and direction as
-   * the last one.
+   * \return Pointer to the next Vertex in the current DFS traversal. If \b
+   * nullptr is returned then all nodes have been passed through and a new call
+   * to this method will restart a DFS traversal with the same order and
+   * direction as the last one.
    *
    * \sa TraversalOrder and TraversalDirection
    */
@@ -305,7 +305,7 @@ public:
    *
    * \sa isDAG(), isCondensed() and mergeVertices()
    */
-  virtual void condenseToDAG(const char * correspondanceFile = NULL) = 0;
+  virtual void condenseToDAG(const char * correspondanceFile = nullptr) = 0;
 
   /*!
    * \brief Retrieve the SCCs of the graph
@@ -375,13 +375,13 @@ public:
    * Looks for a query for which processing was finished in a blocking or
    * non-blocking fashion. When used in blocking fashion and no queries are done
    * in combination with another thread having called the disableQueries()
-   * method a NULL value is returned to forgo deadlock.
+   * method a \b nullptr value is returned to forgo deadlock.
    *
    * \param block Boolean indicating if the pull should be done in a blocking
    * fashion.
    *
    * \return Pointer to a Query for which processing was finished. Returns \b
-   * NULL if no finished query was available in non-blocking mode.
+   * nullptr if no finished query was available in non-blocking mode.
    *
    * \sa pushQuery()
    */
