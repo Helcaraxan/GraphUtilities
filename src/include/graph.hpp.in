@@ -451,24 +451,52 @@ public:
   ///////////////////////////////
   // Partition-related methods //
   ///////////////////////////////
+  
+  /*!
+   * \brief Generate a hierarchical partition of the Graph from a schedule.
+   *
+   * A schedule of the vertices of a Graph can be translated into a hierarchical
+   * convex partition. This function computes this partition. It can be used for
+   * example to evaluate the IO-cost of a schedule in combination with
+   * getPartitionCost().
+   *
+   * \param schedule The schedule for which to compute a hierarchical convex
+   * partition.
+   *
+   * \return A pointer to the const-qualified Partition instance representing
+   * the result.
+   */
+  virtual const Partition * computeConvexPartition(vector<int>& schedule)
+    const = 0;
 
   /*!
-   * \brief Compute the IO-cost of the specified scheduling and memory-size.
+   * \brief Verify the validity of a schedule with respect to dependencies.
    *
-   * Uses the given scheduling of nodes of the graph to compute the IO-cost with
-   * respect to the given target memory-size. The specified scheduling is
-   * checked for it's validity (i.e it contains all nodes of the graph exactly
-   * one time and all graph edges are forward).
+   * Analyzes the given schedule for any illegal backward dependencies. Also
+   * verifies that each vertex occurs once and only once in the schedule.
    *
-   * \param scheduling Vector with the id's of the graph's vertices in their
-   * scheduling.
+   * \param schedule Vector with the IDs of the graph's vertices in the order of
+   * the schedule.
+   *
+   * \return Boolean indicating the validity of the schedule.
+   */
+  virtual bool checkSchedule(vector<int>& schedule) const = 0;
+
+  /*!
+   * \brief Compute the IO-cost of the specified partition and memory-size.
+   *
+   * Uses the given hierarchical partition of the graph to compute the IO-cost
+   * with respect to the given target memory-size.
+   *
+   * \param partition Pointer to the Partition instance for which to evaluate
+   * the IO-cost.
    * \param memorySize Size of the memory-size for which we want to evaluate the
    * IO-cost.
    *
-   * \return The IO-cost of the scheduling for the specified memory-size.
+   * \return The IO-cost of the partition for the specified memory-size.
    */
-  virtual int getSchedulingCost(vector<int>& scheduling,
-      int memorySize) const = 0;
+  virtual int getPartitionCost(const Partition * partition, int memorySize)
+    const = 0;
 
   ////////////////
   // Statistics //

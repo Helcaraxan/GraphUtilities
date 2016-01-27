@@ -648,7 +648,7 @@ public:
   virtual const PartitionNode * getLeaf(int idx) const = 0;
 
   /*!
-   * \brief Retrieve the smallest common PartitionNode of two vertices
+   * \brief Retrieve the smallest common PartitionNode of two vertices.
    *
    * Retrieve a pointer to the PartitionNode instance that is the first common
    * parent in the Partition tree for the two specified Vertex IDs.
@@ -659,6 +659,16 @@ public:
    * \return Pointer to the first common PartitionNode instance.
    */
   virtual const PartitionNode * getSubTree(int idA, int idB) const = 0;
+
+  /*!
+   * \brief Extract the induced scheduling from this Partition.
+   *
+   * Fill the provided vector with the IDs of the vertices in this Partition
+   * instance in the order implied by the hierarchical partition scheme.
+   *
+   * \param schedule Vector that will be cleared and filled with the schedule.
+   */
+  virtual void extractSchedule(vector<int>& schedule) const = 0;
 };
 
 #endif // GRAPH_UTILITIES_VERTEX

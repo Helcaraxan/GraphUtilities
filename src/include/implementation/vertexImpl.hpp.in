@@ -217,7 +217,8 @@ class PartitionNodeImpl : public PartitionNode {
 // Data members
 public:
   int id = -1;
-  int maxLive = 0;
+  int ioCost = -1;
+  int maxLive = -1;
   PartitionNodeImpl * parent = nullptr;
   vector<PartitionNodeImpl *> children;
 
@@ -274,6 +275,7 @@ public:
   const PartitionNode * getRoot(void) const;
   const PartitionNode * getLeaf(int idx) const;
   const PartitionNode * getSubTree(int idA, int idB) const;
+  void extractSchedule(vector<int>& schedule) const;
 };
 
 #endif // VERTEX_IMPL_HPP

@@ -20,90 +20,6 @@ static PartitionImpl * part = NULL;
 
 // File local functions
 
-void
-computeHierarchicalPartition(const GraphImpl * graph, vector<int>& scheduling,
-    int start = -1, int end = -1) {
-  if (part == NULL) {
-    start = 0;
-    end = scheduling.size() - 1;
-
-    part = new PartitionImpl(scheduling.size());
-    part->root->id = 0;
-    for (int i = 0, e = scheduling.size(); i < e; i++)
-      part->representants[i] = i + 1;
-
-    part->representants[end] = part->root;
-  }
-
-  IaP<PartitionNodeImpl> ptr = part->representants[start];
-  while (ptr.isInteger())
-    ptr = part->representants[ptr];
-
-  PartitionNodeImpl * parent = ptr;
-  if (start == end) {
-    PartitionNodeImpl * node = new PartitionNodeImpl(parent);
-
-    node->id = start;
-    node->maxLive = 0;
-    part->representants[start] = node;
-    parent->id = -1;
-  } else {
-    int IOcost = 0;
-    int intermediatePos = (start + end) / 2 + (start + end) % 2;
-    set<int> targetSet(scheduling.begin() + intermediatePos,
-        scheduling.begin() + end);
-    PartitionNodeImpl * first = new PartitionNodeImpl(parent);
-    PartitionNodeImpl * second = new PartitionNodeImpl(parent);
-
-    parent->id = -1;
-
-    part->representants[start] = first;
-    part->representants[intermediatePos] = second;
-
-    computeHierarchicalPartition(graph, scheduling, start, intermediatePos - 1);
-    computeHierarchicalPartition(graph, scheduling, intermediatePos, end);
-
-    // Compute the IO size between the two children
-    for (int i = start; i < intermediatePos; i++) {
-      Vertex * curr = graph->getVertex(scheduling[i]);
-
-      for (int j = 0, e = curr->getSuccessorCount(); j < e; j++) {
-        if (targetSet.count(curr->getSuccessor(j)->getId()))
-          IOcost += curr->getSuccessorWeight(j);
-      }
-    }
-
-    // Compute the maxLive of this partition level as :
-    // maxLive = max(maxLive(first), maxLive(second), IO(first, second))
-    parent->maxLive = first->maxLive;
-    if (second->maxLive > parent->maxLive)
-      parent->maxLive = second->maxLive;
-
-    if (IOcost > parent->maxLive)
-      parent->maxLive = IOcost;
-  }
-}
-
-
-static int
-assignTiles(PartitionNodeImpl * node, int memorySize, vector<int>& scheduling,
-    map<int, int>& tileMap, int tileId = 0) {
-  if (node->id != -1) {
-    tileMap[scheduling[node->id]] = tileId;
-  } else {
-    for (auto it = node->children.begin(), end = node->children.end();
-        it != end; ++it) {
-      tileId = assignTiles(*it, memorySize, scheduling, tileMap, tileId);
-
-      if ((*it)->maxLive > memorySize)
-        tileId++;
-    }
-  }
-
-  return tileId;
-}
-
-
 static int
 findUnion(int id) {
   while (id != unions[id])
@@ -133,30 +49,140 @@ mergeUnion(int i, int j) {
 
 // Partitioning queries
 
-int
-GraphImpl::getSchedulingCost(vector<int>& scheduling, int memorySize) const {
-  int cost = 0;
-  map<int, int> tileMap;
+const Partition *
+GraphImpl::computeConvexPartition(vector<int>& schedule) const {
+  queue<PartitionNodeImpl *> workQueue;
+  PartitionImpl * partition = new PartitionImpl(schedule.size());
 
-  // First check the validity of the scheduling
-  if (!checkSchedulingValidity(scheduling))
-    return 0;
+  // Check the provided schedule's validity
+  if (!checkSchedule(schedule)) {
+    cerr << "Given schedule is invalid. Can not compute convex partition."
+      << endl;
+    exit(EXIT_FAILURE);
+  }
+  
+  // Set up the partition structure
+  partition->root->id = schedule.back();
+  partition->representants[schedule.front()] = partition->root;
+  for (int i = 1, e = schedule.size(); i < e; i++)
+    partition->representants[schedule[i]] = schedule[i - 1];
 
-  // Construct the default hierarchical partition of the scheduling.
-  computeHierarchicalPartition(this, scheduling);
+  // Iteratively split partitions in two
+  workQueue.push(partition->root);
+  while (!workQueue.empty()) {
+    int memberCount = 0;
+    PartitionNodeImpl * child = nullptr;
+    PartitionNodeImpl * curr = workQueue.front();
+    workQueue.pop();
 
-  // Obtain a tile assignement for the specified memory-size
-  assignTiles(part->root, memorySize, scheduling, tileMap);
+    // Count number of vertices in the current partition
+    IaP<PartitionNodeImpl> id = curr->id;
+    do {
+      memberCount++;
+      id = partition->representants[id];
+    } while (id.isInteger());
+    
+    // Create the first child partition
+    child = new PartitionNodeImpl(curr);
 
-  // Compute the IO cost for each tile
-  for (auto it = tileMap.begin(), end = tileMap.end(); it != end; ++it) {
-    set<int> targetSet;
-    Vertex * curr = getVertex(it->first);
+    child->id = curr->id;
+    id = curr->id;
+    for (int i = 1, e = memberCount / 2; i < e; i++)
+      id = partition->representants[id];
 
-    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-      if (tileMap[curr->getSuccessor(i)->getId()] != it->second)
-        cost += curr->getSuccessorWeight(i);
+    IaP<PartitionNodeImpl> nextStart = partition->representants[id];
+
+    partition->representants[id] = child;
+    curr->children.push_back(child);
+
+    if ((memberCount / 2) > 1)
+      workQueue.push(child);
+    
+    // Create the second child partition
+    child = new PartitionNodeImpl(curr);
+
+    child->id = nextStart;
+    id = nextStart;
+    while (id.isInteger())
+      id = partition->representants[id];
+
+    partition->representants[id] = child;
+    curr->children.push_back(child);
+
+    if ((memberCount / 2 + memberCount % 2) > 1)
+      workQueue.push(child);
+
+    curr->id = -1;
+  }
+
+  return partition;
+}
+
+
+bool
+GraphImpl::checkSchedule(vector<int>& schedule) const {
+  set<int> idSet;
+
+  if (schedule.size() != getVertexCount()) {
+    cerr << "WARNING: The supplied schedule is not valid. It does not contain "
+      << "the same number of vertices as the graph.\n";
+    return false;
+  }
+
+  for (int i = 0, e = schedule.size(); i < e; i++) {
+    Vertex * curr = getVertex(schedule[i]);
+
+    if (!curr) {
+      cerr << "WARNING: The supplied schedule contains an ID that does not "
+        << "correspond to an existing vertex.\n";
+      return false;
     }
+
+    if (idSet.count(schedule[i])) {
+      cerr << "WARNING: The supplied schedule contains two times the same ID ("
+        << schedule[i] << ").\n";
+      return false;
+    }
+
+    for (auto j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
+      if (idSet.count(curr->getSuccessor(j)->getId())) {
+        cerr << "WARNING: The supplied schedule is illegal. ID ("
+          << curr->getSuccessor(j)->getId() << ") should be scheduled after ID "
+          << "(" << schedule[i] << ").\n";
+        return false;
+      }
+    }
+
+    idSet.insert(schedule[i]);
+  }
+
+  return true;
+}
+
+
+int
+GraphImpl::getPartitionCost(const Partition * partition, int memorySize) const {
+  int cost = 0;
+  queue<PartitionNodeImpl *> workQueue;
+  PartitionNodeImpl * curr =
+    dynamic_cast<const PartitionImpl *>(partition)->root;
+
+  // Compute the max-live and IO-costs for all nodes
+  computePartitionNodeCosts(curr);
+
+  workQueue.push(curr);
+
+  while (!workQueue.empty()) {
+    curr = workQueue.front();
+    workQueue.pop();
+
+    if (curr->maxLive <= memorySize)
+      continue;
+
+    cost += curr->ioCost;
+
+    for (int i = 0, e = curr->children.size(); i < e; i++)
+      workQueue.push(curr->children[i]);
   }
 
   return cost;
@@ -164,6 +190,75 @@ GraphImpl::getSchedulingCost(vector<int>& scheduling, int memorySize) const {
 
 
 // Internal partitioning query functions
+
+void
+GraphImpl::computePartitionNodeCosts(PartitionNodeImpl * node,
+    Vertex::IdSet * group) const {
+  vector<Vertex::IdSet *> childSets;
+
+  // In the case of a leaf node just instantiate the right values
+  if (node->id != -1) {
+    node->maxLive = 1;
+    node->ioCost = 0;
+
+    if (group)
+      group->insert(node->id);
+
+    return;
+  }
+
+  // Recursively compute the values for the child nodes
+  for (int i = 0, e = node->children.size(); i < e; i++) {
+    childSets.push_back(new Vertex::IdSet());
+    computePartitionNodeCosts(node->children[i], childSets.back());
+  }
+
+  // Evaluate communications between the child nodes
+  for (int i = 0, e = node->children.size(); i < e; i++) {
+    if (node->maxLive < node->children[i]->maxLive)
+      node->maxLive = node->children[i]->maxLive;
+    
+    // Account for communications to each other child node seperatly
+    vector<int> ioCosts(e - i - 1, 0);
+    for (auto it = childSets[i]->begin(), end = childSets[i]->end();
+        it != end; ++it) {
+      Vertex * curr = getVertex(*it);
+
+      vector<int> localCosts(e - i - 1, 0);
+      for (int j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
+        int target = curr->getSuccessor(j)->getId();
+
+        for (int k = i + 1; k < e; k++) {
+          if (childSets[k]->count(target)) {
+            localCosts[k - i - 1] = 1;
+            break;
+          }
+        }
+      }
+
+      for (int j = 0; j < e - i - 1; j++)
+        ioCosts[j] += localCosts[j];
+    }
+
+    // Update the node's values
+    for (int j = 0; j < e - i - 1; j++) {
+      node->ioCost += ioCosts[j];
+
+      if (node->maxLive < ioCosts[j])
+        node->maxLive = ioCosts[j];
+    }
+  }
+
+  // Except for the root node call gather the IDs of the vertices member of the
+  // current node's partition
+  if (group) {
+    for (int i = 0, e = childSets.size(); i < e; i++) {
+      group->insert(childSets[i]->begin(), childSets[i]->end());
+      delete childSets[i];
+    }
+  }
+}
+
 
 void
 #if defined(ENABLE_TLS)
@@ -669,6 +764,8 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
     convBisect(parent);
   }
 
+  cout << "\n";
+
   query->setPartition(part);
   part = NULL;
 }
@@ -719,45 +816,4 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
   // Associate the new partition with the query that requested it
   query->setPartition(part);
   part = NULL;
-}
-
-bool
-GraphImpl::checkSchedulingValidity(vector<int>& scheduling) const {
-  set<int> idSet;
-
-  if (scheduling.size() != getVertexCount()) {
-    cerr << "WARNING: The supplied scheduling in 'getSchedulingCost' is not "
-      << "valid. It does not contain the same number of vertices as the "
-      << "graph.\n";
-    return false;
-  }
-
-  for (int i = 0, e = scheduling.size(); i < e; i++) {
-    Vertex * curr = getVertex(scheduling[i]);
-
-    if (!curr) {
-      cerr << "WARNING: The supplied scheduling in 'getSchedulingCost' contains"
-        << " an ID that does not correspond to an existing vertex.\n";
-      return false;
-    }
-
-    if (idSet.count(scheduling[i])) {
-      cerr << "WARNING: The supplied scheduling in 'getSchedulingCost' contains"
-        << " two times the same ID (" << scheduling[i] << ").\n";
-      return false;
-    }
-
-    for (auto j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
-      if (idSet.count(curr->getSuccessor(j)->getId())) {
-        cerr << "WARNING: The supplied scheduling in 'getSchedulingCost' is "
-          << "illegal. ID (" << curr->getSuccessor(j)->getId() << ") should be "
-          << "scheduling after ID (" << scheduling[i] << ").\n";
-        return false;
-      }
-    }
-
-    idSet.insert(scheduling[i]);
-  }
-
-  return true;
 }

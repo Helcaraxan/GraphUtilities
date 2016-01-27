@@ -169,7 +169,9 @@ public:
   bool hasEdge(const Vertex * source, const Vertex * target) const;
 
   // Partition-related methods
-  int getSchedulingCost(vector<int>& scheduling, int memorySize) const;
+  const Partition * computeConvexPartition(vector<int>& schedule) const;
+  bool checkSchedule(vector<int>& schedule) const;
+  int getPartitionCost(const Partition * partition, int memorySize) const;
 
   // Statistics
   bool getStatisticsEnabled(void);
@@ -229,13 +231,14 @@ public:
 #else // ENABLE_TLS
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
+  void computePartitionNodeCosts(PartitionNodeImpl * node,
+    Vertex::IdSet * group = NULL) const;
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
   void convBisect(PartitionNodeImpl * parent);
   void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
       Vertex::IdSet&sinkSet);
   void partitionConvexify(PartitionQueryImpl * query);
   void partitionMaxDistance(PartitionQueryImpl * query);
-  bool checkSchedulingValidity(vector<int>& scheduling) const;
 
   // Graph coarsening
   /*!

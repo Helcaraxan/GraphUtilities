@@ -569,3 +569,35 @@ PartitionImpl::getSubTree(int idA, int idB) const {
 
   return curr;
 }
+
+
+void
+PartitionImpl::extractSchedule(vector<int>& schedule) const {
+  unsigned int depth = 1;
+  vector<int> visitIdx;
+  PartitionNodeImpl * curr = root;
+
+  schedule.clear();
+
+  while (curr) {
+    if (curr->id != -1) {
+      schedule.push_back(curr->id);
+      curr = curr->parent;
+      depth--;
+      continue;
+    }
+
+    if (depth > visitIdx.size())
+      visitIdx.push_back(0);
+
+    if (visitIdx.back() >= curr->getChildCount()) {
+      curr = curr->parent;
+      visitIdx.pop_back();
+      depth--;
+    } else {
+      curr = curr->children[visitIdx[depth - 1]];
+      visitIdx[depth - 1]++;
+      depth++;
+    }
+  }
+}
