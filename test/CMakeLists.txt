@@ -6,6 +6,8 @@ link_directories(
 	)
 
 
+## Reachability Query driver
+
 # Define the driver executable
 add_executable(QueryDriver driver.cpp)
 
@@ -80,3 +82,19 @@ foreach(testgraph ${GRAPHS})
 	graph_test(${testgraph})
 endforeach(testgraph)
 
+
+## Partition evaluation driver
+
+# Define the driver executable
+add_executable(PartitionDriver partitionEval.cpp)
+
+target_link_libraries(PartitionDriver
+	GraphUtilities
+	stdc++
+	tbb
+	)
+
+# Set the install parameters
+install(TARGETS PartitionDriver
+	RUNTIME DESTINATION "bin"
+	)
