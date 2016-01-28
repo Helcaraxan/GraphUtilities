@@ -9,7 +9,7 @@ link_directories(
 ## Reachability Query driver
 
 # Define the driver executable
-add_executable(QueryDriver driver.cpp)
+add_executable(QueryDriver reachabilityEval.cpp)
 
 target_link_libraries(QueryDriver
 	GraphUtilities
