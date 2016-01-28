@@ -4,8 +4,8 @@
 #include <random>
 #include <string>
 #include <thread>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -44,9 +44,6 @@ static const struct option longopts[] = {
   {"index-method",   required_argument, 0, 'I'},
   {"search-method",  required_argument, 0, 'S'},
   {"count",     required_argument, 0, 'c'},
-  {"coarsen-factor", required_argument, 0, 'f'},
-  {"coarsen-method", required_argument, 0, 'C'},
-  {"coarsen-file",   required_argument, 0, 'F'},
   {"help",      no_argument,       0, 'h'},
   {"verify",  no_argument,      &verifyFlag, 1},
   {"unique-edges", no_argument, &uniqueFlag, 1},
@@ -74,10 +71,6 @@ printHelpMessage() {
   cout << "\t\t\t\t\t\t(default: Standard)\n";
   cout << "\t-S | --search-method=<search-method>\tMethod from <DFS|BBFS> (default: select fastest for the graph)\n";
   cout << "\t-c | --count=<number>\t\t\tNumber of queries to generate (only used when --test is not used)\n";
-  cout << "\nCoarsening options:\n";
-  cout << "\t-f | --coarsen-factor=<number>\t\tSpecify the coarsening factor that is to be applied\n";
-  cout << "\t-C | --coarsen-method=<coarsen-method>\tMethod from <Greedy> (default: Greedy)\n";
-  cout << "\t-F | --coarsen-file=<coarsen-dump-file>\tFile-prefix for dumping the coarsened graph and mapping\n";
   cout << "\nBoolean options:\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
@@ -226,17 +219,15 @@ resultAnalysis(Graph * graph, const char * queryFile) {
 
 int
 main(int argc, char * argv[]) {
-  string inputFile, outputFile, coarseFile, testFile, dumpFile, queryFile;
+  string inputFile, outputFile, testFile, dumpFile, queryFile;
 	Graph * graph = nullptr;
-  CoarsenMethod coarsenMethod = Greedy;
   IndexMethod indexMethod = Standard;
   SearchMethod searchMethod = UndefinedSearchMethod;
   int c;
-  int coarsenFactor = 0;
-  int coarsenSecondaryFactor = 2;
+
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:f:C:F:hvudb", longopts,
+  while ((c = getopt_long(argc, argv, "i:o:t:g:q:I:S:c:hvudb", longopts,
           nullptr)) != -1) {
     switch (c) {
       case 'i':
@@ -297,33 +288,6 @@ main(int argc, char * argv[]) {
         }
         break;
 
-      case 'f':
-        if (!isdigit(optarg[0])) {
-          cerr << "ERROR: The -C | --coarsen-factor argument is not a number\n";
-          printHelpMessage();
-          exit(EXIT_FAILURE);
-        } else {
-          coarsenFactor = atoi(optarg);
-
-          if (coarsenFactor < 2)
-            coarsenFactor = 2;
-        }
-        break;
-
-      case 'C':
-        if (!strcmp(optarg, "Greedy")) {
-          coarsenMethod = Greedy;
-        } else {
-          cerr << "ERROR: Unknown argument to --coarsen-method.\n";
-          printHelpMessage();
-          exit(EXIT_FAILURE);
-        }
-        break;
-
-      case 'F':
-        coarseFile = optarg;
-        break;
-
       case 'h':
         printHelpMessage();
         exit(EXIT_SUCCESS);
@@ -360,54 +324,16 @@ main(int argc, char * argv[]) {
     exit(EXIT_FAILURE);
   }
 
+
   // Set the indexing method as specified / default
   graph->setIndexMethod(indexMethod);
+
 
   // Start worker threads on the graph
   graph->enableQueries();
 
-  // When necessary create a coarsened graph and dump it
-  if (coarsenFactor > 1) {
-    map<int, int> vertexMap;
-    Query * query = nullptr;
-    CoarsenQuery * cQuery = createCQuery();
-    cQuery->setFactor(coarsenFactor);
-    cQuery->setSecondaryFactor(coarsenSecondaryFactor);
-    cQuery->setMethod(coarsenMethod);
 
-    graph->pushQuery(cQuery);
-
-    query = graph->pullQuery(true);
-
-    if (!query) {
-      cerr << "ERROR: Coarsen query dissapeared into the void!\n";
-      exit(EXIT_FAILURE);
-    }
-
-    if (coarseFile.size() > 0) {
-      fstream coarseMapStream;
-      string mapFile = coarseFile + ".map";
-
-      cQuery->getAnswer()->printToFile(coarseFile.c_str(), true);
-      coarseMapStream.open(mapFile.c_str(), ios_base::out);
-
-      coarseMapStream << "General to coarsened graph index mapping";
-
-      map<int, int>& vertexMap = cQuery->getMap();
-      for (auto it = vertexMap.begin(), end = vertexMap.end(); it != end; ++it)
-        coarseMapStream << "\n" << it->first << " : " << it->second;
-
-      coarseMapStream.close();
-    }
-
-    delete cQuery->getAnswer();
-    delete cQuery;
-    delete graph;
-
-    exit(EXIT_SUCCESS);
-  }
-
-  // Dump the parsed graph for verification purposes
+  // Dump the parsed graph for verification purposes when requested
   if (dumpFile.size() > 0) {
     fstream dumpStream;
     Vertex * curr;

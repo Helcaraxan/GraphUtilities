@@ -1,49 +1,151 @@
+#include <set>
+#include <string>
 #include <climits>
 #include <cstdlib>
+#include <cstring>
+#include <fstream>
 #include <iostream>
-#include <set>
+
+#include <getopt.h>
 
 #include <graph-utilities/graph.hpp>
 
+using namespace std;
+
+
+// Command-line option specifications
+
+static const struct option longopts[] = {
+  {"graph",      required_argument, 0, 'g'},
+  {"schedule",   required_argument, 0, 's'},
+  {"evaluation", required_argument, 0, 'e'},
+  {"method",     required_argument, 0, 'm'},
+  {"memory",     required_argument, 0, 'M'},
+  {0,0,0,0}
+};
+
+
+// Help message printing
+
+void
+printHelpMessage() {
+  cout << "Usage: -g|--graph=<graph> -m|--method=<method> [options]\n";
+  cout << "File options:\n";
+  cout << "\t-s | --schedule=<file>\tFile to which the schedule produced by the partition will be dumped\n";
+  cout << "Partition options:\n";
+  cout << "\t-m | --method=<method>\tMethod from <Convexify|MaxDistance>\n";
+  cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
+  cout << "\t-M | --memory=<size>\tSize of the memory for which IO complexity should be computed.\n";
+}
+
+
+// Driver function
 
 int
 main(int argc, char * argv[]) {
-  int minLevel, maxLevel;
-  double acc = 0;
-  vector<int> schedule;
+  int c;
+  int memorySize = 256;
+  string graphFile = "", schedFile = "";
   Graph * graph = nullptr;
   PartitionQuery * pQuery = nullptr;
+  PartitionMethod method = UndefinedPartitionMethod;
   IOComplexityType type = UndefinedIOType;
 
 
-  if (string(argv[2]) == "GRA")
-    graph = parseGraFile(argv[1], true);
-  else
-    graph = parseDotFile(argv[1], true);
+  // Parse command-line options
+  while ((c = getopt_long(argc, argv, "g:s:e:m:M:", longopts, nullptr)) != -1) {
+    switch (c) {
+      case 'g':
+        graphFile = optarg;
+        break;
 
-  if (string(argv[3]) == "ALS")
-    type = AvgLoadStore;
-  else
-    type = TotalLoads;
+      case 's':
+        schedFile = optarg;
+        break;
 
-  graph->setIndexMethod(Standard);
+      case 'e':
+        if (!strcmp(optarg, "TotalLoads")) {
+          type = TotalLoads;
+        } else if (!strcmp(optarg, "AvgLoadStore")) {
+          type = AvgLoadStore;
+        } else {
+          cerr << "ERROR: Unknown argument to --evaluation." << endl;
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        }
+        break;
 
-  if (!graph->isDAG()) {
-    cerr << "Error: is not a DAG\n";
+      case 'm':
+        if (!strcmp(optarg, "Convexify")) {
+          method = Convexify;
+        } else if (!strcmp(optarg, "MaxDistance")) {
+          method = MaxDistance;
+        } else {
+          cerr << "ERROR: Unknown argument to --method." << endl;
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'M':
+        if (!isdigit(optarg[0])) {
+          cerr << "ERROR: The -M | --memory argument is not a number\n";
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        } else {
+          memorySize = atoi(optarg);
+        }
+        break;
+
+      case 0:
+        break;
+
+      default:
+        cerr << "ERROR: GetOpt class error while parsing command-line "
+          << " arguments." << endl;
+        exit(EXIT_FAILURE);
+    }
+  }
+
+  if (graphFile.size() == 0) {
+    cerr << "ERROR: No graph file was specified.\n\n";
+    printHelpMessage();
     exit(EXIT_FAILURE);
   }
 
+  if (!graphFile.substr(graphFile.size() - 4, 4).compare(".dot")) {
+    graph = parseDotFile(graphFile.c_str(), true);
+  } else if (!graphFile.substr(graphFile.size() - 4, 4).compare(".gra")) {
+    graph = parseGraFile(graphFile.c_str(), true);
+  } else {
+    cerr << "ERROR: Unknown graph-file extension. Only accepts .dot and .gra "
+      << "files.\n";
+    exit(EXIT_FAILURE);
+  }
+
+  if (!graph) {
+    cerr << "ERROR: No graph was generated from the graph file.\n\n";
+    printHelpMessage();
+    exit(EXIT_FAILURE);
+  }
+
+
+  // Set the indexing method in case it is needed and start worker threads
+  graph->setIndexMethod(Standard);
   graph->enableQueries();
 
 
-  cout << "Performing Convexify partitioning\n";
+  // Create a PartitionQuery instance and set the partition method
   pQuery = createPQuery();
-  pQuery->setMethod(Convexify);
+  pQuery->setMethod(method);
+  
 
+  // Submit the query and retrieve it once completed 
   graph->pushQuery(pQuery);
   graph->pullQuery(true);
 
-  cout << "Partitioning done\n";
+
+  // Retrieve the obtained Partition
   const Partition * part = pQuery->getPartition();
 
   if (!part) {
@@ -51,11 +153,12 @@ main(int argc, char * argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  minLevel = INT_MAX;
-  maxLevel = 0;
-  acc = 0;
 
-  cout << "Computing partition statistics.\n";
+  // Compute statistics over the Partition
+  int minLevel = INT_MAX;
+  int maxLevel = 0;
+  double acc = 0;
+
   for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
     int lCount = 0;
     const PartitionNode * node = part->getLeaf(i);
@@ -73,130 +176,61 @@ main(int argc, char * argv[]) {
     if (lCount < minLevel)
       minLevel = lCount;
   }
+
+  cout << "\nPartition statistics:\n";
   cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
   cout << "Minimum depth: " << minLevel << "\n";
   cout << "Maximum depth: " << maxLevel << "\n";
-
-  cout << "Verifying scheduling... ";
   cout.flush();
 
-  part->extractSchedule(schedule);
-  if (graph->checkSchedule(schedule))
-    cout << "VALID" << endl;
-  else
-    cout << "INVALID" << endl;
 
+  // Retrieve the scheduling that is implied by the Partition instance if
+  // necessary
+  vector<int> schedule;
+  if ((type != UndefinedIOType) || (schedFile.size() > 0)) {
+    part->extractSchedule(schedule);
 
-  cout << "Evaluating schedule costs:\n";
-  cout << "Target memory (32)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 32, type) << endl;
-
-  cout << "Target memory (1k)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 1024, type) << endl;
-
-  cout << "Target memory (64k) : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 65536, type) << endl;
-
-  cout << "Target memory (512k): ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 524288, type) << endl;
-
-  cout << "Target memory (2M)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 2097152, type) << endl;
-
-  delete part;
-  delete pQuery;
-
-
-  cout << "Performing Max-Distance partitioning\n";
-  pQuery = createPQuery();
-  pQuery->setMethod(MaxDistance);
-
-  graph->pushQuery(pQuery);
-  graph->pullQuery(true);
-
-  cout << "Partitioning done\n";
-  part = pQuery->getPartition();
-
-  if (!part) {
-    cerr << "ERROR: No partition was found.\n";
-    exit(EXIT_FAILURE);
+    // Check the schedule for validity
+    cout << "\nVerifying scheduling... ";
+    if (graph->checkSchedule(schedule))
+      cout << "VALID" << endl;
+    else
+      cout << "INVALID" << endl;
   }
 
-  minLevel = INT_MAX;
-  maxLevel = 0;
-  acc = 0;
+  // Perform IO complexity evaluation if required
+  if (type != UndefinedIOType) {
+    cout << "\nEvaluating schedule costs:\n";
+    cout << "Target memory size: " << memorySize << " 32-bit words\n";
+    cout.flush();
 
-  cout << "Computing partition statistics.\n";
-  for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
-    int lCount = 0;
-    const PartitionNode * node = part->getLeaf(i);
-    
-    while (node) {
-      lCount++;
-      node = node->getParent();
+    cout << "IO complexity: ";
+    cout << graph->getPartitionCost(part, memorySize, type) << endl;
+  }
+
+  // Dump the schedule when requested
+  if (schedFile.size() > 0) {
+    fstream schedStream(schedFile.c_str(), ios_base::out);
+
+    if (!schedStream.good()) {
+      cerr << "\nERROR: Could not open the specified schedule dump file.\n";
+      exit(EXIT_FAILURE);
     }
 
-    acc += lCount;
+    cout << "\nDumping schedule...";
+    cout.flush();
 
-    if (lCount > maxLevel)
-      maxLevel = lCount;
+    for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it)
+      schedStream << *it << "\n";
 
-    if (lCount < minLevel)
-      minLevel = lCount;
+    schedStream.close();
+
+    cout << " DONE" << endl;
   }
-  cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
-  cout << "Minimum depth: " << minLevel << "\n";
-  cout << "Maximum depth: " << maxLevel << "\n";
-
-  cout << "Verifying scheduling... ";
-  cout.flush();
-
-  part->extractSchedule(schedule);
-  if (graph->checkSchedule(schedule))
-    cout << "VALID" << endl;
-  else
-    cout << "INVALID" << endl;
-
-
-  cout << "Evaluating schedule costs:\n";
-  cout << "Target memory (32)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 32, type) << endl;
-
-  cout << "Target memory (1k)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 1024, type) << endl;
-
-  cout << "Target memory (64k) : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 65536, type) << endl;
-
-  cout << "Target memory (512k): ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 524288, type) << endl;
-
-  cout << "Target memory (2M)  : ";
-  cout.flush();
-
-  cout << graph->getPartitionCost(part, 2097152, type) << endl;
 
   delete part;
   delete pQuery;
-
+  delete graph;
 
   exit(EXIT_SUCCESS);
 }

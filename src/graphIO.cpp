@@ -29,6 +29,7 @@ parseDotFile(const char * fileName, bool noDoubleEdges) {
     exit(EXIT_FAILURE);
   }
 
+  cout << "Parsing graph...";
   while (input.good()) {
     input.getline(dump, 127);
 
@@ -54,6 +55,8 @@ parseDotFile(const char * fileName, bool noDoubleEdges) {
   }
   input.close();
   graph->setIndexed(false);
+
+  cout << " DONE" << endl;
 
   // Make sure the graph is a DAG
   if (graph->isDAG())
