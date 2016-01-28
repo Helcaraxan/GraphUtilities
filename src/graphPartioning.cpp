@@ -160,15 +160,16 @@ GraphImpl::checkSchedule(vector<int>& schedule) const {
 }
 
 
-int
-GraphImpl::getPartitionCost(const Partition * partition, int memorySize) const {
-  int cost = 0;
+double
+GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
+    IOComplexityType type) const {
+  double cost = 0;
   queue<PartitionNodeImpl *> workQueue;
   PartitionNodeImpl * curr =
     dynamic_cast<const PartitionImpl *>(partition)->root;
 
   // Compute the max-live and IO-costs for all nodes
-  computePartitionNodeCosts(curr);
+  computePartitionNodeCosts(type, curr);
 
   workQueue.push(curr);
 
@@ -176,8 +177,12 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize) const {
     curr = workQueue.front();
     workQueue.pop();
 
-    if (curr->maxLive <= memorySize)
+    if (curr->maxLive <= memorySize) {
+      if (type == AvgLoadStore)
+        cost += curr->exportCost;
+
       continue;
+    }
 
     cost += curr->ioCost;
 
@@ -185,15 +190,28 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize) const {
       workQueue.push(curr->children[i]);
   }
 
-  return cost;
+  switch (type) {
+    case TotalLoads:
+      return cost;
+    case AvgLoadStore:
+      cost /= getVertexCount();
+      if (cost < (double) 10 / (double) getVertexCount())
+        return 0.0;
+      else
+        return cost;
+    default:
+      break;
+  }
+
+  return -1.0;
 }
 
 
 // Internal partitioning query functions
 
 void
-GraphImpl::computePartitionNodeCosts(PartitionNodeImpl * node,
-    Vertex::IdSet * group) const {
+GraphImpl::computePartitionNodeCosts(IOComplexityType type, PartitionNodeImpl *
+    node, Vertex::IdSet * group) const {
   vector<Vertex::IdSet *> childSets;
 
   // In the case of a leaf node just instantiate the right values
@@ -210,7 +228,7 @@ GraphImpl::computePartitionNodeCosts(PartitionNodeImpl * node,
   // Recursively compute the values for the child nodes
   for (int i = 0, e = node->children.size(); i < e; i++) {
     childSets.push_back(new Vertex::IdSet());
-    computePartitionNodeCosts(node->children[i], childSets.back());
+    computePartitionNodeCosts(type, node->children[i], childSets.back());
   }
 
   // Evaluate communications between the child nodes
@@ -222,14 +240,19 @@ GraphImpl::computePartitionNodeCosts(PartitionNodeImpl * node,
     vector<int> ioCosts(e - i - 1, 0);
     for (auto it = childSets[i]->begin(), end = childSets[i]->end();
         it != end; ++it) {
+      bool exported = true;
       Vertex * curr = getVertex(*it);
 
       vector<int> localCosts(e - i - 1, 0);
       for (int j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
         int target = curr->getSuccessor(j)->getId();
 
+        if (childSets[i]->count(target))
+          exported = false;
+
         for (int k = i + 1; k < e; k++) {
           if (childSets[k]->count(target)) {
+            exported = false;
             localCosts[k - i - 1] = 1;
             break;
           }
@@ -238,6 +261,9 @@ GraphImpl::computePartitionNodeCosts(PartitionNodeImpl * node,
 
       for (int j = 0; j < e - i - 1; j++)
         ioCosts[j] += localCosts[j];
+
+      if (curr->getSuccessorCount() && exported)
+        node->exportCost++;
     }
 
     // Update the node's values

@@ -219,6 +219,7 @@ public:
   int id = -1;
   int ioCost = -1;
   int maxLive = -1;
+  int exportCost = -1;
   PartitionNodeImpl * parent = nullptr;
   vector<PartitionNodeImpl *> children;
 

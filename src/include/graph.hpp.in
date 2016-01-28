@@ -492,11 +492,13 @@ public:
    * the IO-cost.
    * \param memorySize Size of the memory-size for which we want to evaluate the
    * IO-cost.
+   * \param type Evaluation metric for IO complexity.
    *
-   * \return The IO-cost of the partition for the specified memory-size.
+   * \return The IO-cost of the partition for the specified memory-size with the
+   * specified metric.
    */
-  virtual int getPartitionCost(const Partition * partition, int memorySize)
-    const = 0;
+  virtual double getPartitionCost(const Partition * partition, int memorySize,
+      IOComplexityType type) const = 0;
 
   ////////////////
   // Statistics //

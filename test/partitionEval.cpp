@@ -11,8 +11,20 @@ main(int argc, char * argv[]) {
   int minLevel, maxLevel;
   double acc = 0;
   vector<int> schedule;
-  Graph * graph = parseGraFile(argv[1], true);
+  Graph * graph = nullptr;
   PartitionQuery * pQuery = nullptr;
+  IOComplexityType type = UndefinedIOType;
+
+
+  if (string(argv[2]) == "GRA")
+    graph = parseGraFile(argv[1], true);
+  else
+    graph = parseDotFile(argv[1], true);
+
+  if (string(argv[3]) == "ALS")
+    type = AvgLoadStore;
+  else
+    type = TotalLoads;
 
   graph->setIndexMethod(Standard);
 
@@ -79,27 +91,27 @@ main(int argc, char * argv[]) {
   cout << "Target memory (32)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 32) << endl;
+  cout << graph->getPartitionCost(part, 32, type) << endl;
 
   cout << "Target memory (1k)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 1024) << endl;
+  cout << graph->getPartitionCost(part, 1024, type) << endl;
 
   cout << "Target memory (64k) : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 65536) << endl;
+  cout << graph->getPartitionCost(part, 65536, type) << endl;
 
   cout << "Target memory (512k): ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 524288) << endl;
+  cout << graph->getPartitionCost(part, 524288, type) << endl;
 
   cout << "Target memory (2M)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 2097152) << endl;
+  cout << graph->getPartitionCost(part, 2097152, type) << endl;
 
   delete part;
   delete pQuery;
@@ -160,27 +172,27 @@ main(int argc, char * argv[]) {
   cout << "Target memory (32)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 32) << endl;
+  cout << graph->getPartitionCost(part, 32, type) << endl;
 
   cout << "Target memory (1k)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 1024) << endl;
+  cout << graph->getPartitionCost(part, 1024, type) << endl;
 
   cout << "Target memory (64k) : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 65536) << endl;
+  cout << graph->getPartitionCost(part, 65536, type) << endl;
 
   cout << "Target memory (512k): ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 524288) << endl;
+  cout << graph->getPartitionCost(part, 524288, type) << endl;
 
   cout << "Target memory (2M)  : ";
   cout.flush();
 
-  cout << graph->getPartitionCost(part, 2097152) << endl;
+  cout << graph->getPartitionCost(part, 2097152, type) << endl;
 
   delete part;
   delete pQuery;
