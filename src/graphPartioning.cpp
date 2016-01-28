@@ -1,5 +1,10 @@
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <iostream>
 #include <algorithm>
+
+#include <tbb/concurrent_queue.h>
 
 #include "graph-utilities/implementation/graphImpl.hpp"
 #include "graph-utilities/implementation/patoh.hpp"
@@ -8,14 +13,33 @@
 using namespace std;
 
 
+// File local types
+
+class PartitionTask {
+public:
+  PartitionNodeImpl * const node;
+  Vertex::IdSet * const sourceSet;
+  Vertex::IdSet * const sinkSet;
+
+  PartitionTask(PartitionNodeImpl * n, Vertex::IdSet * s, Vertex::IdSet * t) :
+    node(n),
+    sourceSet(s),
+    sinkSet(t)
+  {}
+};
+
+
 // File local variables
-static int partCount = 0;
+
+static atomic<int> partCount{0};
+static bool taskPoison = false;
 static vector<int> unions;
 static vector<int> sizes;
 static vector<int> sourceMax;
 static vector<int> sinkMax;
-static queue<PartitionNodeImpl *> workQueue;
+static tbb::concurrent_queue<PartitionTask *> taskQueue;
 static PartitionImpl * part = nullptr;
+static PartitionMethod method = UndefinedPartitionMethod;
 
 
 // File local functions
@@ -292,6 +316,8 @@ GraphImpl::processPartitionQuery(PartitionQueryImpl * query) {
 #else // ENABLE_TLS
 GraphImpl::processPartitionQuery(PartitionQueryImpl * query, int threadId) {
 #endif // ENABLE_TLS
+  method = query->getMethod();
+
   switch (query->getMethod()) {
     case Convexify:
       partitionConvexify(query);
@@ -526,20 +552,20 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
   parent->id = -1;
 
   if (part->representants[memberA].isInteger())
-    workQueue.push(childA);
+    taskQueue.push(new PartitionTask(childA, nullptr, nullptr));
   else
-    resultProgressBar(++partCount);
+    partCount++;
 
   if (part->representants[memberB].isInteger())
-    workQueue.push(childB);
+    taskQueue.push(new PartitionTask(childB, nullptr, nullptr));
   else
-    resultProgressBar(++partCount);
+    partCount++;
 }
 
 
 void
-GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
-    Vertex::IdSet& sinkSet) {
+GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
+    Vertex::IdSet * sinkSet) {
   /* Create the target set of vertex IDs */
   Vertex::IdSet idSet;
   IaP<PartitionNodeImpl> id = parent->id;
@@ -591,32 +617,32 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
         mapIt->second->id = *it;
       }
 
-      if (sourceSet.count(*it))
+      if (sourceSet->count(*it))
         subSources[target]->insert(*it);
 
-      if (sinkSet.count(*it))
+      if (sinkSet->count(*it))
         subSinks[target]->insert(*it);
     }
+
+    delete sourceSet;
+    delete sinkSet;
+
+    parent->id = -1;
 
     for (auto mapIt = subParts.begin(), mapEnd = subParts.end();
         mapIt != mapEnd; ++mapIt) {
       if (part->representants[mapIt->second->id].isInteger())
-        maxDistBisect(mapIt->second, *subSources[mapIt->first],
-            *subSinks[mapIt->first]);
+        taskQueue.push(new PartitionTask(mapIt->second,
+            subSources[mapIt->first], subSinks[mapIt->first]));
       else
-        resultProgressBar(++partCount);
-
-      delete subSources[mapIt->first];
-      delete subSinks[mapIt->first];
+        partCount++;
     }
-
-    parent->id = -1;
   } else {
     /* If the sub-graph is connected then perform a bisection based on the
      * sourceMax and sinkMax values of each node */
     stack<Vertex *> todo;
-    Vertex::IdSet subSources;
-    Vertex::IdSet subSinks;
+    Vertex::IdSet * subSources = new Vertex::IdSet();
+    Vertex::IdSet * subSinks = new Vertex::IdSet();
 
     // First reset the sourceMax and sinkMax values for the target set
     for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
@@ -625,7 +651,7 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
     }
 
     // Perform a DFS to recompute the sourceMax values
-    for (auto it = sourceSet.begin(), end = sourceSet.end(); it != end; ++it)
+    for (auto it = sourceSet->begin(), end = sourceSet->end(); it != end; ++it)
       todo.push(getVertex(*it));
 
     while (!todo.empty()) {
@@ -646,7 +672,7 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
 
     // Perform a DFS to recompute the sinkMax values and select potential new
     // sources and sinks
-    for (auto it = sinkSet.begin(), end = sinkSet.end(); it != end; ++it)
+    for (auto it = sinkSet->begin(), end = sinkSet->end(); it != end; ++it)
       todo.push(getVertex(*it));
 
     while (!todo.empty()) {
@@ -664,18 +690,19 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
 
           if ((sourceMax[curr->getId()] >= sinkMax[curr->getId()]) &&
               (sourceMax[pred->getId()] < sinkMax[pred->getId()])) {
-            subSources.insert(curr->getId());
-            subSinks.insert(pred->getId());
+            subSources->insert(curr->getId());
+            subSinks->insert(pred->getId());
           }
         }
       }
     }
 
     // Eliminate false positives from the potential new sources and sinks
-    auto setIt = subSources.begin(), setEnd = subSources.end();
+    auto setIt = subSources->begin();
+    auto setEnd = subSources->end();
     while (setIt != setEnd) {
       if (sourceMax[*setIt] < sinkMax[*setIt]) {
-        setIt = subSources.erase(setIt);
+        setIt = subSources->erase(setIt);
       } else {
         bool erased = false;
         Vertex * curr = getVertex(*setIt);
@@ -685,7 +712,7 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
 
           if (idSet.count(pred->getId())) {
             if (sourceMax[pred->getId()] >= sinkMax[pred->getId()]) {
-              setIt = subSources.erase(setIt);
+              setIt = subSources->erase(setIt);
               erased = true;
               break;
             }
@@ -697,11 +724,11 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
       }
     }
 
-    setIt = subSinks.begin();
-    setEnd = subSinks.end();
+    setIt = subSinks->begin();
+    setEnd = subSinks->end();
     while (setIt != setEnd) {
       if (sourceMax[*setIt] >= sinkMax[*setIt]) {
-        setIt = subSinks.erase(setIt);
+        setIt = subSinks->erase(setIt);
       } else {
         bool erased = false;
         Vertex * curr = getVertex(*setIt);
@@ -711,7 +738,7 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
 
           if (idSet.count(succ->getId())) {
             if (sourceMax[succ->getId()] < sinkMax[succ->getId()]) {
-              setIt = subSinks.erase(setIt);
+              setIt = subSinks->erase(setIt);
               erased = true;
               break;
             }
@@ -741,27 +768,25 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
       }
     }
 
+    parent->id = -1;
+
     // Recurse on the two new partitions if they are not atomic
     if (part->representants[subPartA->id].isInteger())
-      maxDistBisect(subPartA, sourceSet, subSinks);
+      taskQueue.push(new PartitionTask(subPartA, sourceSet, subSinks));
     else
-      resultProgressBar(++partCount);
-
-    sourceSet.clear();
-    subSinks.clear();
+      partCount++;
 
     if (part->representants[subPartB->id].isInteger())
-      maxDistBisect(subPartB, subSources, sinkSet);
+      taskQueue.push(new PartitionTask(subPartB, subSources, sinkSet));
     else
-      resultProgressBar(++partCount);
-
-    parent->id = -1;
+      partCount++;
   }
 }
 
 
 void
 GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
+  vector<thread *> workers;
   IaP<PartitionNodeImpl> ptr = 0;
   string barTitle = "Partitioning ";
 
@@ -782,15 +807,29 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
     }
   }
 
-  workQueue.push(part->root);
-  while (!workQueue.empty()) {
-    PartitionNodeImpl * parent = workQueue.front();
-    workQueue.pop();
+  // Create the required number of worker threads and perform partitioning
+  taskPoison = false;
+  taskQueue.push(new PartitionTask(part->root, nullptr, nullptr));
+  for (int i = 0, e = query->getThreadCount(); i < e; i++)
+    workers.push_back(new thread(partitionWorker, this));
 
-    convBisect(parent);
-  }
+  // Monitor the partition count actively
+  do {
+    resultProgressBar(partCount);
+    //this_thread::sleep_for(chrono::milliseconds(1));
+  } while (partCount < (int) getVertexCount());
 
+  resultProgressBar(partCount);
   cout << "\n";
+
+  // Terminate workers when partitioning is finished
+  taskPoison = true;
+  while (!workers.empty()) {
+    workers.back()->join();
+
+    delete workers.back();
+    workers.pop_back();
+  }
 
   query->setPartition(part);
   part = nullptr;
@@ -799,8 +838,9 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
 
 void
 GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
-  Vertex::IdSet sourceSet;
-  Vertex::IdSet sinkSet;
+  vector<thread *> workers;
+  Vertex::IdSet * sourceSet = new Vertex::IdSet();
+  Vertex::IdSet * sinkSet = new Vertex::IdSet();
   IaP<PartitionNodeImpl> ptr = 0;
   string barTitle = "Partitioning ";
 
@@ -823,10 +863,10 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
 
   // Construct the root souce and sink sets
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it)
-    sourceSet.insert((*it)->getId());
+    sourceSet->insert((*it)->getId());
 
   for (auto it = sinks.begin(), end = sinks.end(); it != end; ++it)
-    sinkSet.insert((*it)->getId());
+    sinkSet->insert((*it)->getId());
 
   // Adjust the size of union-find and sourceMax/sinkMax vectors
   sizes.resize(vertices.size());
@@ -834,12 +874,59 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
   sourceMax.resize(vertices.size());
   sinkMax.resize(vertices.size());
 
-  // Recursively bisect the graph
-  maxDistBisect(part->root, sourceSet, sinkSet);
+  // Create the required number of worker threads and perform partitioning
+  taskPoison = false;
+  taskQueue.push(new PartitionTask(part->root, sourceSet, sinkSet));
+  for (int i = 0, e = query->getThreadCount(); i < e; i++)
+    workers.push_back(new thread(partitionWorker, this));
 
+  // Monitor the partition count actively
+  do {
+    resultProgressBar(partCount);
+    //this_thread::sleep_for(chrono::milliseconds(1));
+  } while (partCount < (int) getVertexCount());
+
+  resultProgressBar(partCount);
   cout << "\n";
+
+  // Terminate workers when partitioning is finished
+  taskPoison = true;
+  while (!workers.empty()) {
+    workers.back()->join();
+
+    delete workers.back();
+    workers.pop_back();
+  }
 
   // Associate the new partition with the query that requested it
   query->setPartition(part);
   part = nullptr;
+}
+
+
+void
+partitionWorker(GraphImpl * graph) {
+  PartitionTask * task = nullptr;
+
+  while (true) {
+    while (!taskQueue.try_pop(task)) {
+      if (taskPoison)
+        return;
+    }
+
+    switch (method) {
+      case Convexify:
+        graph->convBisect(task->node);
+        break;
+
+      case MaxDistance:
+        graph->maxDistBisect(task->node, task->sourceSet, task->sinkSet);
+        break;
+
+      case UndefinedPartitionMethod:
+        return;
+    }
+
+    delete task;
+  }
 }

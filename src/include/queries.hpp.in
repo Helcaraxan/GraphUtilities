@@ -222,6 +222,17 @@ public:
   virtual PartitionMethod getMethod(void) const = 0;
 
   /*!
+   * \brief Retrieve the current configured number of worker threads.
+   *
+   * Retrieve the number of worker threads that is currently configured to run
+   * this partition query.
+   *
+   * \return The current registered number of worker threads.
+   * \sa setThreadCount()
+   */
+  virtual int getThreadCount(void) const = 0;
+
+  /*!
    * \brief Retrieve pointer to the Partition obtained through this query.
    *
    * Retrieve a pointer to the Partition instance that was computed for this
@@ -248,6 +259,17 @@ public:
    * \sa getMethod()
    */
   virtual void setMethod(PartitionMethod newMethod) = 0;
+
+  /*!
+   * \brief Set the number of threads used to perform this partition query.
+   *
+   * Modify the configured number of threads that should be used to execute this
+   * query.
+   *
+   * \param newCount The new number of threads.
+   * \sa getThreadCount()
+   */
+  virtual void setThreadCount(int newCount) = 0;
 };
 
 

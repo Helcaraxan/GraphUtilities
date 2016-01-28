@@ -57,6 +57,7 @@ public:
 class PartitionQueryImpl : public PartitionQuery {
 // Data members
 private:
+  int threadCount = 1;
   bool error = false;
   PartitionImpl * partition = nullptr;
   PartitionMethod method = Convexify;
@@ -68,10 +69,12 @@ public:
   // Access
   bool getError(void) const;
   PartitionMethod getMethod(void) const;
+  int getThreadCount(void) const;
   const Partition * getPartition(void) const;
 
   // Modifications
   void setMethod(PartitionMethod newMethod);
+  void setThreadCount(int newCount);
 
   /* Implementation methods */
   // Modifications

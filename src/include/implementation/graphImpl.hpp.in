@@ -236,8 +236,8 @@ public:
       PartitionNodeImpl * node, Vertex::IdSet * group = nullptr) const;
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
   void convBisect(PartitionNodeImpl * parent);
-  void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet& sourceSet,
-      Vertex::IdSet&sinkSet);
+  void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
+      Vertex::IdSet * sinkSet);
   void partitionConvexify(PartitionQueryImpl * query);
   void partitionMaxDistance(PartitionQueryImpl * query);
 
@@ -286,6 +286,11 @@ public:
 // The global slave function that performs queries
 
 void queryWorker(GraphImpl * graph, int threadId);
+
+
+// The worker function for graph partitioning
+
+void partitionWorker(GraphImpl * graph);
 
 
 #endif // GRAPH_IMPL_HPP

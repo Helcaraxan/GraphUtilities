@@ -95,6 +95,12 @@ PartitionQueryImpl::getMethod() const {
 }
 
 
+int
+PartitionQueryImpl::getThreadCount() const {
+  return threadCount;
+}
+
+
 const Partition *
 PartitionQueryImpl::getPartition() const {
   return partition;
@@ -106,6 +112,12 @@ PartitionQueryImpl::getPartition() const {
 void
 PartitionQueryImpl::setMethod(PartitionMethod newMethod) {
   method = newMethod;
+}
+
+
+void
+PartitionQueryImpl::setThreadCount(int newCount) {
+  threadCount = newCount;
 }
 
 

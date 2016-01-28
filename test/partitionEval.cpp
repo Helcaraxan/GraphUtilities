@@ -21,6 +21,7 @@ static const struct option longopts[] = {
   {"evaluation", required_argument, 0, 'e'},
   {"method",     required_argument, 0, 'm'},
   {"memory",     required_argument, 0, 'M'},
+  {"threads",    required_argument, 0, 't'},
   {0,0,0,0}
 };
 
@@ -33,9 +34,10 @@ printHelpMessage() {
   cout << "File options:\n";
   cout << "\t-s | --schedule=<file>\tFile to which the schedule produced by the partition will be dumped\n";
   cout << "Partition options:\n";
-  cout << "\t-m | --method=<method>\tMethod from <Convexify|MaxDistance>\n";
+  cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
   cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
-  cout << "\t-M | --memory=<size>\tSize of the memory for which IO complexity should be computed.\n";
+  cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
+  cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning.\n";
 }
 
 
@@ -44,6 +46,7 @@ printHelpMessage() {
 int
 main(int argc, char * argv[]) {
   int c;
+  int threadCount = 1;
   int memorySize = 256;
   string graphFile = "", schedFile = "";
   Graph * graph = nullptr;
@@ -53,7 +56,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:e:m:M:", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:e:m:M:t:", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -97,6 +100,16 @@ main(int argc, char * argv[]) {
         }
         break;
 
+      case 't':
+        if (!isdigit(optarg[0])) {
+          cerr << "ERROR: The -t | --threads argument is not a number\n";
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        } else {
+          threadCount = atoi(optarg);
+        }
+        break;
+
       case 0:
         break;
 
@@ -135,9 +148,10 @@ main(int argc, char * argv[]) {
   graph->enableQueries();
 
 
-  // Create a PartitionQuery instance and set the partition method
+  // Create a PartitionQuery instance and set the partition method & threadcount
   pQuery = createPQuery();
   pQuery->setMethod(method);
+  pQuery->setThreadCount(threadCount);
   
 
   // Submit the query and retrieve it once completed 
