@@ -37,7 +37,7 @@ printHelpMessage() {
   cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
   cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
   cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
-  cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning.\n";
+  cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning (only for MaxDistance).\n";
 }
 
 

@@ -807,29 +807,9 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
     }
   }
 
-  // Create the required number of worker threads and perform partitioning
-  taskPoison = false;
-  taskQueue.push(new PartitionTask(part->root, nullptr, nullptr));
-  for (int i = 0, e = query->getThreadCount(); i < e; i++)
-    workers.push_back(new thread(partitionWorker, this));
-
-  // Monitor the partition count actively
-  do {
-    resultProgressBar(partCount);
-    //this_thread::sleep_for(chrono::milliseconds(1));
-  } while (partCount < (int) getVertexCount());
-
-  resultProgressBar(partCount);
+  // Perform the partitioning
+  partitionWorker(this);
   cout << "\n";
-
-  // Terminate workers when partitioning is finished
-  taskPoison = true;
-  while (!workers.empty()) {
-    workers.back()->join();
-
-    delete workers.back();
-    workers.pop_back();
-  }
 
   query->setPartition(part);
   part = nullptr;
@@ -917,6 +897,7 @@ partitionWorker(GraphImpl * graph) {
     switch (method) {
       case Convexify:
         graph->convBisect(task->node);
+        resultProgressBar(partCount);
         break;
 
       case MaxDistance:
