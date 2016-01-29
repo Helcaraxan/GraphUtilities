@@ -1,6 +1,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <fstream>
 #include <iostream>
 #include <algorithm>
 
@@ -186,14 +187,19 @@ GraphImpl::checkSchedule(vector<int>& schedule) const {
 
 double
 GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
-    IOComplexityType type) const {
+    IOComplexityType type, const char * tileFile) const {
   double cost = 0;
+  fstream tileStream;
   queue<PartitionNodeImpl *> workQueue;
   PartitionNodeImpl * curr =
     dynamic_cast<const PartitionImpl *>(partition)->root;
 
   // Compute the max-live and IO-costs for all nodes
   computePartitionNodeCosts(type, curr);
+
+  // Open the tile dump file if provided
+  if (tileFile)
+    tileStream.open(tileFile, ios_base::out);
 
   workQueue.push(curr);
 
@@ -204,6 +210,18 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
     if (curr->maxLive <= memorySize) {
       if (type == AvgLoadStore)
         cost += curr->exportCost;
+
+      if (tileFile) {
+        Vertex::IdSet idSet;
+
+        partition->represents(curr, idSet);
+        
+        tileStream << "{\n";
+        for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it)
+          tileStream << "\t" << *it << "\n";
+
+        tileStream << "}" << endl;
+      }
 
       continue;
     }
@@ -226,6 +244,10 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
     default:
       break;
   }
+
+  // Close the tile dump file
+  if (tileFile)
+    tileStream.close();
 
   return -1.0;
 }

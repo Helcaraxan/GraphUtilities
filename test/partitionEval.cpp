@@ -18,10 +18,12 @@ using namespace std;
 static const struct option longopts[] = {
   {"graph",      required_argument, 0, 'g'},
   {"schedule",   required_argument, 0, 's'},
+  {"tile",       required_argument, 0, 'T'},
   {"evaluation", required_argument, 0, 'e'},
   {"method",     required_argument, 0, 'm'},
   {"memory",     required_argument, 0, 'M'},
   {"threads",    required_argument, 0, 't'},
+  {"help",       no_argument,       0, 'h'},
   {0,0,0,0}
 };
 
@@ -32,12 +34,15 @@ void
 printHelpMessage() {
   cout << "Usage: -g|--graph=<graph> -m|--method=<method> [options]\n";
   cout << "File options:\n";
-  cout << "\t-s | --schedule=<file>\tFile to which the schedule produced by the partition will be dumped\n";
+  cout << "\t-s | --schedule=<file>\t\tFile to which the schedule produced by the partition will be dumped.\n";
+  cout << "\t-T | --tile=<file>\t\tFile to which to dump the tiles created for IO complexity evaluation.\n";
   cout << "Partition options:\n";
   cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
   cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
   cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
   cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning (only for MaxDistance).\n";
+  cout << "\nMiscellaneous options:\n";
+  cout << "\t-h | --help\t\tDisplay this help message\n";
 }
 
 
@@ -48,7 +53,7 @@ main(int argc, char * argv[]) {
   int c;
   int threadCount = 1;
   int memorySize = 256;
-  string graphFile = "", schedFile = "";
+  string graphFile = "", schedFile = "", tileFile = "";
   Graph * graph = nullptr;
   PartitionQuery * pQuery = nullptr;
   PartitionMethod method = UndefinedPartitionMethod;
@@ -56,7 +61,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:e:m:M:t:", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:h", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -64,6 +69,10 @@ main(int argc, char * argv[]) {
 
       case 's':
         schedFile = optarg;
+        break;
+
+      case 'T':
+        tileFile = optarg;
         break;
 
       case 'e':
@@ -108,6 +117,11 @@ main(int argc, char * argv[]) {
         } else {
           threadCount = atoi(optarg);
         }
+        break;
+
+      case 'h':
+        printHelpMessage();
+        exit(EXIT_SUCCESS);
         break;
 
       case 0:
@@ -219,7 +233,11 @@ main(int argc, char * argv[]) {
     cout.flush();
 
     cout << "IO complexity: ";
-    cout << graph->getPartitionCost(part, memorySize, type) << endl;
+    if (tileFile.size() > 0)
+      cout << graph->getPartitionCost(part, memorySize, type, tileFile.c_str())
+        << endl;
+    else
+      cout << graph->getPartitionCost(part, memorySize, type) << endl;
   }
 
   // Dump the schedule when requested

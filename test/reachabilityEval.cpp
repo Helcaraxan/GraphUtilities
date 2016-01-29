@@ -72,11 +72,12 @@ printHelpMessage() {
   cout << "\t-S | --search-method=<search-method>\tMethod from <DFS|BBFS> (default: select fastest for the graph)\n";
   cout << "\t-c | --count=<number>\t\t\tNumber of queries to generate (only used when --test is not used)\n";
   cout << "\nBoolean options:\n";
-  cout << "\t-h | --help\t\tDisplay this help message\n";
   cout << "\t-v | --verify\t\tVerify the query results by a DFS query that ignores labeling\n";
   cout << "\t-u | --unique-edges\tNo check for double-edges on input graph (speeds-up parsing of large graphs)\n";
   cout << "\t-d | --dry\t\tDo not perform queries stop after graph condensation (and eventual dumping)\n";
   cout << "\t-b | --batch\t\tDo not print progress-bar\n";
+  cout << "\nMiscellaneous options:\n";
+  cout << "\t-h | --help\t\tDisplay this help message\n";
 }
 
 
