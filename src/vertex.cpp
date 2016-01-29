@@ -522,12 +522,20 @@ PartitionImpl::represents(const PartitionNode * node,
   if (!iNode)
     return;
 
-  idSet.insert(iNode->id);
-  IaP<PartitionNodeImpl> ptr = representants[iNode->id];
+  if (iNode->children.size() > 0) {
+    for (auto it = iNode->children.begin(), end = iNode->children.end();
+        it != end; ++it)
+      represents(*it, idSet);
+  }
 
-  while (ptr.isInteger()) {
-    idSet.insert(ptr);
-    ptr = representants[ptr];
+  if (iNode->id != -1) {
+    IaP<PartitionNodeImpl> ptr = representants[iNode->id];
+
+    idSet.insert(iNode->id);
+    while (ptr.isInteger()) {
+      idSet.insert(ptr);
+      ptr = representants[ptr];
+    }
   }
 }
 

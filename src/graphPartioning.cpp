@@ -885,7 +885,7 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
   // Monitor the partition count actively
   do {
     resultProgressBar(partCount);
-    //this_thread::sleep_for(chrono::milliseconds(1));
+    this_thread::sleep_for(chrono::milliseconds(100));
   } while (partCount < (int) getVertexCount());
 
   resultProgressBar(partCount);
