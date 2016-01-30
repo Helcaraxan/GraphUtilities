@@ -233,7 +233,7 @@ public:
 #else // ENABLE_TLS
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
-  void computePartitionNodeCost(PartitionNodeImpl * node) const;
+  void computePartitionNodeCosts(PartitionImpl * partition) const;
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
   void convBisect(PartitionNodeImpl * parent) const;
   void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,

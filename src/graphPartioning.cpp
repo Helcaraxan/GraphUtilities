@@ -203,51 +203,11 @@ GraphImpl::checkSchedule(vector<int>& schedule) const {
 double
 GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
     IOComplexityType type, int threadCount, const char * tileFile) const {
-  int idx = 0;
   double cost = 0;
-  vector<thread *> workers;
-  string barTitle = "Evaluating nodes ";
+  const PartitionImpl * internalPartition =
+    dynamic_cast<const PartitionImpl *>(partition);
 
-  partCount = 0;
-  configureProgressBar(&barTitle, partition->getNodeCount());
-  resultProgressBar(partCount);
-
-  /* Compute the max-live and IO-costs for all nodes */
-  // Create the required number of worker threads to evaluate partition costs
-  taskPoison = false;
-  for (int i = 0; i < threadCount; i++)
-    workers.push_back(new thread(evaluationWorker, this));
-
-  // Create the initial evaluation task list
-  for (int i = 0, e = getVertexCount(); i < e; i++) {
-    if (!vertices[idx]) {
-      i--;
-    } else {
-      PartitionNode * lf = const_cast<PartitionNode *>(partition->getLeaf(idx));
-      PartitionNodeImpl * leaf = reinterpret_cast<PartitionNodeImpl *>(lf);
-      taskQueue.push(new PartitionTask(leaf, nullptr, nullptr));
-    }
-
-    idx++;
-  }
-
-  // Moniter the node count actively
-  do {
-    resultProgressBar(partCount);
-    this_thread::sleep_for(chrono::milliseconds(100));
-  } while (partCount < partition->getNodeCount());
-
-  resultProgressBar(partCount);
-  cout << "\n";
-
-  // Terminate workers when the evaluation is finished
-  taskPoison = true;
-  while (!workers.empty()) {
-    workers.back()->join();
-
-    delete workers.back();
-    workers.pop_back();
-  }
+  computePartitionNodeCosts(const_cast<PartitionImpl *>(internalPartition));
 
   // Open the tile dump file if provided
   fstream tileStream;
@@ -292,12 +252,14 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
   switch (type) {
     case TotalLoads:
       return cost;
+
     case AvgLoadStore:
       cost /= getVertexCount();
       if (cost < (double) 10 / (double) getVertexCount())
         return 0.0;
       else
         return cost;
+
     default:
       break;
   }
@@ -313,106 +275,79 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
 // Internal partitioning query functions
 
 void
-GraphImpl::computePartitionNodeCost(PartitionNodeImpl * node) const {
-  vector<Vertex::IdSet *> childSets;
+GraphImpl::computePartitionNodeCosts(PartitionImpl * partition) const {
+  vector<int> schedule;
+  stack<PartitionNodeImpl *> workQueue;
+  Vertex * curr, * pred, * succ;
+  PartitionNodeImpl * sourceNode, * targetNode, * subTree;
 
-  // Create the new ID set for the current node
-  Vertex::IdSet * idSet = new Vertex::IdSet();
-  SetMap::accessor acc;
+  partition->extractSchedule(schedule);
 
-  if (groups.insert(acc, node)) {
-    acc->second = idSet;
-    acc.release();
-  } else {
-    cerr << "ERROR: Failed to insert an ID set for a PartitionNode.\n";
-    exit(EXIT_FAILURE);
+  // Compute the IO and export costs
+  for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it) {
+    set<PartitionNodeImpl *> targetNodes;
+
+    curr = getVertex(*it);
+    targetNode = partition->representants[*it];
+
+    for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+      pred = curr->getPredecessor(i);
+      sourceNode = partition->representants[pred->getId()];
+
+      subTree = partition->getSubTree(sourceNode, targetNode);
+      subTree->ioCost++;
+    }
+
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      succ = curr->getSuccessor(i);
+      sourceNode = partition->representants[succ->getId()];
+
+      subTree = partition->getSubTree(sourceNode, targetNode);
+      targetNodes.insert(subTree);
+    }
+
+    while (targetNode) {
+      if (targetNodes.count(targetNode)) {
+        targetNode->exportCost++;
+        break;
+      }
+
+      targetNode = targetNode->parent;
+    }
   }
 
-  if (node->id != -1) {
-    // In the case of a leaf node just instantiate the right values
-    idSet->insert(node->id);
+  workQueue.push(partition->root);
+  while (!workQueue.empty()) {
+    sourceNode = workQueue.top();
 
-    node->maxLive = 1;
-    node->ioCost = 0;
-  } else {
-    // For a higher-level node retrieve the child node's ID sets
-    for (int i = 0, e = node->children.size(); i < e; i++) {
-      Vertex::IdSet * childSet = nullptr;
+    if (sourceNode->id != -1) {
+      workQueue.pop();
 
-      groups.find(acc, node->children[i]);
-      childSet = acc->second;
+      sourceNode->maxLive = 1;
 
-      if (!childSet) {
-        cerr << "ERROR: A child PartitionNode was not evaluated yet.\n";
+      if (sourceNode->parent)
+        sourceNode->parent->evaluatedChildren++;
+    } else if (sourceNode->evaluatedChildren == 0) {
+      for (int i = 0, e = sourceNode->children.size(); i < e; i++)
+        workQueue.push(sourceNode->children[i]);
+    } else {
+      workQueue.pop();
+
+      if (sourceNode->evaluatedChildren != (int) sourceNode->children.size()) {
+        cerr << "ERROR: Did not evaluate all children for a PartitionNode.\n";
         exit(EXIT_FAILURE);
       }
 
-      groups.erase(acc);
-
-      childSets.push_back(childSet);
-    }
-
-    // Evaluate communications between the child nodes
-    for (int i = 0, e = node->children.size(); i < e; i++) {
-      if (node->maxLive < node->children[i]->maxLive)
-        node->maxLive = node->children[i]->maxLive;
-
-      // Account for communications to each other child node seperatly
-      vector<int> ioCosts(e - i - 1, 0);
-      for (auto it = childSets[i]->begin(), end = childSets[i]->end();
-          it != end; ++it) {
-        bool exported = true;
-        Vertex * curr = getVertex(*it);
-
-        vector<int> localCosts(e - i - 1, 0);
-        for (int j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
-          int target = curr->getSuccessor(j)->getId();
-
-          if (childSets[i]->count(target))
-            exported = false;
-
-          for (int k = i + 1; k < e; k++) {
-            if (childSets[k]->count(target)) {
-              exported = false;
-              localCosts[k - i - 1] = 1;
-              break;
-            }
-          }
-        }
-
-        for (int j = 0; j < e - i - 1; j++)
-          ioCosts[j] += localCosts[j];
-
-        if (curr->getSuccessorCount() && exported)
-          node->exportCost++;
+      sourceNode->maxLive = sourceNode->ioCost;
+      for (int i = 0, e = sourceNode->children.size(); i < e; i++) {
+        if (sourceNode->children[i]->maxLive > sourceNode->maxLive)
+          sourceNode->maxLive = sourceNode->children[i]->maxLive;
       }
 
-      // Update the node's values
-      for (int j = 0; j < e - i - 1; j++) {
-        node->ioCost += ioCosts[j];
-
-        if (node->maxLive < ioCosts[j])
-          node->maxLive = ioCosts[j];
-      }
-    }
-
-    // Except for the root gather the child node's ID sets in the new ID set
-    if (node->parent) {
-      for (int i = 0, e = childSets.size(); i < e; i++) {
-        idSet->insert(childSets[i]->begin(), childSets[i]->end());
-        delete childSets[i];
-      }
+      if (sourceNode->parent)
+        sourceNode->parent->evaluatedChildren++;
     }
   }
-
-  // Check if the parent node is ready to be added to the work queue
-  if (node->parent) {
-    if (++node->parent->evaluatedChildren ==
-        (int) node->parent->children.size())
-      taskQueue.push(new PartitionTask(node->parent, nullptr, nullptr));
-  }
-
-  partCount++;
 }
 
 
@@ -919,6 +854,7 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
   }
 
   // Perform the partitioning
+  taskQueue.push(new PartitionTask(part->root, nullptr, nullptr));
   partitionWorker(this);
   cout << "\n";
 
@@ -1008,7 +944,11 @@ partitionWorker(const GraphImpl * graph) {
     switch (method) {
       case Convexify:
         graph->convBisect(task->node);
+
         resultProgressBar(partCount);
+        if (partCount == (int) graph->getVertexCount())
+          return;
+
         break;
 
       case MaxDistance:
@@ -1034,7 +974,7 @@ evaluationWorker(const GraphImpl * graph) {
         return;
     }
 
-    graph->computePartitionNodeCost(task->node);
+    //graph->computePartitionNodeCost(task->node);
 
     delete task;
   }

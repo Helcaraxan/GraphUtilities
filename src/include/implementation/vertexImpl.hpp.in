@@ -218,9 +218,9 @@ class PartitionNodeImpl : public PartitionNode {
 // Data members
 public:
   int id = -1;
-  int ioCost = -1;
+  int ioCost = 0;
   int maxLive = -1;
-  int exportCost = -1;
+  int exportCost = 0;
   atomic<int> evaluatedChildren{0};
   PartitionNodeImpl * parent = nullptr;
   vector<PartitionNodeImpl *> children;
@@ -281,6 +281,11 @@ public:
   const PartitionNode * getSubTree(int idA, int idB) const;
   int getNodeCount(void) const;
   void extractSchedule(vector<int>& schedule) const;
+
+  /* Implementation methods */
+  // Access
+  PartitionNodeImpl * getSubTree(PartitionNodeImpl * nodeA,
+      PartitionNodeImpl * nodeB) const;
 };
 
 #endif // VERTEX_IMPL_HPP

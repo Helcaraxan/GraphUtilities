@@ -615,3 +615,28 @@ PartitionImpl::extractSchedule(vector<int>& schedule) const {
     }
   }
 }
+
+
+/* Implementation methods */
+
+// Access
+
+PartitionNodeImpl *
+PartitionImpl::getSubTree(PartitionNodeImpl * nodeA,
+    PartitionNodeImpl * nodeB) const {
+  set<PartitionNodeImpl *> candidates;
+
+  while (nodeA) {
+    candidates.insert(nodeA);
+    nodeA = nodeA->parent;
+  }
+
+  while (nodeB) {
+    if (candidates.count(nodeB))
+      break;
+    else
+      nodeB = nodeB->parent;
+  }
+
+  return nodeB;
+}
