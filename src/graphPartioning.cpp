@@ -202,7 +202,7 @@ GraphImpl::checkSchedule(vector<int>& schedule) const {
 
 double
 GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
-    IOComplexityType type, int threadCount, const char * tileFile) const {
+    IOComplexityType type, const char * tileFile) const {
   double cost = 0;
   const PartitionImpl * internalPartition =
     dynamic_cast<const PartitionImpl *>(partition);

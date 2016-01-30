@@ -232,10 +232,9 @@ main(int argc, char * argv[]) {
 
     cout << "\nEvaluating schedule costs:\n";
     if (tileFile.size() > 0)
-      cost = graph->getPartitionCost(part, memorySize, type, threadCount,
-          tileFile.c_str());
+      cost = graph->getPartitionCost(part, memorySize, type, tileFile.c_str());
     else
-      cost = graph->getPartitionCost(part, memorySize, type, threadCount);
+      cost = graph->getPartitionCost(part, memorySize, type);
 
     cout << "Target memory size: " << memorySize << " 32-bit words\n";
     cout << "IO complexity: " << cost << endl;

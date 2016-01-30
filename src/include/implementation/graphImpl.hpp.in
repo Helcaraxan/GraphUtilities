@@ -172,8 +172,7 @@ public:
   const Partition * computeConvexPartition(vector<int>& schedule) const;
   bool checkSchedule(vector<int>& schedule) const;
   double getPartitionCost(const Partition * partition, int memorySize,
-      IOComplexityType type, int threadCount,
-      const char * tileFile = nullptr) const;
+      IOComplexityType type, const char * tileFile = nullptr) const;
 
   // Statistics
   bool getStatisticsEnabled(void);
