@@ -2,6 +2,7 @@
 #define VERTEX_IMPL_HPP
 
 #include <queue>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 
@@ -220,6 +221,7 @@ public:
   int ioCost = -1;
   int maxLive = -1;
   int exportCost = -1;
+  atomic<int> evaluatedChildren{0};
   PartitionNodeImpl * parent = nullptr;
   vector<PartitionNodeImpl *> children;
 
@@ -253,6 +255,7 @@ public:
 class PartitionImpl : public Partition {
 // Data members
 public:
+  atomic<int> nodeCount{0};
   PartitionNodeImpl * root = nullptr;
   vector<IaP<PartitionNodeImpl> > representants;
 
@@ -276,6 +279,7 @@ public:
   const PartitionNode * getRoot(void) const;
   const PartitionNode * getLeaf(int idx) const;
   const PartitionNode * getSubTree(int idA, int idB) const;
+  int getNodeCount(void) const;
   void extractSchedule(vector<int>& schedule) const;
 };
 

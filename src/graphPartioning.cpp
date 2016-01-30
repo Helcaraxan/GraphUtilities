@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include <tbb/concurrent_queue.h>
+#include <tbb/concurrent_hash_map.h>
 
 #include "graph-utilities/implementation/graphImpl.hpp"
 #include "graph-utilities/implementation/patoh.hpp"
@@ -29,6 +30,8 @@ public:
   {}
 };
 
+typedef tbb::concurrent_hash_map<PartitionNodeImpl *, Vertex::IdSet *> SetMap;
+
 
 // File local variables
 
@@ -39,6 +42,7 @@ static vector<int> sizes;
 static vector<int> sourceMax;
 static vector<int> sinkMax;
 static tbb::concurrent_queue<PartitionTask *> taskQueue;
+static SetMap groups;
 static PartitionImpl * part = nullptr;
 static PartitionMethod method = UndefinedPartitionMethod;
 
@@ -76,6 +80,7 @@ mergeUnion(int i, int j) {
 
 const Partition *
 GraphImpl::computeConvexPartition(vector<int>& schedule) const {
+  string barTitle = "Partitioning "; 
   queue<PartitionNodeImpl *> workQueue;
   PartitionImpl * partition = new PartitionImpl(schedule.size());
 
@@ -85,6 +90,10 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
       << endl;
     exit(EXIT_FAILURE);
   }
+
+  partCount = 0;
+  configureProgressBar(&barTitle, vertices.size());
+  resultProgressBar(partCount);
   
   // Set up the partition structure
   partition->root->id = schedule.back();
@@ -109,6 +118,7 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     
     // Create the first child partition
     child = new PartitionNodeImpl(curr);
+    partition->nodeCount++;
 
     child->id = curr->id;
     id = curr->id;
@@ -125,6 +135,7 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     
     // Create the second child partition
     child = new PartitionNodeImpl(curr);
+    partition->nodeCount++;
 
     child->id = nextStart;
     id = nextStart;
@@ -138,7 +149,11 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
       workQueue.push(child);
 
     curr->id = -1;
+
+    resultProgressBar(++partCount);
   }
+
+  cout << "\n";
 
   return partition;
 }
@@ -187,22 +202,64 @@ GraphImpl::checkSchedule(vector<int>& schedule) const {
 
 double
 GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
-    IOComplexityType type, const char * tileFile) const {
+    IOComplexityType type, int threadCount, const char * tileFile) const {
+  int idx = 0;
   double cost = 0;
+  vector<thread *> workers;
+  string barTitle = "Evaluating nodes ";
+
+  partCount = 0;
+  configureProgressBar(&barTitle, partition->getNodeCount());
+  resultProgressBar(partCount);
+
+  /* Compute the max-live and IO-costs for all nodes */
+  // Create the required number of worker threads to evaluate partition costs
+  taskPoison = false;
+  for (int i = 0; i < threadCount; i++)
+    workers.push_back(new thread(evaluationWorker, this));
+
+  // Create the initial evaluation task list
+  for (int i = 0, e = getVertexCount(); i < e; i++) {
+    if (!vertices[idx]) {
+      i--;
+    } else {
+      PartitionNode * lf = const_cast<PartitionNode *>(partition->getLeaf(idx));
+      PartitionNodeImpl * leaf = reinterpret_cast<PartitionNodeImpl *>(lf);
+      taskQueue.push(new PartitionTask(leaf, nullptr, nullptr));
+    }
+
+    idx++;
+  }
+
+  // Moniter the node count actively
+  do {
+    resultProgressBar(partCount);
+    this_thread::sleep_for(chrono::milliseconds(100));
+  } while (partCount < partition->getNodeCount());
+
+  resultProgressBar(partCount);
+  cout << "\n";
+
+  // Terminate workers when the evaluation is finished
+  taskPoison = true;
+  while (!workers.empty()) {
+    workers.back()->join();
+
+    delete workers.back();
+    workers.pop_back();
+  }
+
+  // Open the tile dump file if provided
   fstream tileStream;
+  if (tileFile)
+    tileStream.open(tileFile, ios_base::out);
+
+  // Traverse the partition tree for the IO complexity evaluation
   queue<PartitionNodeImpl *> workQueue;
   PartitionNodeImpl * curr =
     dynamic_cast<const PartitionImpl *>(partition)->root;
 
-  // Compute the max-live and IO-costs for all nodes
-  computePartitionNodeCosts(type, curr);
-
-  // Open the tile dump file if provided
-  if (tileFile)
-    tileStream.open(tileFile, ios_base::out);
-
   workQueue.push(curr);
-
   while (!workQueue.empty()) {
     curr = workQueue.front();
     workQueue.pop();
@@ -256,79 +313,106 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
 // Internal partitioning query functions
 
 void
-GraphImpl::computePartitionNodeCosts(IOComplexityType type, PartitionNodeImpl *
-    node, Vertex::IdSet * group) const {
+GraphImpl::computePartitionNodeCost(PartitionNodeImpl * node) const {
   vector<Vertex::IdSet *> childSets;
 
-  // In the case of a leaf node just instantiate the right values
+  // Create the new ID set for the current node
+  Vertex::IdSet * idSet = new Vertex::IdSet();
+  SetMap::accessor acc;
+
+  if (groups.insert(acc, node)) {
+    acc->second = idSet;
+    acc.release();
+  } else {
+    cerr << "ERROR: Failed to insert an ID set for a PartitionNode.\n";
+    exit(EXIT_FAILURE);
+  }
+
   if (node->id != -1) {
+    // In the case of a leaf node just instantiate the right values
+    idSet->insert(node->id);
+
     node->maxLive = 1;
     node->ioCost = 0;
+  } else {
+    // For a higher-level node retrieve the child node's ID sets
+    for (int i = 0, e = node->children.size(); i < e; i++) {
+      Vertex::IdSet * childSet = nullptr;
 
-    if (group)
-      group->insert(node->id);
+      groups.find(acc, node->children[i]);
+      childSet = acc->second;
 
-    return;
-  }
-
-  // Recursively compute the values for the child nodes
-  for (int i = 0, e = node->children.size(); i < e; i++) {
-    childSets.push_back(new Vertex::IdSet());
-    computePartitionNodeCosts(type, node->children[i], childSets.back());
-  }
-
-  // Evaluate communications between the child nodes
-  for (int i = 0, e = node->children.size(); i < e; i++) {
-    if (node->maxLive < node->children[i]->maxLive)
-      node->maxLive = node->children[i]->maxLive;
-    
-    // Account for communications to each other child node seperatly
-    vector<int> ioCosts(e - i - 1, 0);
-    for (auto it = childSets[i]->begin(), end = childSets[i]->end();
-        it != end; ++it) {
-      bool exported = true;
-      Vertex * curr = getVertex(*it);
-
-      vector<int> localCosts(e - i - 1, 0);
-      for (int j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
-        int target = curr->getSuccessor(j)->getId();
-
-        if (childSets[i]->count(target))
-          exported = false;
-
-        for (int k = i + 1; k < e; k++) {
-          if (childSets[k]->count(target)) {
-            exported = false;
-            localCosts[k - i - 1] = 1;
-            break;
-          }
-        }
+      if (!childSet) {
+        cerr << "ERROR: A child PartitionNode was not evaluated yet.\n";
+        exit(EXIT_FAILURE);
       }
 
-      for (int j = 0; j < e - i - 1; j++)
-        ioCosts[j] += localCosts[j];
+      groups.erase(acc);
 
-      if (curr->getSuccessorCount() && exported)
-        node->exportCost++;
+      childSets.push_back(childSet);
     }
 
-    // Update the node's values
-    for (int j = 0; j < e - i - 1; j++) {
-      node->ioCost += ioCosts[j];
+    // Evaluate communications between the child nodes
+    for (int i = 0, e = node->children.size(); i < e; i++) {
+      if (node->maxLive < node->children[i]->maxLive)
+        node->maxLive = node->children[i]->maxLive;
 
-      if (node->maxLive < ioCosts[j])
-        node->maxLive = ioCosts[j];
+      // Account for communications to each other child node seperatly
+      vector<int> ioCosts(e - i - 1, 0);
+      for (auto it = childSets[i]->begin(), end = childSets[i]->end();
+          it != end; ++it) {
+        bool exported = true;
+        Vertex * curr = getVertex(*it);
+
+        vector<int> localCosts(e - i - 1, 0);
+        for (int j = 0, e2 = curr->getSuccessorCount(); j < e2; j++) {
+          int target = curr->getSuccessor(j)->getId();
+
+          if (childSets[i]->count(target))
+            exported = false;
+
+          for (int k = i + 1; k < e; k++) {
+            if (childSets[k]->count(target)) {
+              exported = false;
+              localCosts[k - i - 1] = 1;
+              break;
+            }
+          }
+        }
+
+        for (int j = 0; j < e - i - 1; j++)
+          ioCosts[j] += localCosts[j];
+
+        if (curr->getSuccessorCount() && exported)
+          node->exportCost++;
+      }
+
+      // Update the node's values
+      for (int j = 0; j < e - i - 1; j++) {
+        node->ioCost += ioCosts[j];
+
+        if (node->maxLive < ioCosts[j])
+          node->maxLive = ioCosts[j];
+      }
+    }
+
+    // Except for the root gather the child node's ID sets in the new ID set
+    if (node->parent) {
+      for (int i = 0, e = childSets.size(); i < e; i++) {
+        idSet->insert(childSets[i]->begin(), childSets[i]->end());
+        delete childSets[i];
+      }
     }
   }
 
-  // Except for the root node call gather the IDs of the vertices member of the
-  // current node's partition
-  if (group) {
-    for (int i = 0, e = childSets.size(); i < e; i++) {
-      group->insert(childSets[i]->begin(), childSets[i]->end());
-      delete childSets[i];
-    }
+  // Check if the parent node is ready to be added to the work queue
+  if (node->parent) {
+    if (++node->parent->evaluatedChildren ==
+        (int) node->parent->children.size())
+      taskQueue.push(new PartitionTask(node->parent, nullptr, nullptr));
   }
+
+  partCount++;
 }
 
 
@@ -401,7 +485,7 @@ GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
 
 
 void
-GraphImpl::convBisect(PartitionNodeImpl * parent) {
+GraphImpl::convBisect(PartitionNodeImpl * parent) const {
   HGraph * hyperGraph = nullptr;
   Vertex::IdSet idSet;
   vector<int> convPart;
@@ -541,6 +625,8 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
   int memberB = -1;
   PartitionNodeImpl * childA = new PartitionNodeImpl(parent);
   PartitionNodeImpl * childB = new PartitionNodeImpl(parent);
+  part->nodeCount++;
+  part->nodeCount++;
 
   ptr = parent->id;
   do {
@@ -587,7 +673,7 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) {
 
 void
 GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
-    Vertex::IdSet * sinkSet) {
+    Vertex::IdSet * sinkSet) const {
   /* Create the target set of vertex IDs */
   Vertex::IdSet idSet;
   IaP<PartitionNodeImpl> id = parent->id;
@@ -631,6 +717,7 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
         subParts[target] = new PartitionNodeImpl(parent);
         subSources[target] = new Vertex::IdSet();
         subSinks[target] = new Vertex::IdSet();
+        part->nodeCount++;
 
         subParts[target]->id = *it;
         part->representants[*it] = subParts[target];
@@ -777,6 +864,8 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
     PartitionNodeImpl * subPartB = new PartitionNodeImpl(parent);
     IaP<PartitionNodeImpl> ptrA = subPartA;
     IaP<PartitionNodeImpl> ptrB = subPartB;
+    part->nodeCount++;
+    part->nodeCount++;
 
     for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
       if (sourceMax[*it] < sinkMax[*it]) {
@@ -907,7 +996,7 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
 
 
 void
-partitionWorker(GraphImpl * graph) {
+partitionWorker(const GraphImpl * graph) {
   PartitionTask * task = nullptr;
 
   while (true) {
@@ -929,6 +1018,23 @@ partitionWorker(GraphImpl * graph) {
       case UndefinedPartitionMethod:
         return;
     }
+
+    delete task;
+  }
+}
+
+
+void
+evaluationWorker(const GraphImpl * graph) {
+  PartitionTask * task = nullptr;
+
+  while (true) {
+    while (!taskQueue.try_pop(task)) {
+      if (taskPoison)
+        return;
+    }
+
+    graph->computePartitionNodeCost(task->node);
 
     delete task;
   }

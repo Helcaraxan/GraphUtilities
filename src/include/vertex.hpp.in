@@ -661,6 +661,16 @@ public:
   virtual const PartitionNode * getSubTree(int idA, int idB) const = 0;
 
   /*!
+   * \brief Get the number of PartitionNodes that are used for this Partition.
+   *
+   * Retrieve the number of instances of the PartionNode class that are used
+   * within this Partition class instance.
+   *
+   * \return Number of PartitionNode instances in this Partition.
+   */
+  virtual int getNodeCount(void) const = 0;
+
+  /*!
    * \brief Extract the induced scheduling from this Partition.
    *
    * Fill the provided vector with the IDs of the vertices in this Partition

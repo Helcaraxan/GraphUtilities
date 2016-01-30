@@ -579,6 +579,12 @@ PartitionImpl::getSubTree(int idA, int idB) const {
 }
 
 
+int
+PartitionImpl::getNodeCount() const {
+  return nodeCount;
+}
+
+
 void
 PartitionImpl::extractSchedule(vector<int>& schedule) const {
   unsigned int depth = 1;

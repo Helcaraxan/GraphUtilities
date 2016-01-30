@@ -228,16 +228,17 @@ main(int argc, char * argv[]) {
 
   // Perform IO complexity evaluation if required
   if (type != UndefinedIOType) {
-    cout << "\nEvaluating schedule costs:\n";
-    cout << "Target memory size: " << memorySize << " 32-bit words\n";
-    cout.flush();
+    int cost = -1;
 
-    cout << "IO complexity: ";
+    cout << "\nEvaluating schedule costs:\n";
     if (tileFile.size() > 0)
-      cout << graph->getPartitionCost(part, memorySize, type, tileFile.c_str())
-        << endl;
+      cost = graph->getPartitionCost(part, memorySize, type, threadCount,
+          tileFile.c_str());
     else
-      cout << graph->getPartitionCost(part, memorySize, type) << endl;
+      cost = graph->getPartitionCost(part, memorySize, type, threadCount);
+
+    cout << "Target memory size: " << memorySize << " 32-bit words\n";
+    cout << "IO complexity: " << cost << endl;
   }
 
   // Dump the schedule when requested

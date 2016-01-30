@@ -493,6 +493,8 @@ public:
    * \param memorySize Size of the memory-size for which we want to evaluate the
    * IO-cost.
    * \param type Evaluation metric for IO complexity.
+   * \param threadCount Number of threads to use in parallel to compute the IO
+   * complexity.
    * \param tileFile Name of file to which the tiles used for the IO complexity
    * are dumped.
    *
@@ -500,7 +502,8 @@ public:
    * specified metric.
    */
   virtual double getPartitionCost(const Partition * partition, int memorySize,
-      IOComplexityType type, const char * tileFile = nullptr) const = 0;
+      IOComplexityType type, int threadCount,
+      const char * tileFile = nullptr) const = 0;
 
   ////////////////
   // Statistics //

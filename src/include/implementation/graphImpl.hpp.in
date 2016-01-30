@@ -172,7 +172,8 @@ public:
   const Partition * computeConvexPartition(vector<int>& schedule) const;
   bool checkSchedule(vector<int>& schedule) const;
   double getPartitionCost(const Partition * partition, int memorySize,
-      IOComplexityType type, const char * tileFile = nullptr) const;
+      IOComplexityType type, int threadCount,
+      const char * tileFile = nullptr) const;
 
   // Statistics
   bool getStatisticsEnabled(void);
@@ -232,12 +233,11 @@ public:
 #else // ENABLE_TLS
   void processPartitionQuery(PartitionQueryImpl * query, int threadId);
 #endif // ENABLE_TLS
-  void computePartitionNodeCosts(IOComplexityType type,
-      PartitionNodeImpl * node, Vertex::IdSet * group = nullptr) const;
+  void computePartitionNodeCost(PartitionNodeImpl * node) const;
   HGraph * getHGraph(Vertex::IdSet& idSet) const;
-  void convBisect(PartitionNodeImpl * parent);
+  void convBisect(PartitionNodeImpl * parent) const;
   void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
-      Vertex::IdSet * sinkSet);
+      Vertex::IdSet * sinkSet) const;
   void partitionConvexify(PartitionQueryImpl * query);
   void partitionMaxDistance(PartitionQueryImpl * query);
 
@@ -288,9 +288,10 @@ public:
 void queryWorker(GraphImpl * graph, int threadId);
 
 
-// The worker function for graph partitioning
+// The worker functions for graph partitioning
 
-void partitionWorker(GraphImpl * graph);
+void partitionWorker(const GraphImpl * graph);
+void evaluationWorker(const GraphImpl * graph);
 
 
 #endif // GRAPH_IMPL_HPP
