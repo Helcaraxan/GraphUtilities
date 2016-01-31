@@ -205,7 +205,8 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
   const PartitionImpl * internalPartition =
     dynamic_cast<const PartitionImpl *>(partition);
 
-  computePartitionNodeCosts(const_cast<PartitionImpl *>(internalPartition));
+  if (internalPartition->root->maxLive == -1)
+    computePartitionNodeCosts(const_cast<PartitionImpl *>(internalPartition));
 
   // Open the tile dump file if provided
   fstream tileStream;
@@ -961,23 +962,6 @@ partitionWorker(const GraphImpl * graph) {
       case UndefinedPartitionMethod:
         return;
     }
-
-    delete task;
-  }
-}
-
-
-void
-evaluationWorker(const GraphImpl * graph) {
-  PartitionTask * task = nullptr;
-
-  while (true) {
-    while (!taskQueue.try_pop(task)) {
-      if (taskPoison)
-        return;
-    }
-
-    //graph->computePartitionNodeCost(task->node);
 
     delete task;
   }

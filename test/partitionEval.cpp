@@ -52,7 +52,7 @@ int
 main(int argc, char * argv[]) {
   int c;
   int threadCount = 1;
-  int memorySize = 256;
+  set<int> memorySizes;
   string graphFile = "", schedFile = "", tileFile = "";
   Graph * graph = nullptr;
   PartitionQuery * pQuery = nullptr;
@@ -105,7 +105,7 @@ main(int argc, char * argv[]) {
           printHelpMessage();
           exit(EXIT_FAILURE);
         } else {
-          memorySize = atoi(optarg);
+          memorySizes.insert(atoi(optarg));
         }
         break;
 
@@ -228,16 +228,26 @@ main(int argc, char * argv[]) {
 
   // Perform IO complexity evaluation if required
   if (type != UndefinedIOType) {
-    double cost = -1;
+    if ((tileFile.size() > 0) && memorySizes.size() > 1) {
+      cerr << "ERROR: Can not dump tiles to file with multiple specified memory "
+        << " sizes.\n";
+      exit(EXIT_FAILURE);
+    } else if (memorySizes.empty()) {
+      memorySizes.insert(256);
+    }
 
-    cout << "\nEvaluating schedule costs:\n";
-    if (tileFile.size() > 0)
-      cost = graph->getPartitionCost(part, memorySize, type, tileFile.c_str());
-    else
-      cost = graph->getPartitionCost(part, memorySize, type);
+    for (const int &size : memorySizes) {
+      double cost = -1;
 
-    cout << "Target memory size: " << memorySize << " 32-bit words\n";
-    cout << "IO complexity: " << cost << endl;
+      cout << "\nEvaluating schedule costs:\n";
+      if (tileFile.size() > 0)
+        cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
+      else
+        cost = graph->getPartitionCost(part, size, type);
+
+      cout << "Target memory size: " << size << " 32-bit words\n";
+      cout << "IO complexity: " << cost << "\n" << endl;
+    }
   }
 
   // Dump the schedule when requested

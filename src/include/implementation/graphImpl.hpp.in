@@ -287,10 +287,9 @@ public:
 void queryWorker(GraphImpl * graph, int threadId);
 
 
-// The worker functions for graph partitioning
+// The worker function for graph partitioning
 
 void partitionWorker(const GraphImpl * graph);
-void evaluationWorker(const GraphImpl * graph);
 
 
 #endif // GRAPH_IMPL_HPP
