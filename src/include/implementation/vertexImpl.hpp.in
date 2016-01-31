@@ -255,7 +255,7 @@ public:
 class PartitionImpl : public Partition {
 // Data members
 public:
-  atomic<int> nodeCount{0};
+  atomic<int> nodeCount{1};
   PartitionNodeImpl * root = nullptr;
   vector<IaP<PartitionNodeImpl> > representants;
 

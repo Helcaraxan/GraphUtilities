@@ -82,7 +82,7 @@ const Partition *
 GraphImpl::computeConvexPartition(vector<int>& schedule) const {
   string barTitle = "Partitioning "; 
   queue<PartitionNodeImpl *> workQueue;
-  PartitionImpl * partition = new PartitionImpl(schedule.size());
+  PartitionImpl * partition = new PartitionImpl(vertices.size());
 
   // Check the provided schedule's validity
   if (!checkSchedule(schedule)) {
@@ -92,7 +92,7 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
   }
 
   partCount = 0;
-  configureProgressBar(&barTitle, vertices.size());
+  configureProgressBar(&barTitle, getVertexCount());
   resultProgressBar(partCount);
   
   // Set up the partition structure
@@ -128,10 +128,11 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     IaP<PartitionNodeImpl> nextStart = partition->representants[id];
 
     partition->representants[id] = child;
-    curr->children.push_back(child);
 
     if ((memberCount / 2) > 1)
       workQueue.push(child);
+    else
+      resultProgressBar(++partCount);
     
     // Create the second child partition
     child = new PartitionNodeImpl(curr);
@@ -142,15 +143,12 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     while (id.isInteger())
       id = partition->representants[id];
 
-    partition->representants[id] = child;
-    curr->children.push_back(child);
-
     if ((memberCount / 2 + memberCount % 2) > 1)
       workQueue.push(child);
+    else
+      resultProgressBar(++partCount);
 
     curr->id = -1;
-
-    resultProgressBar(++partCount);
   }
 
   cout << "\n";
@@ -837,7 +835,7 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) {
   string barTitle = "Partitioning ";
 
   partCount = 0;
-  configureProgressBar(&barTitle, vertices.size());
+  configureProgressBar(&barTitle, getVertexCount());
   resultProgressBar(partCount);
 
   // Construct the target Partition instance
@@ -872,7 +870,7 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) {
   string barTitle = "Partitioning ";
 
   partCount = 0;
-  configureProgressBar(&barTitle, vertices.size());
+  configureProgressBar(&barTitle, getVertexCount());
   resultProgressBar(partCount);
 
   // Construct the target Partition instance
