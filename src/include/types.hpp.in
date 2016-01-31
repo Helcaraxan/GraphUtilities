@@ -75,12 +75,16 @@ typedef enum {
  * bisection the partition is verified for connectivity. If the partition is not
  * connex then a straightforward multi-section is done between the
  * connex-compononents of the partition.
+ * \li \b PaToH Recursive bisection performed with the PaToH library. This does
+ * not result in convex partitions. It can be used for comparative measures
+ * w.r.t the other methods.
  *
  * \sa createPQuery()
  */
 typedef enum {
   Convexify,
   MaxDistance,
+  PaToH,
   UndefinedPartitionMethod
 } PartitionMethod;
 

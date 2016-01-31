@@ -92,6 +92,8 @@ main(int argc, char * argv[]) {
           method = Convexify;
         } else if (!strcmp(optarg, "MaxDistance")) {
           method = MaxDistance;
+        } else if (!strcmp(optarg, "PaToH")) {
+          method = PaToH;
         } else {
           cerr << "ERROR: Unknown argument to --method." << endl;
           printHelpMessage();
@@ -215,10 +217,11 @@ main(int argc, char * argv[]) {
   // Retrieve the scheduling that is implied by the Partition instance if
   // necessary
   vector<int> schedule;
-  if ((type != UndefinedIOType) || (schedFile.size() > 0)) {
+  if (((type != UndefinedIOType) || (schedFile.size() > 0))
+      && (method != PaToH)) {
     part->extractSchedule(schedule);
 
-    // Check the schedule for validity
+    // Check the schedule for validity except for PaToH partitioning
     cout << "\nVerifying scheduling... ";
     if (graph->checkSchedule(schedule))
       cout << "VALID" << endl;
@@ -239,7 +242,7 @@ main(int argc, char * argv[]) {
     for (const int &size : memorySizes) {
       double cost = -1;
 
-      cout << "\nEvaluating schedule costs:\n";
+      cout << "\nEvaluating partition costs:\n";
       if (tileFile.size() > 0)
         cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
       else

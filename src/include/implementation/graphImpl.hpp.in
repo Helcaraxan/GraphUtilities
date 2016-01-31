@@ -237,8 +237,10 @@ public:
   void convBisect(PartitionNodeImpl * parent) const;
   void maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
       Vertex::IdSet * sinkSet) const;
-  void partitionConvexify(PartitionQueryImpl * query);
-  void partitionMaxDistance(PartitionQueryImpl * query);
+  void patohBisect(PartitionNodeImpl * parent) const;
+  void partitionConvexify(PartitionQueryImpl * query) const;
+  void partitionMaxDistance(PartitionQueryImpl * query) const;
+  void partitionPaToH(PartitionQueryImpl * query) const;
 
   // Graph coarsening
   /*!
