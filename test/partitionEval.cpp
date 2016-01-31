@@ -228,7 +228,7 @@ main(int argc, char * argv[]) {
 
   // Perform IO complexity evaluation if required
   if (type != UndefinedIOType) {
-    int cost = -1;
+    double cost = -1;
 
     cout << "\nEvaluating schedule costs:\n";
     if (tileFile.size() > 0)

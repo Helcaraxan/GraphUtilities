@@ -284,6 +284,7 @@ GraphImpl::computePartitionNodeCosts(PartitionImpl * partition) const {
   // Compute the IO and export costs
   for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it) {
     set<PartitionNodeImpl *> targetNodes;
+    vector<PartitionNodeImpl *> parents;
 
     curr = getVertex(*it);
     targetNode = partition->representants[*it];
@@ -305,12 +306,16 @@ GraphImpl::computePartitionNodeCosts(PartitionImpl * partition) const {
     }
 
     while (targetNode) {
-      if (targetNodes.count(targetNode)) {
-        targetNode->exportCost++;
+      parents.push_back(targetNode);
+      targetNode = targetNode->parent;
+    }
+
+    for (auto it2 = parents.rbegin(), end2 = parents.rend();
+        it2 != end2; ++it2) {
+      if (targetNodes.count(*it2)) {
+        (*it2)->exportCost++;
         break;
       }
-
-      targetNode = targetNode->parent;
     }
   }
 
