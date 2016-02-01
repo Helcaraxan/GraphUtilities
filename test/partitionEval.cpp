@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <algorithm>
 
 #include <getopt.h>
 
@@ -24,6 +25,7 @@ static const struct option longopts[] = {
   {"memory",          required_argument, 0, 'M'},
   {"threads",         required_argument, 0, 't'},
   {"partition-count", required_argument, 0, 'p'},
+  {"original",        no_argument,       0, 'o'},
   {"help",            no_argument,       0, 'h'},
   {0,0,0,0}
 };
@@ -44,6 +46,7 @@ printHelpMessage() {
   cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
   cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning (only for MaxDistance).\n";
   cout << "\nMiscellaneous options:\n";
+  cout << "\t-o | --original\t\tEvaluate the original scheduling's IO complexity (works only with -e | --evaluation).\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
 }
 
@@ -55,6 +58,7 @@ main(int argc, char * argv[]) {
   int c;
   int threadCount = 1;
   int partitionCount = 0;
+  bool evaluateOriginal = false;
   set<int> memorySizes;
   string graphFile = "", schedFile = "", tileFile = "";
   Graph * graph = nullptr;
@@ -64,7 +68,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:p:h", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:p:oh", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -132,6 +136,10 @@ main(int argc, char * argv[]) {
         } else {
           partitionCount = atoi(optarg);
         }
+        break;
+
+      case 'o':
+        evaluateOriginal = true;
         break;
 
       case 'h':
@@ -226,8 +234,7 @@ main(int argc, char * argv[]) {
   cout.flush();
 
 
-  // Retrieve the scheduling that is implied by the Partition instance if
-  // necessary
+  // Retrieve the scheduling implied by the Partition instance if necessary
   vector<int> schedule;
   if (((type != UndefinedIOType) || (schedFile.size() > 0))
       && (method != PaToH)) {
@@ -239,10 +246,36 @@ main(int argc, char * argv[]) {
       cout << "VALID" << "\n" << endl;
     else
       cout << "INVALID" << "\n" << endl;
+
+    // Dump the schedule when requested
+    if (schedFile.size() > 0) {
+      fstream schedStream(schedFile.c_str(), ios_base::out);
+
+      if (!schedStream.good()) {
+        cerr << "\nERROR: Could not open the specified schedule dump file.\n";
+        exit(EXIT_FAILURE);
+      }
+
+      cout << "\nDumping schedule...";
+      cout.flush();
+
+      for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it)
+        schedStream << *it << "\n";
+
+      schedStream.close();
+
+      cout << " DONE" << endl;
+    }
+  } else if ((schedFile.size() > 0) && (method == PaToH)) {
+    cerr << "WARNING: Can not dump schedule for PaToH partitioning. It would "
+      << "not be valid.\n";
+    exit(EXIT_FAILURE);
   }
 
   // Perform IO complexity evaluation if required
   if (type != UndefinedIOType) {
+    const Partition * origPart = nullptr;
+
     if ((tileFile.size() > 0) && memorySizes.size() > 1) {
       cerr << "ERROR: Can not dump tiles to file with multiple specified memory "
         << " sizes.\n";
@@ -251,38 +284,31 @@ main(int argc, char * argv[]) {
       memorySizes.insert(256);
     }
 
+    if (evaluateOriginal) {
+      iota(schedule.begin(), schedule.end(), 0);
+      origPart = graph->computeConvexPartition(schedule);
+    }
+
+    cout << "Evaluating partition costs:\n";
     for (const int &size : memorySizes) {
       double cost = -1;
 
-      cout << "Evaluating partition costs:\n";
+      cout << "- Target memory size: " << size << " 32-bit words" << endl;
+
       if (tileFile.size() > 0)
         cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
       else
         cost = graph->getPartitionCost(part, size, type);
 
-      cout << "Target memory size: " << size << " 32-bit words\n";
-      cout << "IO complexity: " << cost << "\n" << endl;
+      cout << "  Partition IO complexity: " << cost << endl;
+
+      if (evaluateOriginal) {
+        cost = graph->getPartitionCost(origPart, size, type);
+        cout << "  Original schedule IO complexity: " << cost << "\n";
+      }
+
+      cout << endl;
     }
-  }
-
-  // Dump the schedule when requested
-  if (schedFile.size() > 0) {
-    fstream schedStream(schedFile.c_str(), ios_base::out);
-
-    if (!schedStream.good()) {
-      cerr << "\nERROR: Could not open the specified schedule dump file.\n";
-      exit(EXIT_FAILURE);
-    }
-
-    cout << "\nDumping schedule...";
-    cout.flush();
-
-    for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it)
-      schedStream << *it << "\n";
-
-    schedStream.close();
-
-    cout << " DONE" << endl;
   }
 
   // When required perform a comparison on k-way partitioning
