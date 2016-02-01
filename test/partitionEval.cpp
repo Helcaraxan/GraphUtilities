@@ -16,14 +16,15 @@ using namespace std;
 // Command-line option specifications
 
 static const struct option longopts[] = {
-  {"graph",      required_argument, 0, 'g'},
-  {"schedule",   required_argument, 0, 's'},
-  {"tile",       required_argument, 0, 'T'},
-  {"evaluation", required_argument, 0, 'e'},
-  {"method",     required_argument, 0, 'm'},
-  {"memory",     required_argument, 0, 'M'},
-  {"threads",    required_argument, 0, 't'},
-  {"help",       no_argument,       0, 'h'},
+  {"graph",           required_argument, 0, 'g'},
+  {"schedule",        required_argument, 0, 's'},
+  {"tile",            required_argument, 0, 'T'},
+  {"evaluation",      required_argument, 0, 'e'},
+  {"method",          required_argument, 0, 'm'},
+  {"memory",          required_argument, 0, 'M'},
+  {"threads",         required_argument, 0, 't'},
+  {"partition-count", required_argument, 0, 'p'},
+  {"help",            no_argument,       0, 'h'},
   {0,0,0,0}
 };
 
@@ -37,6 +38,7 @@ printHelpMessage() {
   cout << "\t-s | --schedule=<file>\t\tFile to which the schedule produced by the partition will be dumped.\n";
   cout << "\t-T | --tile=<file>\t\tFile to which to dump the tiles created for IO complexity evaluation.\n";
   cout << "Partition options:\n";
+  cout << "\t-p | --partition-count=<int>\tNumber of partitions to create with the PaToH library.\n";
   cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
   cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
   cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
@@ -52,6 +54,7 @@ int
 main(int argc, char * argv[]) {
   int c;
   int threadCount = 1;
+  int partitionCount = 0;
   set<int> memorySizes;
   string graphFile = "", schedFile = "", tileFile = "";
   Graph * graph = nullptr;
@@ -61,7 +64,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:h", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:p:h", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -121,6 +124,16 @@ main(int argc, char * argv[]) {
         }
         break;
 
+      case 'p':
+        if (!isdigit(optarg[0])) {
+          cerr << "ERROR: The -p | --partition-count argument is not a number\n";
+          printHelpMessage();
+          exit(EXIT_FAILURE);
+        } else {
+          partitionCount = atoi(optarg);
+        }
+        break;
+
       case 'h':
         printHelpMessage();
         exit(EXIT_SUCCESS);
@@ -157,7 +170,6 @@ main(int argc, char * argv[]) {
     printHelpMessage();
     exit(EXIT_FAILURE);
   }
-
 
   // Set the indexing method in case it is needed and start worker threads
   graph->setIndexMethod(Standard);
@@ -210,7 +222,7 @@ main(int argc, char * argv[]) {
   cout << "\nPartition statistics:\n";
   cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
   cout << "Minimum depth: " << minLevel << "\n";
-  cout << "Maximum depth: " << maxLevel << "\n";
+  cout << "Maximum depth: " << maxLevel << "\n" << endl;
   cout.flush();
 
 
@@ -222,11 +234,11 @@ main(int argc, char * argv[]) {
     part->extractSchedule(schedule);
 
     // Check the schedule for validity except for PaToH partitioning
-    cout << "\nVerifying scheduling... ";
+    cout << "Verifying scheduling... ";
     if (graph->checkSchedule(schedule))
-      cout << "VALID" << endl;
+      cout << "VALID" << "\n" << endl;
     else
-      cout << "INVALID" << endl;
+      cout << "INVALID" << "\n" << endl;
   }
 
   // Perform IO complexity evaluation if required
@@ -242,7 +254,7 @@ main(int argc, char * argv[]) {
     for (const int &size : memorySizes) {
       double cost = -1;
 
-      cout << "\nEvaluating partition costs:\n";
+      cout << "Evaluating partition costs:\n";
       if (tileFile.size() > 0)
         cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
       else
@@ -273,6 +285,22 @@ main(int argc, char * argv[]) {
     cout << " DONE" << endl;
   }
 
+  // When required perform a comparison on k-way partitioning
+  if (partitionCount) {
+    int cutCost = 0;
+    cout << "Using PaToH for a " << partitionCount << "-way partitioning." << endl;
+
+    cutCost = graph->getCutCost(partitionCount);
+    cout << "PaToH cut-cost: " << cutCost << "\n\n";
+
+    cout << "Perform a " << partitionCount << "-way partitioning on the "
+      << "computed partition." << endl;
+
+    cutCost = graph->getCutCost(part, partitionCount);
+    cout << "Hierarchical cut-cost: " << cutCost << endl;
+  }
+
+  // Final clean-up
   delete part;
   delete pQuery;
   delete graph;

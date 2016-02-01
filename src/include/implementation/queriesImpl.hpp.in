@@ -7,7 +7,7 @@ class PartitionQueryImpl;
 class ReachabilityQueryImpl;
 
 
-#include "graph-utilities/queries.hpp"
+#include "graph-utilities/graph.hpp"
 
 #include "graph-utilities/implementation/defs.hpp"
 #include "graph-utilities/implementation/graphImpl.hpp"

@@ -173,6 +173,8 @@ public:
   bool checkSchedule(vector<int>& schedule) const;
   double getPartitionCost(const Partition * partition, int memorySize,
       IOComplexityType type, const char * tileFile = nullptr) const;
+  int getCutCost(int partitionCount) const;
+  int getCutCost(const Partition * partition, int partitionCount) const;
 
   // Statistics
   bool getStatisticsEnabled(void);

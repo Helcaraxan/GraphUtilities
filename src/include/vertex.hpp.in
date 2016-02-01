@@ -671,6 +671,15 @@ public:
   virtual int getNodeCount(void) const = 0;
 
   /*!
+   * \brief Retrieve the PartitionMethod used to obtain this Partition instance.
+   *
+   * Retrieve the method that was used to create this Partition instance.
+   *
+   * \return Method with which this Partition instance was created.
+   */
+  virtual PartitionMethod getMethod(void) const = 0;
+
+  /*!
    * \brief Extract the induced scheduling from this Partition.
    *
    * Fill the provided vector with the IDs of the vertices in this Partition

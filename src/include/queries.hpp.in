@@ -7,8 +7,6 @@
 #include <vector>
 #include <condition_variable>
 
-#include "graph-utilities/types.hpp"
-
 using namespace std;
 
 

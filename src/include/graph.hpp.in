@@ -3,6 +3,7 @@
 
 #include <map>
 
+#include "graph-utilities/types.hpp"
 #include "graph-utilities/vertex.hpp"
 #include "graph-utilities/queries.hpp"
 
@@ -501,6 +502,34 @@ public:
    */
   virtual double getPartitionCost(const Partition * partition, int memorySize,
       IOComplexityType type, const char * tileFile = nullptr) const = 0;
+
+  /*!
+   * \brief Compute the cut cost between a given number of partitions.
+   *
+   * Use the PaToH library to create the given number of partitions of
+   * near-equal size. Return the cut cost (hypergraph metric).
+   *
+   * \param partitionCount Number of near-equal sized partitions to create.
+   * 
+   * \return The cut-cost (hypergraph metric) of the created partitions.
+   */
+  virtual int getCutCost(int partitionCount) const = 0;
+
+  /*!
+   * \brief Compute the cut cost between a given number of partitions based on
+   * the specified hierarchical Partition instance.
+   *
+   * Use the pre-computed hierarchical Partition scheme to create the given
+   * number of partitions of near-equal size. Return the cut cost (hypergraph
+   * metric) of the obtained partitioning scheme.
+   *
+   * \param partition Pre-computed Partition instance.
+   * \param partitionCount Number of near-equal sized partitions to create.
+   * 
+   * \return The cut-cost (hypergraph metric) of the created partitions.
+   */
+  virtual int getCutCost(const Partition * partition,
+      int partitionCount) const = 0;
 
   ////////////////
   // Statistics //

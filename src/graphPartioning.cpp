@@ -120,6 +120,7 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     child = new PartitionNodeImpl(curr);
     partition->nodeCount++;
 
+    child->size = memberCount / 2;
     child->id = curr->id;
     id = curr->id;
     for (int i = 1, e = memberCount / 2; i < e; i++)
@@ -129,7 +130,7 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
 
     partition->representants[id] = child;
 
-    if ((memberCount / 2) > 1)
+    if (child->size > 1)
       workQueue.push(child);
     else
       resultProgressBar(++partCount);
@@ -138,12 +139,13 @@ GraphImpl::computeConvexPartition(vector<int>& schedule) const {
     child = new PartitionNodeImpl(curr);
     partition->nodeCount++;
 
+    child->size = memberCount / 2 + memberCount % 2;
     child->id = nextStart;
     id = nextStart;
     while (id.isInteger())
       id = partition->representants[id];
 
-    if ((memberCount / 2 + memberCount % 2) > 1)
+    if (child->size > 1)
       workQueue.push(child);
     else
       resultProgressBar(++partCount);
@@ -205,6 +207,7 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
   const PartitionImpl * internalPartition =
     dynamic_cast<const PartitionImpl *>(partition);
 
+  // If not done yet compute the PartitionNode costs
   if (internalPartition->root->maxLive == -1)
     computePartitionNodeCosts(const_cast<PartitionImpl *>(internalPartition));
 
@@ -268,6 +271,101 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
     tileStream.close();
 
   return -1.0;
+}
+
+
+int
+GraphImpl::getCutCost(int partitionCount) const {
+  HGraph * hyperGraph = nullptr;
+  Vertex::IdSet idSet;
+  vector<int> patohPart;
+
+  // Create the graphs idSet and the associated hyper-graph
+  for (int i = 0, e = vertices.size(); i < e; i++) {
+    if (vertices[i])
+      idSet.insert(i);
+  }
+
+  hyperGraph = getHGraph(idSet);
+  patohPart.resize(idSet.size(), -1);
+
+  // Perform the partioning with the PaToH library
+  int cut;
+  vector<int> weights;
+  vector<int> partitionWeights(partitionCount);
+
+  if (hyperGraph->cellCount > hyperGraph->netCount)
+    weights.resize(hyperGraph->cellCount, 1);
+  else
+    weights.resize(hyperGraph->netCount, 1);
+
+  PPaToH_Parameters pargs = new PaToH_Parameters;
+  PaToH_Initialize_Parameters(pargs, PATOH_CONPART, PATOH_SUGPARAM_DEFAULT);
+  pargs->_k = partitionCount;
+
+  PaToH_Alloc(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1,
+      weights.data(), weights.data(), hyperGraph->xpins.data(),
+      hyperGraph->pins.data());
+
+  PaToH_Part(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1, 1,
+      weights.data(), weights.data(), hyperGraph->xpins.data(),
+      hyperGraph->pins.data(), nullptr, patohPart.data(),
+      partitionWeights.data(), &cut);
+
+  PaToH_Free();
+
+  return cut;
+}
+
+
+int
+GraphImpl::getCutCost(const Partition * partition, int partitionCount) const {
+  int cost = 0;
+  int startIdx = 0, endIdx = 0;
+  vector<int> schedule;
+  vector<Vertex::IdSet *> partitions;
+
+  // Iteratively create the partitions
+  partition->extractSchedule(schedule);
+  for (int i = 0; i < partitionCount; i++) {
+    partitions.push_back(new Vertex::IdSet());
+
+    endIdx = startIdx + schedule.size() / partitionCount;
+    if (endIdx > (int) schedule.size())
+      endIdx = schedule.size();
+
+    for (int j = startIdx; j < endIdx; j++)
+      partitions.back()->insert(schedule[j]);
+
+    startIdx = endIdx;
+  }
+
+  // Compute the cut cost
+  for (int i = 0; i < partitionCount; i++) {
+    for (auto it = partitions[i]->begin(), end = partitions[i]->end();
+        it != end; ++it) {
+      Vertex * curr = getVertex(*it);
+      vector<int> succs(partitionCount, 0);
+
+      for (int j = 0, e = curr->getSuccessorCount(); j < e; j++) {
+        int target = curr->getSuccessor(j)->getId();
+
+        for (int k = 0; k < partitionCount; k++) {
+          if (partitions[k]->count(target)) {
+            succs[k] = 1;
+            break;
+          }
+        }
+      }
+
+      for (int j = 1; j < partitionCount; j++) {
+        if (j != i)
+          cost += succs[j];
+      }
+    }
+  }
+
+  return cost;
 }
 
 
@@ -436,7 +534,6 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
   vector<int> predCount;
   vector<int> succCount;
 
-
   // Create the target idSet and the associated hyper-graph
   IaP<PartitionNodeImpl> ptr = parent->id;
   while (ptr.isInteger()) {
@@ -449,7 +546,6 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
   patohPart.resize(idSet.size(), -1);
   predCount.resize(idSet.size(), 0);
   succCount.resize(idSet.size(), 0);
-
 
   // We iterate partitioning untill there are no unsafe vertices left
   while (!idSet.empty()) {
@@ -583,6 +679,7 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
         part->representants[ptr] = memberA;
 
       memberA = ptr;
+      childA->size++;
     } else if (convPart[idx] == 1) { 
       if (memberB == -1)
         part->representants[ptr] = childB;
@@ -590,6 +687,7 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
         part->representants[ptr] = memberB;
 
       memberB = ptr;
+      childB->size++;
     } else {
       cerr << "ERROR: Found node not in partition after convex bisection.\n";
       exit(EXIT_FAILURE);
@@ -664,9 +762,13 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
 
         subParts[target]->id = *it;
         part->representants[*it] = subParts[target];
+
+        subParts[target]->size++;
       } else {
         part->representants[*it] = mapIt->second->id;
         mapIt->second->id = *it;
+
+        mapIt->second->size++;
       }
 
       if (sourceSet->count(*it))
@@ -803,35 +905,39 @@ GraphImpl::maxDistBisect(PartitionNodeImpl * parent, Vertex::IdSet * sourceSet,
     }
     
     // Divide the target set into two partitions
-    PartitionNodeImpl * subPartA = new PartitionNodeImpl(parent);
-    PartitionNodeImpl * subPartB = new PartitionNodeImpl(parent);
-    IaP<PartitionNodeImpl> ptrA = subPartA;
-    IaP<PartitionNodeImpl> ptrB = subPartB;
+    PartitionNodeImpl * childA = new PartitionNodeImpl(parent);
+    PartitionNodeImpl * childB = new PartitionNodeImpl(parent);
+    IaP<PartitionNodeImpl> ptrA = childA;
+    IaP<PartitionNodeImpl> ptrB = childB;
     part->nodeCount++;
     part->nodeCount++;
 
     for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
       if (sourceMax[*it] < sinkMax[*it]) {
         part->representants[*it] = ptrA;
-        subPartA->id = *it;
+        childA->id = *it;
         ptrA = *it;
+
+        childA->size++;
       } else {
         part->representants[*it] = ptrB;
-        subPartB->id = *it;
+        childB->id = *it;
         ptrB = *it;
+
+        childB->size++;
       }
     }
 
     parent->id = -1;
 
     // Recurse on the two new partitions if they are not atomic
-    if (part->representants[subPartA->id].isInteger())
-      taskQueue.push(new PartitionTask(subPartA, sourceSet, subSinks));
+    if (part->representants[childA->id].isInteger())
+      taskQueue.push(new PartitionTask(childA, sourceSet, subSinks));
     else
       partCount++;
 
-    if (part->representants[subPartB->id].isInteger())
-      taskQueue.push(new PartitionTask(subPartB, subSources, sinkSet));
+    if (part->representants[childB->id].isInteger())
+      taskQueue.push(new PartitionTask(childB, subSources, sinkSet));
     else
       partCount++;
   }
@@ -844,7 +950,6 @@ GraphImpl::patohBisect(PartitionNodeImpl * parent) const {
   Vertex::IdSet idSet;
   vector<int> patohPart;
 
-
   // Create the target idSet and the associated hyper-graph
   IaP<PartitionNodeImpl> ptr = parent->id;
   while (ptr.isInteger()) {
@@ -854,7 +959,6 @@ GraphImpl::patohBisect(PartitionNodeImpl * parent) const {
 
   hyperGraph = getHGraph(idSet);
   patohPart.resize(idSet.size(), -1);
-
 
   // Perform the partioning with the prefixed vertex assignements
   int cut;
@@ -881,7 +985,6 @@ GraphImpl::patohBisect(PartitionNodeImpl * parent) const {
 
   PaToH_Free();
 
-
   // Add the two new partitions to the partioning hierarchy
   int memberA = -1;
   int memberB = -1;
@@ -902,6 +1005,7 @@ GraphImpl::patohBisect(PartitionNodeImpl * parent) const {
         part->representants[ptr] = memberA;
 
       memberA = ptr;
+      childA->size++;
     } else if (patohPart[idx] == 1) { 
       if (memberB == -1)
         part->representants[ptr] = childB;
@@ -909,6 +1013,7 @@ GraphImpl::patohBisect(PartitionNodeImpl * parent) const {
         part->representants[ptr] = memberB;
 
       memberB = ptr;
+      childB->size++;
     } else {
       cerr << "ERROR: Found node not in partition after convex bisection.\n";
       exit(EXIT_FAILURE);
@@ -960,6 +1065,8 @@ GraphImpl::partitionConvexify(PartitionQueryImpl * query) const {
   partitionWorker(this);
   cout << "\n";
 
+  // Associate the new partition with the query that requested it
+  part->method = Convexify;
   query->setPartition(part);
   part = nullptr;
 }
@@ -1028,6 +1135,7 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) const {
   }
 
   // Associate the new partition with the query that requested it
+  part->method = MaxDistance;
   query->setPartition(part);
   part = nullptr;
 }
@@ -1060,6 +1168,8 @@ GraphImpl::partitionPaToH(PartitionQueryImpl * query) const {
   partitionWorker(this);
   cout << "\n";
 
+  // Associate the new partition with the query that requested it
+  part->method = PaToH;
   query->setPartition(part);
   part = nullptr;
 }

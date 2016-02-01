@@ -585,6 +585,12 @@ PartitionImpl::getNodeCount() const {
 }
 
 
+PartitionMethod
+PartitionImpl::getMethod() const {
+  return method;
+}
+
+
 void
 PartitionImpl::extractSchedule(vector<int>& schedule) const {
   unsigned int depth = 1;
