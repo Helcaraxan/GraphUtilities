@@ -276,21 +276,27 @@ GraphImpl::getPartitionCost(const Partition * partition, int memorySize,
 
 int
 GraphImpl::getCutCost(int partitionCount) const {
+  int cost = 0;
   HGraph * hyperGraph = nullptr;
-  Vertex::IdSet idSet;
   vector<int> patohPart;
+  vector<Vertex::IdSet *> idSets;
 
-  // Create the graphs idSet and the associated hyper-graph
+  // Prepare the ID sets
+  for (int i = 0; i < partitionCount; i++)
+    idSets.push_back(new Vertex::IdSet());
+
+  // Create the graphs ID set and the associated hyper-graph
   for (int i = 0, e = vertices.size(); i < e; i++) {
     if (vertices[i])
-      idSet.insert(i);
+      idSets.front()->insert(i);
   }
 
-  hyperGraph = getHGraph(idSet);
-  patohPart.resize(idSet.size(), -1);
+  hyperGraph = getHGraph(*idSets.front());
+  patohPart.resize(idSets.front()->size(), -1);
+  idSets.front()->clear();
 
   // Perform the partioning with the PaToH library
-  int cut;
+  int cut = 0;
   vector<int> weights;
   vector<int> partitionWeights(partitionCount);
 
@@ -314,7 +320,38 @@ GraphImpl::getCutCost(int partitionCount) const {
 
   PaToH_Free();
 
-  return cut;
+  for (int i = 0, e = patohPart.size(); i < e; i++)
+    idSets[patohPart[i]]->insert(hyperGraph->backwardMap[i]);
+
+  // Clean-up memory
+  delete hyperGraph;
+
+  // Compute the cut cost
+  for (int i = 0; i < partitionCount; i++) {
+    for (auto it = idSets[i]->begin(), end = idSets[i]->end();
+        it != end; ++it) {
+      Vertex * curr = getVertex(*it);
+      vector<int> succs(partitionCount, 0);
+
+      for (int j = 0, e = curr->getSuccessorCount(); j < e; j++) {
+        int target = curr->getSuccessor(j)->getId();
+
+        for (int k = 0; k < partitionCount; k++) {
+          if (idSets[k]->count(target)) {
+            succs[k] = 1;
+            break;
+          }
+        }
+      }
+
+      for (int j = 1; j < partitionCount; j++) {
+        if (j != i)
+          cost += succs[j];
+      }
+    }
+  }
+
+  return cost;
 }
 
 
