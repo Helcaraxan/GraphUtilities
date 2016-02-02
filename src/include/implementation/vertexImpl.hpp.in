@@ -12,7 +12,6 @@ class VertexImpl;
 
 
 #include "graph-utilities/graph.hpp"
-
 #include "graph-utilities/implementation/defs.hpp"
 
 using namespace std;
@@ -289,6 +288,22 @@ public:
   // Access
   PartitionNodeImpl * getSubTree(PartitionNodeImpl * nodeA,
       PartitionNodeImpl * nodeB) const;
+};
+
+
+// Partition multi-threading helper class
+
+class PartitionTask {
+public:
+  PartitionNodeImpl * const node;
+  Vertex::IdSet * const sourceSet;
+  Vertex::IdSet * const sinkSet;
+
+  PartitionTask(PartitionNodeImpl * n, Vertex::IdSet * s, Vertex::IdSet * t) :
+    node(n),
+    sourceSet(s),
+    sinkSet(t)
+  {}
 };
 
 #endif // VERTEX_IMPL_HPP
