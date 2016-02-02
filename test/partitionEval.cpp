@@ -236,40 +236,41 @@ main(int argc, char * argv[]) {
 
   // Retrieve the scheduling implied by the Partition instance if necessary
   vector<int> schedule;
-  if (((type != UndefinedIOType) || (schedFile.size() > 0))
-      && (method != PaToH)) {
+  if ((type != UndefinedIOType) || (schedFile.size() > 0)) {
     part->extractSchedule(schedule);
 
-    // Check the schedule for validity except for PaToH partitioning
-    cout << "Verifying scheduling... ";
-    if (graph->checkSchedule(schedule))
-      cout << "VALID" << "\n" << endl;
-    else
-      cout << "INVALID" << "\n" << endl;
-
-    // Dump the schedule when requested
-    if (schedFile.size() > 0) {
-      fstream schedStream(schedFile.c_str(), ios_base::out);
-
-      if (!schedStream.good()) {
-        cerr << "\nERROR: Could not open the specified schedule dump file.\n";
+    if (method != PaToH) {
+      // Check the schedule for validity except for PaToH partitioning
+      cout << "Verifying scheduling... ";
+      if (graph->checkSchedule(schedule))
+        cout << "VALID" << "\n" << endl;
+      else
         exit(EXIT_FAILURE);
+
+      // Dump the schedule when requested
+      if (schedFile.size() > 0) {
+        fstream schedStream(schedFile.c_str(), ios_base::out);
+
+        if (!schedStream.good()) {
+          cerr << "\nERROR: Could not open the specified schedule dump file.\n";
+          exit(EXIT_FAILURE);
+        }
+
+        cout << "\nDumping schedule...";
+        cout.flush();
+
+        for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it)
+          schedStream << *it << "\n";
+
+        schedStream.close();
+
+        cout << " DONE" << endl;
       }
-
-      cout << "\nDumping schedule...";
-      cout.flush();
-
-      for (auto it = schedule.begin(), end = schedule.end(); it != end; ++it)
-        schedStream << *it << "\n";
-
-      schedStream.close();
-
-      cout << " DONE" << endl;
+    } else if (schedFile.size() > 0) {
+      cerr << "WARNING: Can not dump schedule for PaToH partitioning. It would "
+        << "not be valid.\n";
+      exit(EXIT_FAILURE);
     }
-  } else if ((schedFile.size() > 0) && (method == PaToH)) {
-    cerr << "WARNING: Can not dump schedule for PaToH partitioning. It would "
-      << "not be valid.\n";
-    exit(EXIT_FAILURE);
   }
 
   // Perform IO complexity evaluation if required

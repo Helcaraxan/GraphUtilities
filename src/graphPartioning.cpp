@@ -564,8 +564,13 @@ GraphImpl::getHGraph(Vertex::IdSet& idSet) const {
 
 void
 GraphImpl::convBisect(PartitionNodeImpl * parent) const {
+  int cut;
+  int safeCount = 0;
+  int partitionWeights[2];
+  bool forceProgress = false;
   HGraph * hyperGraph = nullptr;
   Vertex::IdSet idSet;
+  vector<int> weights;
   vector<int> convPart;
   vector<int> patohPart;
   vector<int> predCount;
@@ -584,56 +589,64 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
   predCount.resize(idSet.size(), 0);
   succCount.resize(idSet.size(), 0);
 
+  if (hyperGraph->cellCount > hyperGraph->netCount)
+    weights.resize(hyperGraph->cellCount, 1);
+  else
+    weights.resize(hyperGraph->netCount, 1);
+
+  // Initialize the successor and predecessor counts
+  for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
+    int id = hyperGraph->forwardMap[*it];
+    Vertex * curr = getVertex(*it);
+
+    for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
+      if (idSet.count(curr->getPredecessor(i)->getId()))
+        predCount[id]++;
+    }
+
+    for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
+      if (idSet.count(curr->getSuccessor(i)->getId()))
+        succCount[id]++;
+    }
+  }
+
   // We iterate partitioning untill there are no unsafe vertices left
   while (!idSet.empty()) {
-    // We assign the current sources and sinks to the two target partitions
+    // We process the current sources and sinks of the unsafe vertices
     int partId = 0;
     queue<int> checkQueue;
 
     for (auto it = idSet.begin(), end = idSet.end(); it != end; ++it) {
-      int source = hyperGraph->forwardMap[*it];
-      Vertex * curr = getVertex(*it);
+      int id = hyperGraph->forwardMap[*it];
 
-      predCount[source] = 0;
-      for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
-        if (idSet.count(curr->getPredecessor(i)->getId()))
-          predCount[source]++;
-      }
-
-      succCount[source] = 0;
-      for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
-        if (idSet.count(curr->getSuccessor(i)->getId()))
-          succCount[source]++;
-      }
-
-      if (!succCount[source] && !predCount[source]) {
-        patohPart[source] = partId;
-        convPart[source] = partId;
-        partId = 1 - partId;
-        checkQueue.push(source);
-      } else if (!predCount[source]) {
-        patohPart[source] = 0;
-        convPart[source] = 0;
-        checkQueue.push(source);
-      } else if (!succCount[source]) {
-        patohPart[source] = 1;
-        convPart[source] = 1;
-        checkQueue.push(source);
+      if (!succCount[id] && !predCount[id]) {
+        if (forceProgress) {
+          patohPart[id] = partId;
+          convPart[id] = partId;
+          partId = 1 - partId;
+        }
+        checkQueue.push(id);
+      } else if (!predCount[id]) {
+        if (forceProgress) {
+          patohPart[id] = 0;
+          convPart[id] = 0;
+        }
+        checkQueue.push(id);
+      } else if (!succCount[id]) {
+        if (forceProgress) {
+          patohPart[id] = 1;
+          convPart[id] = 1;
+        }
+        checkQueue.push(id);
       } else {
-        patohPart[source] = -1;
+        patohPart[id] = -1;
       }
+
+      if (!forceProgress)
+        patohPart[id] = -1;
     }
 
     // Perform the partioning with the prefixed vertex assignements
-    int cut;
-    int partitionWeights[2];
-    vector<int> weights;
-
-    if (hyperGraph->cellCount > hyperGraph->netCount)
-      weights.resize(hyperGraph->cellCount, 1);
-    else
-      weights.resize(hyperGraph->netCount, 1);
-
     PPaToH_Parameters pargs = new PaToH_Parameters;
     PaToH_Initialize_Parameters(pargs, PATOH_CONPART, PATOH_SUGPARAM_DEFAULT);
     pargs->_k = 2;
@@ -641,7 +654,7 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
     PaToH_Alloc(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1,
         weights.data(), weights.data(), hyperGraph->xpins.data(),
         hyperGraph->pins.data());
-    
+
     PaToH_Part(pargs, hyperGraph->cellCount, hyperGraph->netCount, 1, 1,
         weights.data(), weights.data(), hyperGraph->xpins.data(),
         hyperGraph->pins.data(), nullptr, patohPart.data(), partitionWeights,
@@ -649,17 +662,19 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
 
     PaToH_Free();
 
-    // Check for new safe vertices and update the patohPart vector accordingly
+    // Check for new safe vertices and update the partition vectors accordingly
+    int newSafeCount = 0;
     while (!checkQueue.empty()) {
       int id = checkQueue.front();
       checkQueue.pop();
 
-      // This vertex is safe so remove it from the partition set
-      idSet.erase(hyperGraph->backwardMap[id]);
-
       Vertex * curr = getVertex(hyperGraph->backwardMap[id]);
 
-      if (convPart[id] == 0) {
+      if ((patohPart[id] == 0) && (predCount[id] == 0)) {
+        idSet.erase(hyperGraph->backwardMap[id]);
+        convPart[id] = 0;
+        newSafeCount++;
+
         for (int i = 0, e = curr->getSuccessorCount(); i < e; i++) {
           int succ = curr->getSuccessor(i)->getId();
           int target = hyperGraph->forwardMap[succ];
@@ -667,14 +682,15 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
           if (idSet.count(succ)) {
             predCount[target]--;
 
-            if ((convPart[target] == 2) && (predCount[target] == 0)) {
-              patohPart[target] = 0;
-              convPart[target] = 0;
+            if (predCount[target] == 0)
               checkQueue.push(target);
-            }
           }
         }
-      } else if (convPart[id] == 1) {
+      } else if ((patohPart[id] == 1) && (succCount[id] == 0)) {
+        idSet.erase(hyperGraph->backwardMap[id]);
+        convPart[id] = 1;
+        newSafeCount++;
+
         for (int i = 0, e = curr->getPredecessorCount(); i < e; i++) {
           int pred = curr->getPredecessor(i)->getId();
           int target = hyperGraph->forwardMap[pred];
@@ -682,17 +698,18 @@ GraphImpl::convBisect(PartitionNodeImpl * parent) const {
           if (idSet.count(pred)) {
             succCount[target]--;
 
-            if ((convPart[target] == 2) && (succCount[target] == 0)) {
-              patohPart[target] = 1;
-              convPart[target] = 1;
+            if (succCount[target] == 0)
               checkQueue.push(target);
-            }
           }
         }
-      } else {
-        exit(EXIT_FAILURE);
       }
+    }
 
+    if (safeCount == newSafeCount) {
+      forceProgress = true;
+    } else {
+      forceProgress = false;
+      safeCount = newSafeCount;
     }
   }
 

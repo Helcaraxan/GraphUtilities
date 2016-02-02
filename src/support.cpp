@@ -13,6 +13,7 @@ using namespace std;
 int batchFlag = 0;
 int progressBarFinish = 1;
 
+static int pastRatio = -1;
 static int terminalWidth = 0;
 static int progressBarTitleWidth = 7;
 static string progressBarTitle = "";
@@ -21,8 +22,10 @@ static string progressBarTitle = "";
 // Progress bar functions
 
 void configureProgressBar(string * title, int finish) {
-  if (finish != 0)
+  if (finish != 0) {
+    pastRatio = -1;
     progressBarFinish = finish;
+  }
 
   if (title) {
     progressBarTitle = *title;
@@ -61,6 +64,11 @@ void resultProgressBar(int progress) {
 
   floatRatio = ((double) progress) / ((double) progressBarFinish);
   intRatio = floatRatio * (terminalWidth - progressBarTitleWidth);
+
+  if (intRatio == pastRatio)
+    return;
+  else
+    pastRatio = intRatio;
 
   cout << progressBarTitle;
   cout.width(3);

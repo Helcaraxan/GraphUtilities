@@ -169,7 +169,7 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
   graph->setIndexed(false);
 
   // Make sure the graph is a DAG
-  if (!graph->isDAG())
+  if (graph->isDAG())
     graph->setCondensed(true);
   else
     graph->setCondensed(false);

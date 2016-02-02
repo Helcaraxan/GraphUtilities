@@ -74,8 +74,6 @@ GraphImpl::getNextDFS(TraversalOrder order, TraversalDirection direction) {
     if (!currentVertex) {
       currentVertex = *originIt;
       originIt++;
-
-      return currentVertex;
     }
 
     do {
