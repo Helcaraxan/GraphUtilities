@@ -1,6 +1,7 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <sstream>
 #include <iostream>
 
 #include "graph-utilities/implementation/support.hpp"
@@ -70,10 +71,11 @@ parseDotFile(const char * fileName, bool noDoubleEdges) {
 
 Graph *
 parseGraFile(const char * fileName, bool noDoubleEdges) {
-  char dump[128];
-  int source, target, lineNumber;
+  int source = -1, target = -1, vertexCount = -1, lineNumber = 0;
+  string rawLine;
   string barTitle = "Parsing graph ";
   fstream input(fileName, fstream::in);
+  stringstream line;
   GraphImpl * graph = new GraphImpl();
 
   if (!input.good()) {
@@ -83,37 +85,62 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
 
   // Throw first lines away while they are text
   do {
-    input.getline(dump, 127);
-  } while (!isdigit(dump[0]));
+    getline(input, rawLine);
+    lineNumber++;
+  } while (!isdigit(rawLine[0]));
 
 
-  // Get the number of vertices / lines to read
-  lineNumber = atoi(dump);
-  configureProgressBar(&barTitle, lineNumber);
+  // Get the number of vertices (lines) to read
+  line = stringstream(rawLine);
+  line >> vertexCount;
+  configureProgressBar(&barTitle, vertexCount);
 
   // Create all vertices
-  for (int i = 0; i < lineNumber; i++)
+  for (int i = 0; i < vertexCount; i++)
     graph->addVertexUnsafe(graph->getThreadCount());
 
   // Parse the adjacency list
-  for (int i = 0; i < lineNumber; i++) {
-    // Get the source at the start of the line
-    input.get(dump, 127, ' ');
-    source = atoi(dump);
+  for (int i = 0; i < vertexCount; i++) {
+    char peak;
 
+    // Get new line from input and exit if EOF is reached
+    getline(input, rawLine);
+    if (input.eof())
+      break;
+
+    // Get source node ID from the start of the line
+    lineNumber++;
+    line = stringstream(rawLine);
+    line >> source;
+
+    if (line.fail()) {
+      cerr << "ERROR: Incorrect source in input file at line " << lineNumber
+        << "\n.";
+      exit(EXIT_FAILURE);
+    }
+
+    // Iterate over the successors of the source
     while (true) {
-      if (input.get() != ' ') {
-        cerr << "ERROR: Could not correctly read the graph definition.\n";
+      // Fast-forward to the next successor or end-of-list
+      while (true) {
+        line.get(peak);
+
+        if (isdigit(peak) || peak == '#') {
+          line.putback(peak);
+          break;
+        }
+      }
+
+      // End-of-list reached. Ignore the rest of the line (comment)
+      if (peak == '#')
+        break;
+
+      line >> target;
+      if (line.fail()) {
+        cerr << "ERROR: Incorrect target in input file at line " << lineNumber
+          << "\n.";
         exit(EXIT_FAILURE);
       }
-
-      if (input.peek() == '#') {
-        input.get(dump, 127);
-        break;
-      }
-
-      input.get(dump, 127, ' ');
-      target = atoi(dump);
 
       if (noDoubleEdges)
         graph->addEdgeUnsafe(graph->vertices[source], graph->vertices[target]);
@@ -122,6 +149,7 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
     }
 
     resultProgressBar(i + 1);
+
   }
   cout << "\n";
 

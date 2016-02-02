@@ -46,6 +46,8 @@ void resultProgressBar(int progress) {
   }
 
   refreshModulo = progressBarFinish / (terminalWidth - progressBarTitleWidth);
+  if (refreshModulo == 0)
+    refreshModulo = 1;
 
   if (progress == progressBarFinish) {
     cout << progressBarTitle << "100% ["
@@ -69,4 +71,3 @@ void resultProgressBar(int progress) {
     << string(terminalWidth - progressBarTitleWidth - intRatio, ' ') << "]\r"
     << flush;
 }
-
