@@ -75,7 +75,7 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
   string rawLine;
   string barTitle = "Parsing graph ";
   fstream input(fileName, fstream::in);
-  stringstream line;
+  istringstream line;
   GraphImpl * graph = new GraphImpl();
 
   if (!input.good()) {
@@ -91,7 +91,7 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
 
 
   // Get the number of vertices (lines) to read
-  line = stringstream(rawLine);
+  line.str(rawLine);
   line >> vertexCount;
   configureProgressBar(&barTitle, vertexCount);
 
@@ -107,15 +107,18 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
     getline(input, rawLine);
     if (input.eof())
       break;
+    else
+      lineNumber++;
 
     // Get source node ID from the start of the line
-    lineNumber++;
-    line = stringstream(rawLine);
-    line >> source;
+    line.clear();
+    line.str(rawLine);
 
-    if (line.fail()) {
+    line >> source;
+    if (!line.good()) {
       cerr << "ERROR: Incorrect source in input file at line " << lineNumber
         << "\n.";
+      cerr << source << endl;
       exit(EXIT_FAILURE);
     }
 
@@ -125,18 +128,27 @@ parseGraFile(const char * fileName, bool noDoubleEdges) {
       while (true) {
         line.get(peak);
 
-        if (isdigit(peak) || peak == '#') {
-          line.putback(peak);
-          break;
+        if (!line.good()) {
+          cerr << "ERROR: Unexpected error while reading input file at line "
+            << lineNumber << "\n.";
+          exit(EXIT_FAILURE);
         }
+
+        if (isdigit(peak))
+          line.putback(peak);
+
+        if (isdigit(peak) || (peak == '#'))
+          break;
       }
 
       // End-of-list reached. Ignore the rest of the line (comment)
-      if (peak == '#')
+      if (peak == '#') {
+        line.clear();
         break;
+      }
 
       line >> target;
-      if (line.fail()) {
+      if (!line.good()) {
         cerr << "ERROR: Incorrect target in input file at line " << lineNumber
           << "\n.";
         exit(EXIT_FAILURE);
