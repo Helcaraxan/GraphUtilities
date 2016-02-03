@@ -21,7 +21,6 @@ using namespace std;
 // Externally defined variables for progress bars
 
 extern int batchFlag;
-extern int progressBarFinish;
 
 
 // Local variables
@@ -30,7 +29,7 @@ static int dryFlag = 0;
 static int uniqueFlag = 0;
 static int verifyFlag = 0;
 static int queryNumber = 100000;
-static tbb::concurrent_hash_map<Query *, bool> queryMap;
+static tbb::concurrent_hash_map<ReachabilityQuery *, bool> queryMap;
 
 
 // Command-line option specifications
@@ -82,18 +81,18 @@ printHelpMessage() {
 
 
 void
-queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
+queryGenerator(Graph * graph, string& testFile, SearchMethod method) {
   int i, a, b, res;
   string garbage;
   fstream testStream;
   ReachabilityQuery * query = nullptr;
-  tbb::concurrent_hash_map<Query *, bool>::accessor queryAccess;
+  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::accessor queryAccess;
 
   if (queryNumber == 0)
     return;
 
-  if (*testFile != '\0')
-    testStream.open(testFile, ios_base::in);
+  if (testFile.size() > 0)
+    testStream.open(testFile.c_str(), ios_base::in);
 
   // Fill the queries to process...
   if (testStream.is_open()) {
@@ -106,7 +105,6 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
 
     testStream.clear();
     testStream.seekg(0, testStream.beg);
-    configureProgressBar(nullptr, queryNumber);
 
     // Parse the actual queries
     while (testStream.good()) {
@@ -120,20 +118,30 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
       query->setTarget(graph->getVertex(b));
       query->setMethod(method);
 
-      queryMap.insert(queryAccess,
-          pair<Query *, bool>(query, (res == 0 ? false : true)));
+      if (queryMap.insert(queryAccess, query)) {
+        queryAccess->second = (res == 0) ? false : true;
+        graph->pushQuery(query);
+      } else {
+        cerr << "ERROR: Could not insert query result into hashmap.\n";
+      }
       queryAccess.release();
-      graph->pushQuery(query);
     }
 
     testStream.close();
   } else {
     // ... at random
+    bool expectedAnswer = false;
     default_random_engine
       generator(chrono::system_clock::now().time_since_epoch().count());
-    uniform_int_distribution<int> queryDistribution(0, graph->getVertexCount() - 1);
+    uniform_int_distribution<int>
+      queryDistribution(0, graph->getVertexCount() - 1);
 
-    progressBarFinish = queryNumber;
+    if (verifyFlag) {
+      string barTitle = "Verification queries ";
+
+      configureProgressBar(&barTitle, queryNumber);
+    }
+
     for (i = 0; i < queryNumber; i++) {
       a = queryDistribution(generator);
       do {
@@ -142,40 +150,62 @@ queryGenerator(Graph * graph, const char * testFile, SearchMethod method) {
 
       query = createRQuery();
       query->setMethod(method);
-      if (a < b) {
-        query->setSource(graph->getVertex(a));
-        query->setTarget(graph->getVertex(b));
-      } else {
-        query->setSource(graph->getVertex(b));
-        query->setTarget(graph->getVertex(a));
+      query->setSource(graph->getVertex(a < b ? a : b));
+      query->setTarget(graph->getVertex(a < b ? b : a));
+
+      if (verifyFlag) {
+        ReachabilityQuery * vQuery = createRQuery();
+
+        vQuery->setMethod(NoLabels);
+        vQuery->setSource(graph->getVertex(a < b ? a : b));
+        vQuery->setTarget(graph->getVertex(a < b ? b : a));
+        
+        graph->pushQuery(vQuery);
+        graph->pullQuery(true);
+
+        expectedAnswer = vQuery->getAnswer();
+
+        delete vQuery;
+
+        resultProgressBar(i + 1);
       }
 
-      queryMap.insert(queryAccess, pair<Query *, bool>(query, false));
+      if (queryMap.insert(queryAccess, query)) {
+        queryAccess->second = expectedAnswer;
+      } else {
+        cerr << "ERROR: Could not insert query result into hashmap.\n";
+      }
       queryAccess.release();
-      graph->pushQuery(query);
+    }
+
+    if (verifyFlag) {
+      cout << endl;
+
+      for (auto it = queryMap.begin(), end = queryMap.end(); it != end; ++it)
+        graph->pushQuery(it->first);
     }
   }
 }
 
 
 void
-resultAnalysis(Graph * graph, const char * queryFile) {
-  int resultCounter = 0;
-  string barTitle = "Parsing results ";
+resultAnalysis(Graph * graph, string& queryFile) {
+  string barTitle = "Processing queries ";
   fstream queryStream;
   Query * query = nullptr;
   ReachabilityQuery * rQuery = nullptr;
-  tbb::concurrent_hash_map<Query *, bool>::const_accessor queryAccess;
+  tbb::concurrent_hash_map<ReachabilityQuery *, bool>::accessor
+    queryAccess;
 
   if (queryNumber == 0)
     return;
 
-  configureProgressBar(&barTitle, 0);
+  configureProgressBar(&barTitle, queryNumber);
 
-  if (*queryFile != '\0')
-    queryStream.open(queryFile, ios_base::out);
+  if (queryFile.size() > 0)
+    queryStream.open(queryFile.c_str(), ios_base::out);
 
-  while (true) {
+  for (int i = 0; i < queryNumber; i++) {
     query = graph->pullQuery(true);
 
     if (!query)
@@ -183,21 +213,40 @@ resultAnalysis(Graph * graph, const char * queryFile) {
 
     rQuery = dynamic_cast<ReachabilityQuery *>(query);
     if (!rQuery) {
-      cerr << "ERROR: Encountered an unexpected partition query." << endl;
+      cerr << "ERROR: Encountered an unexpected query type.\n";
       continue;
     }
 
-    queryMap.find(queryAccess, query);
+    if (!queryMap.find(queryAccess, rQuery)) {
+      cerr << "ERROR: Could not find query result in hashmap.\n";
+      continue;
+    }
+
+    resultProgressBar(i + 1);
 
     if (rQuery->getError()) {
       cerr << "ERROR: Could not process query " << rQuery->getSource()->getId();
       cerr << " -> " << rQuery->getTarget()->getId() << "\n";
+      queryMap.erase(queryAccess);
+      queryAccess.release();
+      continue;
     } else if (verifyFlag) {
       if (rQuery->getAnswer() != queryAccess->second) {
         cerr << "ERROR: Wrong answer on query " << rQuery->getSource()->getId();
-        cerr << " -> " << rQuery->getTarget()->getId() << "\n";
+        cerr << " -> " << rQuery->getTarget()->getId();
+
+        if (rQuery->getAnswer())
+          cerr << " (false positive)\n";
+        else
+          cerr << " (false negative)\n";
+
+        queryMap.erase(queryAccess);
+        queryAccess.release();
+        continue;
       }
-    } else if (queryStream.is_open()) {
+    }
+    
+    if (queryStream.is_open()) {
       queryStream << rQuery->getSource()->getId() << " ";
       queryStream << rQuery->getTarget()->getId() << " ";
 
@@ -207,8 +256,8 @@ resultAnalysis(Graph * graph, const char * queryFile) {
         queryStream << "0\n";
     }
 
+    queryMap.erase(queryAccess);
     queryAccess.release();
-    resultProgressBar(++resultCounter);
   }
 
   cout << "\n";
@@ -325,14 +374,9 @@ main(int argc, char * argv[]) {
     exit(EXIT_FAILURE);
   }
 
-
-  // Set the indexing method as specified / default
+  // Set the indexing method as specified / default end enable queries
   graph->setIndexMethod(indexMethod);
-
-
-  // Start worker threads on the graph
   graph->enableQueries();
-
 
   // Dump the parsed graph for verification purposes when requested
   if (dumpFile.size() > 0) {
@@ -363,14 +407,22 @@ main(int argc, char * argv[]) {
     exit(EXIT_SUCCESS);
   }
 
-  // Process the queries with two threads
-  thread pushThread(queryGenerator, graph, testFile.c_str(), searchMethod);
-  thread pullThread(resultAnalysis, graph, queryFile.c_str());
+  // Process the queries...
+  if (verifyFlag && testFile.size() == 0) {
+    // ... sequentially in case of random verified queries
+    queryGenerator(graph, ref(testFile), searchMethod);
+    graph->disableQueries();
+    resultAnalysis(graph, ref(queryFile));
+  } else {
+    // ... in parallel with two threads otherwise
+    thread pushThread(queryGenerator, graph, ref(testFile), searchMethod);
+    thread pullThread(resultAnalysis, graph, ref(queryFile));
 
-  // Wait for the queries to be issued and treated
-  pushThread.join();
-  graph->disableQueries();
-  pullThread.join();
+    // Wait for the queries to be issued and treated
+    pushThread.join();
+    pullThread.join();
+    graph->disableQueries();
+  }
 
   // Prepare output stream for statistics and benchmarks
   ostream * output = &cout;

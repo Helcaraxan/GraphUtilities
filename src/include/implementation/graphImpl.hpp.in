@@ -89,6 +89,7 @@ private:
   int activeThreads = 0;
   bool noQueries = false;
   bool threadShutdown = true;
+  mutex timestampMutex;
   mutex queryWaitMutex;
   mutex globalWaitMutex;
   condition_variable queryWaitCondition;
@@ -100,7 +101,7 @@ private:
 
   // Counters
 #if defined(ENABLE_STATISTICS) || defined(ENABLE_BENCHMARKS)
-  uintmax_t queryCount = 0;
+  atomic<uintmax_t> queryCount{0};
 #endif // ENABLE_ STATISTICS || ENABLE_BENCHMARKS
 #if defined(ENABLE_STATISTICS)
   uintmax_t positiveQueryCount = 0;
@@ -203,6 +204,7 @@ public:
   void stopWorker(void);
   void startGlobalOperation(void);
   void stopGlobalOperation(void);
+  uint64_t getTimestamp(void);
 
   // Maintenance
   VertexImpl * addVertexUnsafe(int weight = 1);

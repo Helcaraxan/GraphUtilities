@@ -11,9 +11,8 @@ bool
 GraphImpl::pushQuery(Query * query) {
   static int DFSwin = 0;
   static int BBFSwin = 0;
-  ReachabilityQueryImpl * rQuery = dynamic_cast<ReachabilityQueryImpl *>(query);
-
   unique_lock<mutex> methodLock(methodMutex, defer_lock);
+  ReachabilityQueryImpl * rQuery = dynamic_cast<ReachabilityQueryImpl *>(query);
 
   if (!query || threadShutdown || (queryThreads.size() == 0))
     return false;

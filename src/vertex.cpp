@@ -5,7 +5,7 @@ using namespace std;
 
 // Global DFSId variable in case of TLS
 #ifdef ENABLE_TLS
-thread_local vector<int> DFSId;
+thread_local vector<uint64_t> DFSId;
 #endif // ENABLE_TLS
 
 
@@ -94,81 +94,59 @@ VertexImpl::resetDFS() {
 pair<bool, VertexImpl *>
 VertexImpl::getNextDFS(VertexImpl * origin, Graph::TraversalOrder order,
     Graph::TraversalDirection direction) {
-  int visitLimit = 0;
-  bool isTarget = false;
-  VertexImpl * target = nullptr;
+  int inLimit = -1;
+  int outLimit = -1;
 
+  if (direction == Graph::TraversalDirection::Forward) {
+    inLimit = predecessorCount;
+    outLimit = successorCount;
+  } else if (direction == Graph::TraversalDirection::Backward) {
+    inLimit = successorCount;
+    outLimit = predecessorCount;
+  }
+
+  // If this Vertex is busy with its first traversal and children visits
   if (inVisits == 0) {
-    if (direction == Graph::TraversalDirection::Forward)
-      visitLimit = successorCount;
-    else if (direction == Graph::TraversalDirection::Backward)
-      visitLimit = predecessorCount;
-
-    // This is part of the first visit to this Vertex
     if (firstVisit == nullptr) {
-      // Register the origin as the source of the DFS traversal
-      if (origin == this) {
-        firstVisit = (VertexImpl *) 0x1;
-      } else {
-        firstVisit = origin;
-      }
+      firstVisit = (origin == this) ? (VertexImpl *) 0x1 : origin;
 
-      target = this;
       if (order == Graph::TraversalOrder::PreOrder)
-        isTarget = true;
+        return make_pair(true, this);
       else if (order == Graph::TraversalOrder::PostOrder)
-        isTarget = false;
-    } else if (outVisits < visitLimit) {
-      // Visit successors if some have not yet been visited
-      isTarget = false;
-
+        return make_pair(false, this);
+    } else if (outVisits < outLimit) {
       if (direction == Graph::TraversalDirection::Forward)
-        target = successors[outVisits++];
+        return make_pair(false, successors[outVisits++]);
       else if (direction == Graph::TraversalDirection::Backward)
-        target = predecessors[outVisits++];
+        return make_pair(false, predecessors[outVisits++]);
     } else {
-      // All successors have been visited so either...
-      if ((order == Graph::TraversalOrder::PreOrder)
-          || (outVisits == visitLimit)) {
-        // ... go back to the first visiting Vertex for this traversal
-        if (firstVisit == (Vertex *) 0x1) {
+      if ((order == Graph::TraversalOrder::PreOrder) ||
+          (outVisits > outLimit)) {
+        if (firstVisit == (VertexImpl *) 0x1) {
           resetDFS();
-
-          isTarget = true;
-          target = nullptr;
+          return make_pair(true, nullptr);
         } else {
-          inVisits = 1;
+          VertexImpl * target = firstVisit;
 
-          isTarget = false;
-          target = firstVisit;
+          if (++inVisits == inLimit)
+            resetDFS();
+
+          return make_pair(false, target);
         }
-      } else {
-        // ... or return this Vertex as target ...
+      } else if (order == Graph::TraversalOrder::PostOrder) {
         outVisits++;
-
-        isTarget = true;
-        target = this;
+        return make_pair(true, this);
       }
     }
   } else {
-    // Register a visit to this Vertex but bounce back to the origin
-    inVisits++;
+    if (++inVisits == inLimit)
+      resetDFS();
 
-    isTarget = false;
-    target = origin;
+    return make_pair(false, origin);
   }
 
-  // If this was the last visit to a non source then reinitialize the Vertex's
-  // counters
-  if (direction == Graph::TraversalDirection::Forward)
-    visitLimit = predecessorCount;
-  else if (direction == Graph::TraversalDirection::Backward)
-    visitLimit = successorCount;
-
-  if ((firstVisit != (Vertex *) 0x1) && (inVisits == visitLimit))
-    resetDFS();
-
-  return pair<bool, VertexImpl *>(isTarget, target);
+  // This should never happen
+  return make_pair(false, nullptr);
 }
 
 

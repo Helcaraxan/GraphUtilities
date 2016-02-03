@@ -97,17 +97,17 @@ public:
 
 // Data members
 private:
+  bool answer = false;
+  bool error = false;
+  bool cancel = false;
   VertexImpl * source = nullptr;
   VertexImpl * target = nullptr;
   InternalQueue * internal = nullptr;
-  atomic<bool> answer{false};
-  atomic<bool> error{false};
-  atomic<bool> cancel{false};
-  atomic<SearchMethod> method{UndefinedSearchMethod};
+  SearchMethod method = UndefinedSearchMethod;
 
 #if defined(ENABLE_STATISTICS)
+  int searchedNodes = 0;
   VertexImpl::Array path;
-  atomic<uintmax_t> searchedNodes{0};
 #endif // ENABLE_STATISTICS
 
 
@@ -117,16 +117,9 @@ public:
   ReachabilityQueryImpl(VertexImpl * sourceVertex, VertexImpl * targetVertex,
       SearchMethod searchMethod = UndefinedSearchMethod) :
     source(sourceVertex),
-    target(targetVertex)
-  {
-    method.store(searchMethod, memory_order_release);
-  }
-
-  ~ReachabilityQueryImpl(void) {
-#if defined(ENABLE_STATISTICS)
-    path.clear();
-#endif // ENABLE_STATISTICS
-  }
+    target(targetVertex),
+    method(searchMethod)
+  {}
 
   /* Interface methods */
   // Access
@@ -148,8 +141,8 @@ public:
   bool getCancel(void) const;
   InternalQueue * getInternal(void) const;
 #if defined(ENABLE_STATISTICS)
-  uintmax_t getSearchedNodes(void);
   VertexImpl::Array& getPath(void);
+  int getSearchedNodes(void);
 #endif // ENABLE_STATISTICS
 
   // Modifications
@@ -158,9 +151,8 @@ public:
   void setCancel(bool value);
   void setInternal(InternalQueue * value);
 #if defined(ENABLE_STATISTICS)
-  void addSearchedNodes(void);
+  void nodeSearched(void);
 #endif // ENABLE_STATISTICS
-
 };
 
 #endif // QUERIES_IMPL_HPP

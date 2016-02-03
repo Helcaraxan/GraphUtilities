@@ -9,16 +9,16 @@ link_directories(
 ## Reachability Query driver
 
 # Define the driver executable
-add_executable(QueryDriver reachabilityEval.cpp)
+add_executable(ReachabilityDriver reachabilityEval.cpp)
 
-target_link_libraries(QueryDriver
+target_link_libraries(ReachabilityDriver
 	GraphUtilities
 	stdc++
 	tbb
 	)
 
 # Set the install parameters
-install(TARGETS QueryDriver
+install(TARGETS ReachabilityDriver
 	RUNTIME DESTINATION "bin"
 	)
 
@@ -35,22 +35,22 @@ macro(graph_test filepath)
 
 	# Random query DFS test
 	add_test(${graph}-random-DFS
-		QueryDriver
+		ReachabilityDriver
 		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=DFS --unique-edges --batch)
 
 	# Random query BBFS test
 	add_test(${graph}-random-BBFS
-		QueryDriver
+		ReachabilityDriver
 		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}.test --search=BBFS --unique-edges --batch)
 
 	# Positive query test with automatic DFS / BBFS choice
 	add_test(${graph}-positive-automatic
-		QueryDriver
+		ReachabilityDriver
 		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test --unique-edges --batch)
 
 	# Deep positive query test with automatic DFS / BBFS choice
 	add_test(${graph}-deep-positive-automatic
-		QueryDriver
+		ReachabilityDriver
 		--input=${GRAPH_DIR}/${graphfile} --test=${QUERY_DIR}/${graph}_positive.test  --unique-edges --batch)
 
 	# Set properties for random query tests
@@ -69,14 +69,14 @@ endmacro(graph_test)
 
 
 # Test 1. Usage message
-add_test(QueryDriverUsage QueryDriver --help)
+add_test(ReachabilityDriverUsage ReachabilityDriver --help)
 
-set_tests_properties(QueryDriverUsage
+set_tests_properties(ReachabilityDriverUsage
 		PROPERTIES
 		PASS_REGULAR_EXPRESSION "Usage:*")
 
 # Test 2. Graph tests
-file(GLOB GRAPHS ${GRAPH_DIR}/*)
+file(GLOB GRAPHS ${GRAPH_DIR}/*.gra)
 
 foreach(testgraph ${GRAPHS})
 	graph_test(${testgraph})

@@ -159,19 +159,19 @@ ReachabilityQueryImpl::getTarget() const {
 
 bool
 ReachabilityQueryImpl::getAnswer() const {
-  return answer.load(memory_order_acquire);
+  return answer;
 }
 
 
 bool
 ReachabilityQueryImpl::getError() const {
-  return error.load(memory_order_acquire);
+  return error;
 }
 
 
 SearchMethod
 ReachabilityQueryImpl::getMethod() const {
-  return method.load(memory_order_acquire);
+  return method;
 }
 
 
@@ -197,7 +197,7 @@ ReachabilityQueryImpl::setTarget(Vertex * targetVertex) {
 
 void
 ReachabilityQueryImpl::setMethod(SearchMethod value) {
-  method.store(value, memory_order_release);
+  method = value;
 }
 
 
@@ -224,7 +224,7 @@ ReachabilityQueryImpl::getTargetI() const {
 
 bool
 ReachabilityQueryImpl::getCancel() const {
-  return cancel.load(memory_order_acquire);
+  return cancel;
 }
 
 
@@ -241,9 +241,9 @@ ReachabilityQueryImpl::getPath() {
 }
 
 
-uintmax_t
+int
 ReachabilityQueryImpl::getSearchedNodes() {
-  return searchedNodes.load(memory_order_acquire);
+  return searchedNodes;
 }
 #endif // ENABLE_STATISTICS
 
@@ -252,19 +252,19 @@ ReachabilityQueryImpl::getSearchedNodes() {
 
 void
 ReachabilityQueryImpl::setError(bool value) {
-  error.store(value, memory_order_release);
+  error = value;
 }
 
 
 void
 ReachabilityQueryImpl::setAnswer(bool value) {
-  answer.store(value, memory_order_release);
+  answer = value;
 }
 
 
 void
 ReachabilityQueryImpl::setCancel(bool value) {
-  cancel.store(value, memory_order_release);
+  cancel = value;
 }
 
 
@@ -277,9 +277,7 @@ ReachabilityQueryImpl::setInternal(
 
 #if defined(ENABLE_STATISTICS)
 void
-ReachabilityQueryImpl::addSearchedNodes() {
+ReachabilityQueryImpl::nodeSearched() {
   searchedNodes++;
 }
 #endif // ENABLE_STATISTICS
-
-

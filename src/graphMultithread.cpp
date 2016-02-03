@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 
 #include "graph-utilities/implementation/graphImpl.hpp"
@@ -76,6 +77,13 @@ GraphImpl::stopGlobalOperation() {
   queryWaitCondition.notify_all();
 }
 
+
+uint64_t
+GraphImpl::getTimestamp() {
+  unique_lock<mutex> timestampLock(timestampMutex);
+
+  return chrono::high_resolution_clock::now().time_since_epoch().count();
+}
 
 // Worker thread main function
 
