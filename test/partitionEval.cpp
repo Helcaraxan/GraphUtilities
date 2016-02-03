@@ -20,6 +20,7 @@ static const struct option longopts[] = {
   {"graph",           required_argument, 0, 'g'},
   {"schedule",        required_argument, 0, 's'},
   {"tile",            required_argument, 0, 'T'},
+  {"hint",            required_argument, 0, 'H'},
   {"evaluation",      required_argument, 0, 'e'},
   {"method",          required_argument, 0, 'm'},
   {"memory",          required_argument, 0, 'M'},
@@ -39,6 +40,7 @@ printHelpMessage() {
   cout << "File options:\n";
   cout << "\t-s | --schedule=<file>\t\tFile to which the schedule produced by the partition will be dumped.\n";
   cout << "\t-T | --tile=<file>\t\tFile to which to dump the tiles created for IO complexity evaluation.\n";
+  cout << "\t-H | --hint=<file>\t\tFile with a proposed scheduling of nodes for IO evaluation (works only with -e | --evaluation).\n";
   cout << "Partition options:\n";
   cout << "\t-p | --partition-count=<int>\tNumber of partitions to create with the PaToH library.\n";
   cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
@@ -60,7 +62,7 @@ main(int argc, char * argv[]) {
   int partitionCount = 0;
   bool evaluateOriginal = false;
   set<int> memorySizes;
-  string graphFile = "", schedFile = "", tileFile = "";
+  string graphFile = "", schedFile = "", tileFile = "", hintFile = "";
   Graph * graph = nullptr;
   PartitionQuery * pQuery = nullptr;
   PartitionMethod method = UndefinedPartitionMethod;
@@ -68,7 +70,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:T:e:m:M:t:p:oh", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:T:H:e:m:M:t:p:oh", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -80,6 +82,10 @@ main(int argc, char * argv[]) {
 
       case 'T':
         tileFile = optarg;
+        break;
+
+      case 'H':
+        hintFile = optarg;
         break;
 
       case 'e':
@@ -275,6 +281,7 @@ main(int argc, char * argv[]) {
 
   // Perform IO complexity evaluation if required
   if (type != UndefinedIOType) {
+    const Partition * hintPart = nullptr;
     const Partition * origPart = nullptr;
 
     if ((tileFile.size() > 0) && memorySizes.size() > 1) {
@@ -283,6 +290,21 @@ main(int argc, char * argv[]) {
       exit(EXIT_FAILURE);
     } else if (memorySizes.empty()) {
       memorySizes.insert(256);
+    }
+
+    if (hintFile.size() > 0) {
+      fstream hintStream(hintFile.c_str(), ios_base::in);
+
+      for (int i = 0, e = schedule.size(); i < e; i++) {
+        if (hintStream.eof()) {
+          cerr << "ERROR: Hinted schedule does not contain all vertex IDs.\n";
+          exit(EXIT_FAILURE);
+        }
+
+        hintStream >> schedule[i];
+      }
+
+      hintPart = graph->computeConvexPartition(schedule);
     }
 
     if (evaluateOriginal) {
@@ -302,6 +324,11 @@ main(int argc, char * argv[]) {
         cost = graph->getPartitionCost(part, size, type);
 
       cout << "  Partition IO complexity: " << cost << endl;
+
+      if (hintFile.size() > 0) {
+        cost = graph->getPartitionCost(hintPart, size, type);
+        cout << "  Hinted schedule IO complexity: " << cost << "\n";
+      }
 
       if (evaluateOriginal) {
         cost = graph->getPartitionCost(origPart, size, type);
