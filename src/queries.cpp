@@ -101,6 +101,12 @@ PartitionQueryImpl::getThreadCount() const {
 }
 
 
+int
+PartitionQueryImpl::getMemorySize() const {
+  return memorySize;
+}
+
+
 const Partition *
 PartitionQueryImpl::getPartition() const {
   return partition;
@@ -118,6 +124,12 @@ PartitionQueryImpl::setMethod(PartitionMethod newMethod) {
 void
 PartitionQueryImpl::setThreadCount(int newCount) {
   threadCount = newCount;
+}
+
+
+void
+PartitionQueryImpl::setMemorySize(int newSize) {
+  memorySize = newSize;
 }
 
 

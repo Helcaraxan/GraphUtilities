@@ -516,6 +516,18 @@ public:
   virtual int getCutCost(int partitionCount) const = 0;
 
   /*!
+   * \brief Compute the cut cost of a given k-partition scheme.
+   *
+   * Return the cut cost of a supplied partition scheme (hypergraph metric). It
+   * should be a single-level k-partition scheme.
+   *
+   * \param partition Pre-computed k-partition Partition instance.
+   * 
+   * \return The cut-cost (hypergraph metric) of the given partition.
+   */
+  virtual int getCutCost(const Partition * partition) const = 0;
+
+  /*!
    * \brief Compute the cut cost between a given number of partitions based on
    * the specified hierarchical Partition instance.
    *

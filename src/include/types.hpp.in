@@ -82,6 +82,7 @@ typedef enum {
  * \sa createPQuery()
  */
 typedef enum {
+  Greedy,
   Convexify,
   MaxDistance,
   PaToH,
@@ -98,7 +99,7 @@ typedef enum {
  * \sa createCQuery()
  */
 typedef enum {
-  Greedy,
+  GreedyCoarsen,
   UndefinedCoarsenMethod
 } CoarsenMethod;
 

@@ -20,7 +20,7 @@ GraphImpl::processCoarsenQuery(CoarsenQueryImpl * query, int threadId) {
   startGlobalOperation();
 
   switch (query->getMethod()) {
-    case Greedy:
+    case GreedyCoarsen:
       query->setAnswer(coarsenGreedy(query));
       break;
 

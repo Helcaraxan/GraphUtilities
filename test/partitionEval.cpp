@@ -43,7 +43,7 @@ printHelpMessage() {
   cout << "\t-H | --hint=<file>\t\tFile with a proposed scheduling of nodes for IO evaluation (works only with -e | --evaluation).\n";
   cout << "Partition options:\n";
   cout << "\t-p | --partition-count=<int>\tNumber of partitions to create with the PaToH library.\n";
-  cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance>\n";
+  cout << "\t-m | --method=<method>\t\tMethod from <Convexify|MaxDistance|Greedy>\n";
   cout << "\t-e | --evaluation=<type>\tMethod from <TotalLoads|AvgLoadStore>\n";
   cout << "\t-M | --memory=<size>\t\tSize of the memory for which IO complexity should be computed.\n";
   cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning (only for MaxDistance).\n";
@@ -107,6 +107,8 @@ main(int argc, char * argv[]) {
           method = MaxDistance;
         } else if (!strcmp(optarg, "PaToH")) {
           method = PaToH;
+        } else if (!strcmp(optarg, "Greedy")) {
+          method = Greedy;
         } else {
           cerr << "ERROR: Unknown argument to --method." << endl;
           printHelpMessage();
@@ -185,6 +187,15 @@ main(int argc, char * argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  if ((method == Greedy) && (memorySizes.size() > 1)) {
+    cerr << "ERROR: Greedy method is not compatible with multiple memory "
+      << "sizes.\n\n";
+    exit(EXIT_FAILURE);
+  }
+
+  if (memorySizes.empty())
+    memorySizes.insert(256);
+
   // Set the indexing method in case it is needed and start worker threads
   graph->setIndexMethod(Standard);
   graph->enableQueries();
@@ -194,6 +205,8 @@ main(int argc, char * argv[]) {
   pQuery = createPQuery();
   pQuery->setMethod(method);
   pQuery->setThreadCount(threadCount);
+  if (method == Greedy)
+    pQuery->setMemorySize(*memorySizes.begin());
   
 
   // Submit the query and retrieve it once completed 
@@ -210,48 +223,53 @@ main(int argc, char * argv[]) {
   }
 
 
-  // Compute statistics over the Partition
-  int minLevel = INT_MAX;
-  int maxLevel = 0;
-  double acc = 0;
+  if (method != Greedy) {
+    // Compute statistics over the Partition
+    int minLevel = INT_MAX;
+    int maxLevel = 0;
+    double acc = 0;
 
-  for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
-    int lCount = 0;
-    const PartitionNode * node = part->getLeaf(i);
-    
-    while (node) {
-      lCount++;
-      node = node->getParent();
+    for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
+      int lCount = 0;
+      const PartitionNode * node = part->getLeaf(i);
+      
+      while (node) {
+        lCount++;
+        node = node->getParent();
+      }
+
+      acc += lCount;
+
+      if (lCount > maxLevel)
+        maxLevel = lCount;
+
+      if (lCount < minLevel)
+        minLevel = lCount;
     }
 
-    acc += lCount;
-
-    if (lCount > maxLevel)
-      maxLevel = lCount;
-
-    if (lCount < minLevel)
-      minLevel = lCount;
+    cout << "\nPartition statistics:\n";
+    cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
+    cout << "Minimum depth: " << minLevel << "\n";
+    cout << "Maximum depth: " << maxLevel << "\n" << endl;
+    cout.flush();
   }
-
-  cout << "\nPartition statistics:\n";
-  cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
-  cout << "Minimum depth: " << minLevel << "\n";
-  cout << "Maximum depth: " << maxLevel << "\n" << endl;
-  cout.flush();
 
 
   // Retrieve the scheduling implied by the Partition instance if necessary
   vector<int> schedule;
-  if ((type != UndefinedIOType) || (schedFile.size() > 0)) {
+  if (((type != UndefinedIOType) || (schedFile.size() > 0))
+      && (method != Greedy)) {
     part->extractSchedule(schedule);
 
     if (method != PaToH) {
       // Check the schedule for validity except for PaToH partitioning
-      cout << "Verifying scheduling... ";
-      if (graph->checkSchedule(schedule))
-        cout << "VALID" << "\n" << endl;
-      else
+      cout << "Verifying scheduling implied by partition... ";
+      if (graph->checkSchedule(schedule)) {
+        cout << "VALID\n";
+      } else {
+        cout << "INVALID" << endl;
         exit(EXIT_FAILURE);
+      }
 
       // Dump the schedule when requested
       if (schedFile.size() > 0) {
@@ -288,8 +306,6 @@ main(int argc, char * argv[]) {
       cerr << "ERROR: Can not dump tiles to file with multiple specified memory "
         << " sizes.\n";
       exit(EXIT_FAILURE);
-    } else if (memorySizes.empty()) {
-      memorySizes.insert(256);
     }
 
     if (hintFile.size() > 0) {
@@ -304,11 +320,28 @@ main(int argc, char * argv[]) {
         hintStream >> schedule[i];
       }
 
+      cout << "Verifying scheduling implied by hinted partition... ";
+      if (graph->checkSchedule(schedule)) {
+        cout << "VALID\n";
+      } else {
+        cout << "INVALID" << endl;
+        exit(EXIT_FAILURE);
+      }
+
       hintPart = graph->computeConvexPartition(schedule);
     }
 
     if (evaluateOriginal) {
       iota(schedule.begin(), schedule.end(), 0);
+
+      cout << "Verifying the implicit original schedule... ";
+      if (graph->checkSchedule(schedule)) {
+        cout << "VALID\n";
+      } else {
+        cout << "INVALID" << endl;
+        exit(EXIT_FAILURE);
+      }
+
       origPart = graph->computeConvexPartition(schedule);
     }
 
@@ -318,10 +351,14 @@ main(int argc, char * argv[]) {
 
       cout << "- Target memory size: " << size << " 32-bit words" << endl;
 
-      if (tileFile.size() > 0)
-        cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
-      else
-        cost = graph->getPartitionCost(part, size, type);
+      if (method != Greedy) {
+        if (tileFile.size() > 0)
+          cost = graph->getPartitionCost(part, size, type, tileFile.c_str());
+        else
+          cost = graph->getPartitionCost(part, size, type);
+      } else {
+        cost = graph->getCutCost(part);
+      }
 
       cout << "  Partition IO complexity: " << cost << endl;
 

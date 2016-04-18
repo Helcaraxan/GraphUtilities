@@ -23,7 +23,7 @@ private:
   bool error = false;
   int factor = 1;
   int secondaryFactor = 1;
-  CoarsenMethod method = Greedy;
+  CoarsenMethod method = GreedyCoarsen;
   map<int, int> vertexMap;
   GraphImpl * coarsenedGraph = nullptr;
 
@@ -58,6 +58,7 @@ class PartitionQueryImpl : public PartitionQuery {
 // Data members
 private:
   int threadCount = 1;
+  int memorySize = -1;
   bool error = false;
   PartitionImpl * partition = nullptr;
   PartitionMethod method = Convexify;
@@ -70,11 +71,13 @@ public:
   bool getError(void) const;
   PartitionMethod getMethod(void) const;
   int getThreadCount(void) const;
+  int getMemorySize(void) const;
   const Partition * getPartition(void) const;
 
   // Modifications
   void setMethod(PartitionMethod newMethod);
   void setThreadCount(int newCount);
+  void setMemorySize(int newSize);
 
   /* Implementation methods */
   // Modifications

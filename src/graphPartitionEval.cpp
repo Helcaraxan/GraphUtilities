@@ -161,6 +161,63 @@ GraphImpl::getCutCost(int partitionCount) const {
     }
   }
 
+  for (auto it = partitions.begin(), end = partitions.end(); it != end; ++it)
+    (*it)->clear();
+
+  return cost;
+}
+
+
+int
+GraphImpl::getCutCost(const Partition * partition) const {
+  int cost = 0;
+  int partitionCount = 0;
+  vector<Vertex::IdSet *> partitions;
+
+  // Convert the partition scheme
+  const PartitionNode * root = partition->getRoot();
+  for (int i = 0, e = root->getChildCount(); i < e; i++) {
+    const PartitionNode * node = root->getChild(i);
+
+    if (node->getChildCount() > 0) {
+      cerr << "ERROR: Cannot compute cut-cost of a non k-way partitioning.\n";
+      goto end;
+    }
+
+    partitions.push_back(new Vertex::IdSet());
+    partition->represents(node, *partitions.back());
+  }
+
+  // Compute the cut cost
+  partitionCount = partitions.size();
+  for (int i = 0; i < partitionCount; i++) {
+    for (auto it = partitions[i]->begin(), end = partitions[i]->end();
+        it != end; ++it) {
+      Vertex * curr = getVertex(*it);
+      vector<int> succs(partitionCount, 0);
+
+      for (int j = 0, e = curr->getSuccessorCount(); j < e; j++) {
+        int target = curr->getSuccessor(j)->getId();
+
+        for (int k = 0; k < partitionCount; k++) {
+          if (partitions[k]->count(target)) {
+            succs[k] = 1;
+            break;
+          }
+        }
+      }
+
+      for (int j = 1; j < partitionCount; j++) {
+        if (j != i)
+          cost += succs[j];
+      }
+    }
+  }
+
+end:
+  for (auto it = partitions.begin(), end = partitions.end(); it != end; ++it)
+    (*it)->clear();
+
   return cost;
 }
 
@@ -211,6 +268,9 @@ GraphImpl::getCutCost(const Partition * partition, int partitionCount) const {
       }
     }
   }
+
+  for (auto it = partitions.begin(), end = partitions.end(); it != end; ++it)
+    (*it)->clear();
 
   return cost;
 }

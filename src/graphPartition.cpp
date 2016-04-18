@@ -34,6 +34,10 @@ GraphImpl::processPartitionQuery(PartitionQueryImpl * query, int threadId) {
   method = query->getMethod();
 
   switch (query->getMethod()) {
+    case Greedy:
+      partitionGreedy(query);
+      break;
+
     case Convexify:
       partitionConvexify(query);
       break;
@@ -108,6 +112,11 @@ partitionWorker(const GraphImpl * graph) {
     }
 
     switch (method) {
+      case Greedy:
+        cerr << "ERROR: A partition-worker received a Greedy query.\n";
+        exit(EXIT_FAILURE);
+        break;
+
       case Convexify:
         graph->convBisect(task->node);
 

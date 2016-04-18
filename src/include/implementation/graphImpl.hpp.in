@@ -175,6 +175,7 @@ public:
   double getPartitionCost(const Partition * partition, int memorySize,
       IOComplexityType type, const char * tileFile = nullptr) const;
   int getCutCost(int partitionCount) const;
+  int getCutCost(const Partition * partition) const;
   int getCutCost(const Partition * partition, int partitionCount) const;
 
   // Statistics
@@ -245,6 +246,7 @@ public:
   void partitionConvexify(PartitionQueryImpl * query) const;
   void partitionMaxDistance(PartitionQueryImpl * query) const;
   void partitionPaToH(PartitionQueryImpl * query) const;
+  void partitionGreedy(PartitionQueryImpl * query) const;
 
   // Graph coarsening
   /*!

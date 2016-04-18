@@ -312,7 +312,7 @@ GraphImpl::partitionMaxDistance(PartitionQueryImpl * query) const {
     }
   }
 
-  // Construct the root souce and sink sets
+  // Construct the root source and sink sets
   for (auto it = sources.begin(), end = sources.end(); it != end; ++it)
     sourceSet->insert((*it)->getId());
 

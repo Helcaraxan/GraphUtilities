@@ -231,6 +231,17 @@ public:
   virtual int getThreadCount(void) const = 0;
 
   /*!
+   * \brief Retrieve the current configured target memory size.
+   *
+   * Retrieve the size of the target memory that is currently configured to run
+   * this partition query.
+   *
+   * \return The current registered target memory size.
+   * \sa setMemorySize()
+   */
+  virtual int getMemorySize(void) const = 0;
+
+  /*!
    * \brief Retrieve pointer to the Partition obtained through this query.
    *
    * Retrieve a pointer to the Partition instance that was computed for this
@@ -268,6 +279,18 @@ public:
    * \sa getThreadCount()
    */
   virtual void setThreadCount(int newCount) = 0;
+
+  /*!
+   * \brief Set the size of the target memory used to perform this partition
+   * query.
+   *
+   * Modify the configured target memory size that should bed used to execute
+   * this query. Is only applicable for Greedy partitioning.
+   *
+   * \param newSize The new target memory size.
+   * \sa getMemorySize()
+   */
+  virtual void setMemorySize(int newSize) = 0;
 };
 
 
