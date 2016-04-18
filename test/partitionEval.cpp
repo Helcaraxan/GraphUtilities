@@ -369,7 +369,7 @@ main(int argc, char * argv[]) {
         cost = graph->getCutCost(part);
       }
 
-      cout << "  Partition IO complexity: " << cost << endl;
+      cout << "  Partition IO complexity: " << fixed << cost << endl;
 
       if (hintFile.size() > 0) {
         cost = graph->getPartitionCost(hintPart, size, type);
