@@ -14,20 +14,25 @@
 using namespace std;
 
 
+// Externally defined variables for progress bars
+extern int batchFlag;
+
+
 // Command-line option specifications
 
 static const struct option longopts[] = {
-  {"graph",           required_argument, 0, 'g'},
-  {"schedule",        required_argument, 0, 's'},
-  {"tile",            required_argument, 0, 'T'},
-  {"hint",            required_argument, 0, 'H'},
-  {"evaluation",      required_argument, 0, 'e'},
-  {"method",          required_argument, 0, 'm'},
-  {"memory",          required_argument, 0, 'M'},
-  {"threads",         required_argument, 0, 't'},
-  {"partition-count", required_argument, 0, 'p'},
-  {"original",        no_argument,       0, 'o'},
-  {"help",            no_argument,       0, 'h'},
+  {"graph",           required_argument,  0, 'g'},
+  {"schedule",        required_argument,  0, 's'},
+  {"tile",            required_argument,  0, 'T'},
+  {"hint",            required_argument,  0, 'H'},
+  {"evaluation",      required_argument,  0, 'e'},
+  {"method",          required_argument,  0, 'm'},
+  {"memory",          required_argument,  0, 'M'},
+  {"threads",         required_argument,  0, 't'},
+  {"partition-count", required_argument,  0, 'p'},
+  {"original",        no_argument,        0, 'o'},
+  {"batch",           no_argument, &batchFlag, 1},
+  {"help",            no_argument,        0, 'h'},
   {0,0,0,0}
 };
 
@@ -49,6 +54,7 @@ printHelpMessage() {
   cout << "\t-t | --threads=<count>\t\tNumber of worker threads to use for the partitioning (only for MaxDistance).\n";
   cout << "\nMiscellaneous options:\n";
   cout << "\t-o | --original\t\tEvaluate the original scheduling's IO complexity (works only with -e | --evaluation).\n";
+  cout << "\t-b | --batch\t\tDo not print progress-bar\n";
   cout << "\t-h | --help\t\tDisplay this help message\n";
 }
 
@@ -70,7 +76,7 @@ main(int argc, char * argv[]) {
 
 
   // Parse command-line options
-  while ((c = getopt_long(argc, argv, "g:s:T:H:e:m:M:t:p:oh", longopts, nullptr)) != -1) {
+  while ((c = getopt_long(argc, argv, "g:s:T:H:e:m:M:t:p:obh", longopts, nullptr)) != -1) {
     switch (c) {
       case 'g':
         graphFile = optarg;
@@ -148,6 +154,9 @@ main(int argc, char * argv[]) {
 
       case 'o':
         evaluateOriginal = true;
+        break;
+
+      case 'b':
         break;
 
       case 'h':
