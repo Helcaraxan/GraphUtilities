@@ -1,4 +1,5 @@
 #include <set>
+#include <cmath>
 #include <string>
 #include <climits>
 #include <cstdlib>
@@ -236,7 +237,8 @@ main(int argc, char * argv[]) {
     // Compute statistics over the Partition
     int minLevel = INT_MAX;
     int maxLevel = 0;
-    double acc = 0;
+    double avg = 0;
+    double stdDev = 0;
 
     for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
       int lCount = 0;
@@ -247,7 +249,7 @@ main(int argc, char * argv[]) {
         node = node->getParent();
       }
 
-      acc += lCount;
+      avg += lCount;
 
       if (lCount > maxLevel)
         maxLevel = lCount;
@@ -255,9 +257,24 @@ main(int argc, char * argv[]) {
       if (lCount < minLevel)
         minLevel = lCount;
     }
+    avg /= (double) graph->getVertexCount();
+
+    for (int i = 0, e = graph->getVertexCount(); i < e; i++) {
+      int lCount = 0;
+      const PartitionNode * node = part->getLeaf(i);
+
+      while (node) {
+        lCount++;
+        node = node->getParent();
+      }
+
+      stdDev += pow(((double) lCount) - avg, 2.0);
+    }
+    stdDev /= (double) graph->getVertexCount();
 
     cout << "\nPartition statistics:\n";
-    cout << "Average depth: " << acc / (double) graph->getVertexCount() << "\n";
+    cout << "Depth average: " << avg << "\n";
+    cout << "Depth sigma: " << stdDev << "\n";
     cout << "Minimum depth: " << minLevel << "\n";
     cout << "Maximum depth: " << maxLevel << "\n" << endl;
     cout.flush();
