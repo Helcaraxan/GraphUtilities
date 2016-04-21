@@ -29,7 +29,7 @@ sccVertexVisit(GraphImpl * graph, VertexImpl * target, int label,
         sccVertexVisit(graph, *it, label, labels, unclassified, undetermined);
     else if (labels[(*it)->getId()].second == -1)
       while (labels[undetermined.top()->getId()].first
-          >= labels[(*it)->getId()].first)
+          > labels[(*it)->getId()].first)
         undetermined.pop();
   }
 
