@@ -1,3 +1,9 @@
+// GraphUtilities library - Directed graph manipulation and querying
+// Copyright (C) 2016 - Duco van Amstel
+//
+// For more license information please see the 'LICENSE' file at the top-level
+// of the source code tree.
+
 #include "graph-utilities/implementation/graphImpl.hpp"
 
 using namespace std;
