@@ -1,13 +1,16 @@
-=== GraphUtilities library ===
+GraphUtilities library
+======================
 
-== Short description ==
+Short description
+-----------------
 
 A multi-threaded library for the manipulation of directed graphs. It allows to
 perform queries and modifications such as reachability, partitioning, convex
 partitioning and coarsening via multiple methods.
 
 
-== Origin and purpose of the project ==
+Origin and purpose of the project
+---------------------------------
 
 This project originated within work done during my Ph.D studies. Its initial
 goal was to showcase a novel technique for the indexing of directed acyclic
@@ -24,8 +27,11 @@ alternative schedulings which generate less communications throughout the memory
 hierarchy of a processor, i.e less cache misses.
 
 
-== Using the library ==
-= Install =
+Using the library
+-----------------
+
+Install
+```````
 
 For the build of the library the CMake tool is used. As such the following steps
 should be followed:
@@ -81,7 +87,8 @@ following options:
    on the amount of memory the library uses for storing graphs.
 
 
-= Integrating the library in your program =
+Integrating the library in your program
+```````````````````````````````````````
 
 The GraphUtilities has an API which is independent from the implementation
 through the use of abstract C++ classes.
@@ -102,5 +109,7 @@ In order to link to the library you will need to include the
 at the install location you specified when configuring CMake.
 
 
-== Implementation details ==
+Implementation details
+----------------------
+
 Coming soon!
