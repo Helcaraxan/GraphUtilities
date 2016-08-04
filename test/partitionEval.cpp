@@ -10,6 +10,7 @@
 #include <climits>
 #include <cstdlib>
 #include <cstring>
+#include <numeric>
 #include <fstream>
 #include <iostream>
 #include <algorithm>
